@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.2.4';
+export const VERSION = '0.2.5';
 
 // ---- Tuning ----
 export const LANES = 5, HALF = LANES / 2;
@@ -17,7 +17,7 @@ const G = 30;                    // gravity, rows/s²
 const DRIVE = 2;                 // how fast the speed returns to the section's speed
 const GS = 16;                   // how much a slope speeds up / slows down the ball
 const SMAX = 0.32;               // steepest slope the terrain generator makes
-const JUMP_VY = 10;              // vertical speed a ramp gives
+const JUMP_VY = 7;               // vertical speed a ramp gives
 const LEAD = 6;                  // flat rows needed before a jump, so the speed is predictable
 const SPEED_TOL = 0.25;          // speed spread the jump planner allows for
 
