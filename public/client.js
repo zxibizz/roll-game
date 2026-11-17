@@ -41,28 +41,28 @@ const PAL = [
     sky: [[111, 177, 242], [169, 211, 251], [226, 240, 255]], fog: [226, 240, 255],
     floorS: 55, floorL: [78, 84], litK: 0.6, slabL: [60, 66], rimS: 60, rimL: 96,
     blockS: [80, 65, 55], blockL: [70, 60, 51], rampS: 20, rampL: 99, rampSideL: 82, chevL: 62,
-    shadow: [40, 70, 130], hud: 0, stars: 0, space: 0, moon: 0,
+    shadow: [40, 70, 130], pitS: 40, pitL: 24, hud: 0, stars: 0, space: 0, moon: 0,
     sunA: 1, sunH: 0.22, sunC: [255, 253, 240], sunR: 0.06, clouds: 1, cloudC: [255, 255, 255], glow: 0,
   },
   { // sunset
     sky: [[51, 64, 126], [201, 112, 143], [255, 195, 138]], fog: [255, 200, 165],
     floorS: 50, floorL: [60, 66], litK: 0.7, slabL: [40, 46], rimS: 70, rimL: 88,
     blockS: [75, 62, 52], blockL: [66, 56, 47], rampS: 25, rampL: 96, rampSideL: 72, chevL: 58,
-    shadow: [60, 20, 60], hud: 0.8, stars: 0.15, space: 0, moon: 0,
+    shadow: [60, 20, 60], pitS: 40, pitL: 18, hud: 0.8, stars: 0.15, space: 0, moon: 0,
     sunA: 1, sunH: 0.03, sunC: [255, 170, 100], sunR: 0.09, clouds: 0.85, cloudC: [255, 205, 215], glow: 0.25,
   },
   { // night: stars and a hint of space up top
     sky: [[6, 10, 34], [17, 28, 74], [38, 52, 110]], fog: [26, 36, 84],
     floorS: 45, floorL: [30, 35], litK: 1, slabL: [14, 18], rimS: 80, rimL: 70,
     blockS: [65, 62, 60], blockL: [62, 50, 40], rampS: 30, rampL: 88, rampSideL: 60, chevL: 55,
-    shadow: [0, 0, 0], hud: 1, stars: 0.85, space: 0.3, moon: 1,
+    shadow: [0, 0, 0], pitS: 40, pitL: 6, hud: 1, stars: 0.85, space: 0.3, moon: 1,
     sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0.2, cloudC: [60, 72, 130], glow: 0.6,
   },
   { // space
     sky: [[5, 6, 13], [5, 6, 13], [5, 6, 13]], fog: [5, 6, 13],
     floorS: 42, floorL: [31, 36], litK: 1, slabL: [16, 20], rimS: 75, rimL: 72,
     blockS: [65, 62, 60], blockL: [63, 50, 40], rampS: 30, rampL: 90, rampSideL: 62, chevL: 55,
-    shadow: [0, 0, 0], hud: 1, stars: 1, space: 1, moon: 0,
+    shadow: [0, 0, 0], pitS: 30, pitL: 3, hud: 1, stars: 1, space: 1, moon: 0,
     sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0, cloudC: [60, 72, 130], glow: 0.6,
   },
 ];
@@ -133,6 +133,7 @@ const theme = {
   },
   floor: (h, f, par, lit) => hsl(h, P.floorS, clamp(P.floorL[par ? 0 : 1] + lit * P.litK, 8, 95), f),
   slab: (h, f, front) => hsl(h, 35, P.slabL[front ? 1 : 0], f),
+  pit: (h, f, up) => hsl(h, P.pitS, P.pitL + up, f),
   rim: (h, f) => hsl(h, P.rimS, P.rimL, f),
   blockHue: (h) => (h + 170) % 360,
   block: {
@@ -273,6 +274,15 @@ function drawRow(rz) {
   const hue = secHue(row.sec), prev = rz > 0 ? track.get(rz - 1) : null;
   const lit = slope * 22;   // uphill faces the camera and looks brighter
   const px = proj(0, hA, (zA + zB) / 2)[2];   // pixels per world unit at this row
+  // holes: the opening is filled dark at road level and the far wall shows its depth, so a hole reads
+  // against any sky even at the low camera angle
+  for (let l = 0; l < LANES; l++) {
+    if (row.floor[l]) continue;
+    const x0 = l - HALF, x1 = x0 + 1;
+    quad(proj(x0, hA, zA), proj(x1, hA, zA), proj(x1, hB, zB), proj(x0, hB, zB), T.pit(hue, fog, 0));
+    const next = track.get(rz + 1);
+    if (next.floor[l]) quad(proj(x0, hB, zB), proj(x1, hB, zB), proj(x1, hB - SLAB, zB), proj(x0, hB - SLAB, zB), T.pit(hue, fog, 14));
+  }
   for (let l = 0; l < LANES; l++) {
     if (!row.floor[l]) continue;
     const x0 = l - HALF, x1 = x0 + 1;

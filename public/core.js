@@ -1,14 +1,14 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.2.3';
+export const VERSION = '0.2.4';
 
 // ---- Tuning ----
 export const LANES = 5, HALF = LANES / 2;
 export const SEC_ROWS = 48;      // rows per section; the speed steps up at each section start
 export const BREATH = 8;         // obstacle-free rows at the start of every section
 export const START_OPEN = 16;    // obstacle-free, flat rows at the very start
-export const R = 0.28;           // ball radius (lane width = 1)
+export const R = 0.22;           // ball radius (lane width = 1)
 export const INSET = 0.1;        // gap between a block and its cell border
 export const BOX_H = 0.7;        // block height
 export const RAMP_H = 0.3;       // ramp height at its far edge
