@@ -12,7 +12,8 @@ const SLAB = 0.35, VIEW = 46;       // track thickness, rows drawn ahead
 const CAM_H = 4.6, CAM_BACK = 6.5, PITCH = 0.5;
 const TRAIL = 9;                    // ball positions kept for the trail
 
-// mode: 'ready' | 'play' | 'pause' | 'over'; the world has its own state inside a game
+// mode: 'ready' | 'play' | 'pause' | 'over' (and 'shot' — frozen by the screenshot hook at the end);
+// the world has its own state inside a game
 let mode = 'ready', world = new World(1), parts = [], flash = null, trail = [];
 let camZ = 0, camX = 0, camY = 0, keyDir = 0, overlayAt = 0;
 let best = Number(localStorage.getItem(BEST_KEY)) || 0;
@@ -84,6 +85,7 @@ function paletteAt(k) {
   for (const key in a) out[key] = mix(a[key], b[key], t);
   return out;
 }
+const wrap = (v, m) => ((v % m) + m) % m;
 const css = (c, a = 1) => `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${a})`;
 let P = PAL[0], hudDark = null;
 
@@ -123,7 +125,7 @@ const theme = {
     if (P.clouds > 0.01) {   // clouds, above and below the horizon
       const rr = mulberry(3);
       for (let n = 0; n < 9; n++) {
-        const cx = ((rr() * 1.6 - 0.3) * W - camX * (2 + n) * dpr) % (W * 1.6), cy = horY + (rr() - 0.65) * H * 0.5, s = (0.05 + rr() * 0.06) * W;
+        const cx = wrap(rr() * 1.6 * W - camX * (2 + n) * dpr, W * 1.6) - 0.3 * W, cy = horY + (rr() - 0.65) * H * 0.5, s = (0.05 + rr() * 0.06) * W;
         ctx.globalAlpha = P.clouds * (cy > horY ? 0.55 : 0.85); ctx.fillStyle = css(P.cloudC);
         for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.ellipse(cx + (k - 1.5) * s * 0.7, cy - (k % 2) * s * 0.25, s * 0.6, s * 0.38, 0, 0, 7); ctx.fill(); }
       }
@@ -132,11 +134,11 @@ const theme = {
   },
   floor: (h, f, par, lit) => hsl(h, P.floorS, clamp(P.floorL[par ? 0 : 1] + lit * P.litK, 8, 95), f),
   slab: (h, f, front) => hsl(h, 35, P.slabL[front ? 1 : 0], f),
-  rim: (h, f) => hsl(h, P.rimS, P.rimL, f), rimGlow: false, grid: null,
+  rim: (h, f) => hsl(h, P.rimS, P.rimL, f),
   blockHue: (h) => (h + 170) % 360,
   block: {
     top: (h, f) => hsl(h, P.blockS[0], P.blockL[0], f), front: (h, f) => hsl(h, P.blockS[1], P.blockL[1], f),
-    side: (h, f) => hsl(h, P.blockS[2], P.blockL[2], f), edge: null,
+    side: (h, f) => hsl(h, P.blockS[2], P.blockL[2], f),
   },
   ramp: { top: (h, f) => hsl(h, P.rampS, P.rampL, f), side: (h, f) => hsl(h, 30, P.rampSideL, f), chev: (h, f) => hsl(h, 75, P.chevL, f) },
   ball: { c: ['#fff1e6', '#ff8a5c', '#cf4b25'], band: 'rgba(255,255,255,.5)', glow: [255, 140, 90], trail: [255, 160, 120] },
@@ -198,15 +200,21 @@ function update(dt) {
   }
   world.events.length = 0;
   for (const p of parts) { p.vy -= 18 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; }
+  follow(dt);
+  if (world.state === 'run') $score.textContent = world.score;
+  if (flash && (flash.t -= dt * 0.8) <= 0) flash = null;
+}
+
+// camera and trail follow the ball
+function follow(dt) {
+  const b = world.ball;
   if (world.state === 'run') {
     camZ = b.z - CAM_BACK;
     camY += (world.hAt(b.z) * 0.7 + world.hAt(b.z + 8) * 0.3 - camY) * Math.min(1, dt * 4);
-    $score.textContent = world.score;
     trail.push({ x: b.x, y: b.y, z: b.z });
     if (trail.length > TRAIL) trail.shift();
   } else trail.length = 0;
   camX += (b.x * 0.5 - camX) * Math.min(1, dt * 5);
-  if (flash && (flash.t -= dt * 0.8) <= 0) flash = null;
 }
 
 // ---- Rendering ----
@@ -259,9 +267,6 @@ function line(a, b, color, w, alpha = 1) {
   ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.lineWidth = w;
   ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); ctx.globalAlpha = 1;
 }
-function outline(pts, color, w, alpha = 1) {
-  ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.lineWidth = w; path(pts); ctx.stroke(); ctx.globalAlpha = 1;
-}
 
 function drawRow(rz) {
   const T = theme, track = world.track, row = track.get(rz), zA = Math.max(rz, camZ + 0.4), zB = rz + 1;
@@ -280,19 +285,15 @@ function drawRow(rz) {
       quad(proj(x1, hA, zA), proj(x1, hB, zB), proj(x1, hB - SLAB, zB), proj(x1, hA - SLAB, zA), T.slab(hue, fog, false));
     if (zA === rz && (!prev || !prev.floor[l]))
       quad(proj(x0, hA, rz), proj(x1, hA, rz), proj(x1, hA - SLAB, rz), proj(x0, hA - SLAB, rz), T.slab(hue, fog, true));
-    const top = [proj(x0, hA, zA), proj(x1, hA, zA), proj(x1, hB, zB), proj(x0, hB, zB)];
-    quad(...top, T.floor(hue, fog, (l + rz) & 1, lit));
-    if (T.grid) outline(top, T.grid(hue, fog), Math.max(1, px * 0.025), 0.55 * (1 - fog));
+    quad(proj(x0, hA, zA), proj(x1, hA, zA), proj(x1, hB, zB), proj(x0, hB, zB), T.floor(hue, fog, (l + rz) & 1, lit));
   }
   // bright rims along the outer edges and along hole edges
   for (let l = 0; l < LANES; l++) {
     if (!row.floor[l]) continue;
-    const w = Math.max(1, px * (T.rimGlow ? 0.04 : 0.03)), c = T.rim(hue, fog);
+    const w = Math.max(1, px * 0.03), c = T.rim(hue, fog);
     for (const [x, open] of [[l - HALF, l === 0 || !row.floor[l - 1]], [l - HALF + 1, l === LANES - 1 || !row.floor[l + 1]]]) {
       if (!open) continue;
-      const a = proj(x, hA + 0.01, zA), b = proj(x, hB + 0.01, zB);
-      if (T.rimGlow) line(a, b, c, w * 5, 0.18 * (1 - fog));
-      line(a, b, c, w, 1 - fog * 0.7);
+      line(proj(x, hA + 0.01, zA), proj(x, hB + 0.01, zB), c, w, 1 - fog * 0.7);
     }
     if (zA === rz && (!prev || !prev.floor[l])) line(proj(l - HALF, hA + 0.01, rz), proj(l - HALF + 1, hA + 0.01, rz), T.rim(hue, fog), Math.max(1, px * 0.03), 1 - fog * 0.7);
   }
@@ -308,9 +309,7 @@ function drawRow(rz) {
     const x0 = l - HALF + 0.06, x1 = l - HALF + 1 - 0.06, rA = RAMP_H * (zA - rz);
     if (camX < x0) quad(proj(x0, hA, zA), proj(x0, hB, zB), proj(x0, hB + RAMP_H, zB), proj(x0, hA + rA, zA), T.ramp.side(hue, fog));
     if (camX > x1) quad(proj(x1, hA, zA), proj(x1, hB, zB), proj(x1, hB + RAMP_H, zB), proj(x1, hA + rA, zA), T.ramp.side(hue, fog));
-    const top = [proj(x0, hA + rA, zA), proj(x1, hA + rA, zA), proj(x1, hB + RAMP_H, zB), proj(x0, hB + RAMP_H, zB)];
-    quad(...top, T.ramp.top(hue, fog));
-    if (T.rimGlow) outline(top, T.ramp.chev(hue, fog), Math.max(1, px * 0.03), 1 - fog);
+    quad(proj(x0, hA + rA, zA), proj(x1, hA + rA, zA), proj(x1, hB + RAMP_H, zB), proj(x0, hB + RAMP_H, zB), T.ramp.top(hue, fog));
     for (const t of [0.3, 0.65]) {   // chevrons
       const za = rz + t, zb = za + 0.12;
       if (za < zA) continue;
@@ -326,15 +325,10 @@ function drawRow(rz) {
     const x0 = l - HALF + INSET, x1 = l - HALF + 1 - INSET, z0 = rz + INSET, z1 = rz + 1 - INSET;
     if (z1 <= camZ + 0.4) continue;
     const za = Math.max(z0, camZ + 0.4), ba = world.hAt(za), bb = world.hAt(z1);
-    const faces = [];
-    if (camX < x0) faces.push([[proj(x0, ba, za), proj(x0, bb, z1), proj(x0, bb + BOX_H, z1), proj(x0, ba + BOX_H, za)], B.side]);
-    if (camX > x1) faces.push([[proj(x1, ba, za), proj(x1, bb, z1), proj(x1, bb + BOX_H, z1), proj(x1, ba + BOX_H, za)], B.side]);
-    if (za === z0) faces.push([[proj(x0, ba, z0), proj(x1, ba, z0), proj(x1, ba + BOX_H, z0), proj(x0, ba + BOX_H, z0)], B.front]);
-    faces.push([[proj(x0, ba + BOX_H, za), proj(x1, ba + BOX_H, za), proj(x1, bb + BOX_H, z1), proj(x0, bb + BOX_H, z1)], B.top]);
-    for (const [pts, col] of faces) {
-      quad(...pts, col(bh, fog));
-      if (B.edge) outline(pts, B.edge(bh, fog), Math.max(1, px * 0.03), 1 - fog * 0.6);
-    }
+    if (camX < x0) quad(proj(x0, ba, za), proj(x0, bb, z1), proj(x0, bb + BOX_H, z1), proj(x0, ba + BOX_H, za), B.side(bh, fog));
+    if (camX > x1) quad(proj(x1, ba, za), proj(x1, bb, z1), proj(x1, bb + BOX_H, z1), proj(x1, ba + BOX_H, za), B.side(bh, fog));
+    if (za === z0) quad(proj(x0, ba, z0), proj(x1, ba, z0), proj(x1, ba + BOX_H, z0), proj(x0, ba + BOX_H, z0), B.front(bh, fog));
+    quad(proj(x0, ba + BOX_H, za), proj(x1, ba + BOX_H, za), proj(x1, bb + BOX_H, z1), proj(x0, bb + BOX_H, z1), B.top(bh, fog));
   }
 }
 
@@ -459,9 +453,7 @@ window.__shot = (seed, z) => {
   world = new World(seed); trail = []; mode = 'shot';
   while (world.state === 'run' && world.ball.z < z) {
     world.ball.tx = world.autoTarget(); world.step(1 / 60); world.events.length = 0;
-    trail.push({ x: world.ball.x, y: world.ball.y, z: world.ball.z }); if (trail.length > TRAIL) trail.shift();
-    camZ = world.ball.z - CAM_BACK; camY += (world.hAt(world.ball.z) * 0.7 + world.hAt(world.ball.z + 8) * 0.3 - camY) * 0.067;
-    camX += (world.ball.x * 0.5 - camX) * 0.083;
+    follow(1 / 60);
   }
   $over.classList.add('hide'); $score.textContent = world.score; draw();
 };
