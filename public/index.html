@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#05060d">
+<meta name="description" content="Roll a ball down an endless track: no ads, works offline">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Roll">
+<title>Roll</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+  html, body { margin: 0; height: 100%; background: #05060d; overflow: hidden; touch-action: none;
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff; }
+  canvas { display: block; width: 100vw; height: 100dvh; }
+  #hud { position: fixed; top: env(safe-area-inset-top, 0); left: 0; right: 0; display: flex;
+    justify-content: space-between; padding: 14px 18px; font-size: 22px; font-weight: 600;
+    pointer-events: none; font-variant-numeric: tabular-nums; }
+  #sec { opacity: .6; }
+  #over { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 8px; background: rgba(5, 6, 13, .5); }
+  #over.hide { display: none; }
+  #oscore { font-size: 64px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #obest { opacity: .65; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .play { margin-top: 20px; width: 84px; height: 84px; border-radius: 50%; background: #fff; }
+  .play::after { content: ""; display: block; margin: 25px 0 0 33px; border-style: solid;
+    border-width: 17px 0 17px 28px; border-color: transparent transparent transparent #05060d; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><span id="score">0</span><span id="sec"></span></div>
+<div id="over" role="button" aria-label="Play"><div id="oscore"></div><div id="obest"></div><div class="play"></div></div>
+<script type="module" src="client.js"></script>
+</body>
+</html>
