@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 
 // ---- Tuning ----
 export const LANES = 5, HALF = LANES / 2;
@@ -12,7 +12,7 @@ export const R = 0.28;           // ball radius (lane width = 1)
 export const INSET = 0.1;        // gap between a block and its cell border
 export const BOX_H = 0.7;        // block height
 export const RAMP_H = 0.3;       // ramp height at its far edge
-const V0 = 6, VMUL = 1.08, VMAX = 24;
+const V0 = 9, VMUL = 1.06, VMAX = 24;
 const G = 30;                    // gravity, rows/s²
 const DRIVE = 2;                 // how fast the speed returns to the section's speed
 const GS = 16;                   // how much a slope speeds up / slows down the ball
@@ -58,7 +58,7 @@ export class Track {
   }
 
   pick(sec) {
-    const w = [3, 2, sec >= 1 ? 2 : 0, 2, sec >= 2 ? 2 : 1, 3];
+    const w = [3, 2, sec >= 2 ? 2 : 0, 2, sec >= 2 ? 2 : 1, 3];
     let x = this.r() * w.reduce((a, b) => a + b);
     for (let k = 0; k < w.length; k++) { x -= w[k]; if (x < 0) return PATS[k]; }
     return 'scatter';
@@ -151,7 +151,7 @@ export class Track {
         if (J.kind === 'gap' && d >= 0 && d <= J.gEnd) floor[l] = false;
       }
     } else if (!open) {
-      const dens = Math.min(0.6, 0.22 + sec * 0.035), j = this.pi++;
+      const dens = Math.min(0.6, 0.12 + sec * 0.035), j = this.pi++;
       for (let l = 0; l < LANES; l++) {
         if (safe[l]) continue;
         const x = r();

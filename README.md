@@ -6,8 +6,8 @@ Site: `https://roll.games.bubas.cc`.
 ## How it plays
 
 - The ball rolls forward by itself; drag a finger (or the mouse) left and right to steer, or use ← → / A D.
-- The track is 5 lanes wide and comes in sections of 48 rows. Every section has its own colour and is 8 % faster
-  (6 → 24 rows per second, the top speed from section 19). The first 8 rows of a section are free of obstacles.
+- The track is 5 lanes wide and comes in sections of 48 rows. Every section has its own colour and is 6 % faster
+  (9 → 24 rows per second, the top speed from section 18). The first 8 rows of a section are free of obstacles; the first sections are sparse.
 - Hills: downhill speeds the ball up, uphill slows it down; on flat ground it settles back to the section's speed.
 - Ramps: a light tile with chevrons. Behind it a block wall or a gap spans the whole width — the only way over is to jump.
   In the first two sections every lane has a ramp, later only the path lane is sure to have one. The ball can be steered
