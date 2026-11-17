@@ -14,8 +14,13 @@ Site: `https://roll.games.bubas.cc`.
   in the air; its shadow shows where it lands.
 - Falling into a hole or off the edge, or hitting a block ends the run. The score is the number of rows covered;
   the best score is kept on the device (`localStorage`, key `roll.best`).
-- The sky changes with the distance: day, then sunset (from section 3), night (from section 5) and open space
-  with nebulas and a ringed planet from section 10. The track and hole edges have light rims, holes are filled dark so they stand out on any sky, and speed lines show up at the screen edges on fast sections.
+- The road is a strip of grass with tufts and little flowers; where it is cut you see the earth. Holes are pits in the
+  ground, obstacles are rocks and bushes (the same box for hitting), ramps are wooden. The sky changes with the
+  distance: day, then sunset (from section 3), night (from section 5, the flowers glow) and open space with nebulas
+  and a ringed planet from section 10, where the grass turns teal. Speed lines show up at the screen edges on fast
+  sections.
+- Obstacles stay sparse all the way: their density barely grows, the speed alone makes later sections harder, and
+  there are empty stretches between patterns. Rows hidden behind a crest have no obstacles.
 - There are no words in the game, only numbers and icons, so there is nothing to translate.
 
 ## Track generator

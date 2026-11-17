@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.2.7';
+export const VERSION = '0.3.0';
 
 // ---- Tuning ----
 export const LANES = 5, HALF = LANES / 2;
@@ -46,7 +46,8 @@ export function mulberry(seed) {
 // A guaranteed path runs through every row. When it shifts by one lane, both lanes stay safe for m rows,
 // enough to move sideways even at the fastest downhill speed. Patterns fill only cells outside the path,
 // except the jump set piece: there a wall or a gap spans the full width and a ramp is the way over it.
-const PATS = ['scatter', 'walls', 'bridge', 'slalom', 'strips', 'jump'];
+// 'rest' is a stretch with nothing on it: the speed alone makes the later sections hard enough
+const PATS = ['scatter', 'walls', 'bridge', 'slalom', 'strips', 'jump', 'rest'];
 
 export class Track {
   constructor(seed) {
@@ -64,7 +65,7 @@ export class Track {
   }
 
   pick(sec) {
-    const w = [3, 2, sec >= 2 ? 2 : 0, 2, sec >= 2 ? 2 : 1, 3];
+    const w = [3, 1.5, sec >= 4 ? 1 : 0, 1.5, sec >= 2 ? 1 : 0.5, 3, 4];
     let x = this.r() * w.reduce((a, b) => a + b);
     for (let k = 0; k < w.length; k++) { x -= w[k]; if (x < 0) return PATS[k]; }
     return 'scatter';
@@ -160,16 +161,16 @@ export class Track {
         if (J.kind === 'gap' && d >= 0 && d <= J.gEnd) floor[l] = false;
       }
     } else if (!open) {
-      const dens = Math.min(0.6, 0.12 + sec * 0.035), j = this.pi++;
+      const dens = Math.min(0.24, 0.12 + sec * 0.008), j = this.pi++;   // grows only a little: speed does the rest
       for (let l = 0; l < LANES; l++) {
         if (safe[l] || hidden) continue;
         const x = r();
         switch (this.pat) {
           case 'scatter': if (x < dens * 0.45) floor[l] = false; else if (x < dens) block[l] = true; break;
-          case 'walls': if (j % 5 === 2) block[l] = true; break;
-          case 'bridge': if (!(sec < 3 && Math.abs(l - this.path) === 1 && x < 0.6)) floor[l] = false; break;
-          case 'slalom': if ((j % 6 === 1 && l < this.path) || (j % 6 === 4 && l > this.path)) block[l] = true; break;
-          case 'strips': if (j % 4 === 1) floor[l] = false; break;
+          case 'walls': if (j % 7 === 3 && x > 0.3) block[l] = true; break;   // besides the path, often a second way through
+          case 'bridge': if (!(Math.abs(l - this.path) === 1 && x < 0.6)) floor[l] = false; break;
+          case 'slalom': if ((j % 8 === 1 && l < this.path) || (j % 8 === 5 && l > this.path)) block[l] = true; break;
+          case 'strips': if (j % 6 === 2 && x < 0.7) floor[l] = false; break;
         }
       }
     }

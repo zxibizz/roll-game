@@ -1,5 +1,6 @@
 // The page: draws the world from core.js in a hand-rolled perspective, reads the finger / mouse / keys,
-// shows the score and the play / game-over screen. The sky goes from day to night to space with the distance.
+// shows the score and the play / game-over screen. The road is grass and earth; the sky goes from day to night
+// to space with the distance.
 import { World, LANES, HALF, SEC_ROWS, R, INSET, BOX_H, RAMP_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
 
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
@@ -20,7 +21,7 @@ let best = Number(localStorage.getItem(BEST_KEY)) || 0;
 // ---- Colours ----
 let FOG = [5, 6, 13];
 function hsl(h, s, l, fog = 0) {
-  s /= 100; l /= 100;
+  h = ((h % 360) + 360) % 360; s /= 100; l /= 100;
   const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
   const c = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
   const rgb = [c(0), c(8), c(4)].map((v, i) => Math.round(v * 255 * (1 - fog) + FOG[i] * fog));
@@ -39,30 +40,34 @@ const grad = (y0, y1, stops) => {
 const PAL = [
   { // day
     sky: [[111, 177, 242], [169, 211, 251], [226, 240, 255]], fog: [226, 240, 255],
-    floorS: 55, floorL: [78, 84], litK: 0.6, slabL: [60, 66], rimS: 60, rimL: 96,
-    blockS: [80, 65, 55], blockL: [70, 60, 51], rampS: 20, rampL: 99, rampSideL: 82, chevL: 62,
-    shadow: [40, 70, 130], pitS: 40, pitL: 24, hud: 0, stars: 0, space: 0, moon: 0,
+    grass: [98, 52, 50], grassHi: [88, 62, 64], tuft: [104, 55, 34], soil: [30, 42, 38], pit: [26, 40, 12], pitWall: [28, 38, 24],
+    rock: [35, 8, 64], bush: [118, 45, 34], bushHi: [100, 58, 52], wood: [33, 55, 58], woodDark: [28, 50, 38],
+    flowerL: 72, glowF: 0, litK: 0.6,
+    shadow: [40, 70, 130], hud: 0, stars: 0, space: 0, moon: 0,
     sunA: 1, sunH: 0.22, sunC: [255, 253, 240], sunR: 0.06, clouds: 1, cloudC: [255, 255, 255], glow: 0,
   },
   { // sunset
     sky: [[51, 64, 126], [201, 112, 143], [255, 195, 138]], fog: [255, 200, 165],
-    floorS: 50, floorL: [60, 66], litK: 0.7, slabL: [40, 46], rimS: 70, rimL: 88,
-    blockS: [75, 62, 52], blockL: [66, 56, 47], rampS: 25, rampL: 96, rampSideL: 72, chevL: 58,
-    shadow: [60, 20, 60], pitS: 40, pitL: 18, hud: 0.8, stars: 0.15, space: 0, moon: 0,
+    grass: [85, 45, 42], grassHi: [70, 55, 56], tuft: [90, 45, 28], soil: [22, 40, 30], pit: [20, 40, 10], pitWall: [22, 35, 20],
+    rock: [20, 12, 52], bush: [105, 35, 26], bushHi: [88, 45, 42], wood: [28, 50, 50], woodDark: [22, 45, 32],
+    flowerL: 66, glowF: 0.1, litK: 0.7,
+    shadow: [60, 20, 60], hud: 0.8, stars: 0.15, space: 0, moon: 0,
     sunA: 1, sunH: 0.03, sunC: [255, 170, 100], sunR: 0.09, clouds: 0.85, cloudC: [255, 205, 215], glow: 0.25,
   },
-  { // night: stars and a hint of space up top
+  { // night: stars and a hint of space up top, the flowers glow
     sky: [[6, 10, 34], [17, 28, 74], [38, 52, 110]], fog: [26, 36, 84],
-    floorS: 45, floorL: [30, 35], litK: 1, slabL: [14, 18], rimS: 80, rimL: 70,
-    blockS: [65, 62, 60], blockL: [62, 50, 40], rampS: 30, rampL: 88, rampSideL: 60, chevL: 55,
-    shadow: [0, 0, 0], pitS: 40, pitL: 6, hud: 1, stars: 0.85, space: 0.3, moon: 1,
+    grass: [160, 30, 20], grassHi: [150, 35, 30], tuft: [165, 30, 12], soil: [-125, 18, 15], pit: [-125, 30, 4], pitWall: [-125, 20, 10],
+    rock: [-135, 10, 32], bush: [165, 30, 13], bushHi: [158, 35, 25], wood: [30, 25, 26], woodDark: [30, 25, 17],
+    flowerL: 70, glowF: 0.7, litK: 1,
+    shadow: [0, 0, 0], hud: 1, stars: 0.85, space: 0.3, moon: 1,
     sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0.2, cloudC: [60, 72, 130], glow: 0.6,
   },
-  { // space
+  { // space: alien teal grass
     sky: [[5, 6, 13], [5, 6, 13], [5, 6, 13]], fog: [5, 6, 13],
-    floorS: 42, floorL: [31, 36], litK: 1, slabL: [16, 20], rimS: 75, rimL: 72,
-    blockS: [65, 62, 60], blockL: [63, 50, 40], rampS: 30, rampL: 90, rampSideL: 62, chevL: 55,
-    shadow: [0, 0, 0], pitS: 30, pitL: 3, hud: 1, stars: 1, space: 1, moon: 0,
+    grass: [178, 45, 22], grassHi: [175, 55, 34], tuft: [182, 45, 13], soil: [-98, 25, 15], pit: [-98, 30, 3], pitWall: [-98, 25, 9],
+    rock: [-105, 12, 34], bush: [195, 40, 15], bushHi: [188, 50, 28], wood: [-80, 25, 32], woodDark: [-80, 25, 22],
+    flowerL: 72, glowF: 1, litK: 1,
+    shadow: [0, 0, 0], hud: 1, stars: 1, space: 1, moon: 0,
     sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0, cloudC: [60, 72, 130], glow: 0.6,
   },
 ];
@@ -131,16 +136,6 @@ const theme = {
       ctx.globalAlpha = 1;
     }
   },
-  floor: (h, f, lane, row, lit) => hsl(h, P.floorS, clamp(P.floorL[lane] + row + lit * P.litK, 8, 95), f),
-  slab: (h, f, front) => hsl(h, 35, P.slabL[front ? 1 : 0], f),
-  pit: (h, f, up) => hsl(h, P.pitS, P.pitL + up, f),
-  rim: (h, f) => hsl(h, P.rimS, P.rimL, f),
-  blockHue: (h) => (h + 170) % 360,
-  block: {
-    top: (h, f) => hsl(h, P.blockS[0], P.blockL[0], f), front: (h, f) => hsl(h, P.blockS[1], P.blockL[1], f),
-    side: (h, f) => hsl(h, P.blockS[2], P.blockL[2], f),
-  },
-  ramp: { top: (h, f) => hsl(h, P.rampS, P.rampL, f), side: (h, f) => hsl(h, 30, P.rampSideL, f), chev: (h, f) => hsl(h, 75, P.chevL, f) },
   ball: { c: ['#fff1e6', '#ff8a5c', '#cf4b25'], glow: [255, 140, 90] },
   get shadow() { return P.shadow.map(Math.round); },
   streak: [255, 255, 255],
@@ -268,78 +263,185 @@ function line(a, b, color, w, alpha = 1) {
   ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); ctx.globalAlpha = 1;
 }
 
+// a stable pseudo-random number in [0, 1) for a cell: decorations must not flicker from frame to frame
+function hash(a, b, c = 0) {
+  let h = (Math.imul(a, 374761393) + Math.imul(b, 668265263) + Math.imul(c, 1442695041)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+const pal = (k, dl = 0, fog = 0) => { const v = P[k]; return hsl(v[0], v[1], clamp(v[2] + dl, 2, 97), fog); };
+const FLOWERS = [[0, 0, 97], [50, 95, 60], [330, 80, 76], [275, 65, 72], [5, 80, 62], [205, 85, 72]];
+
 function drawRow(rz) {
-  const T = theme, track = world.track, row = track.get(rz), zA = Math.max(rz, camZ + 0.4), zB = rz + 1;
+  const track = world.track, row = track.get(rz), zA = Math.max(rz, camZ + 0.4), zB = rz + 1;
   if (zB <= zA) return;
-  const hA = world.hAt(zA), hB = track.get(rz + 1).h, slope = hB - row.h;
-  const fog = clamp(((zA + zB) / 2 - camZ - 12) / (VIEW - 12), 0, 1);
-  const hue = secHue(row.sec), prev = rz > 0 ? track.get(rz - 1) : null;
-  const lit = slope * 22;   // uphill faces the camera and looks brighter
-  // rows alternate only faintly near the camera: there they rush past and a full checker flickers
-  const rowShade = (rz & 1 ? -1 : 1) * 1.5 * clamp((zA - camZ - 4) / 8, 0.15, 1);
+  const next = track.get(rz + 1), prev = rz > 0 ? track.get(rz - 1) : null;
+  const hA = world.hAt(zA), hB = next.h, slope = hB - row.h, dz = (zA + zB) / 2 - camZ;
+  const fog = clamp((dz - 12) / (VIEW - 12), 0, 1);
+  const lit = slope * 20 * P.litK;   // uphill faces the camera and looks brighter
   const px = proj(0, hA, (zA + zB) / 2)[2];   // pixels per world unit at this row
-  // holes: the opening is filled dark at road level and the far wall shows its depth, so a hole reads
-  // against any sky even at the low camera angle
+  // pits in the ground: a dark opening at road level and the earthen far wall
   for (let l = 0; l < LANES; l++) {
     if (row.floor[l]) continue;
     const x0 = l - HALF, x1 = x0 + 1;
-    quad(proj(x0, hA, zA), proj(x1, hA, zA), proj(x1, hB, zB), proj(x0, hB, zB), T.pit(hue, fog, 0));
-    const next = track.get(rz + 1);
-    if (next.floor[l]) quad(proj(x0, hB, zB), proj(x1, hB, zB), proj(x1, hB - SLAB, zB), proj(x0, hB - SLAB, zB), T.pit(hue, fog, 14));
+    quad(proj(x0, hA, zA), proj(x1, hA, zA), proj(x1, hB, zB), proj(x0, hB, zB), pal('pit', 0, fog));
+    if (next.floor[l]) quad(proj(x0, hB, zB), proj(x1, hB, zB), proj(x1, hB - SLAB, zB), proj(x0, hB - SLAB, zB), pal('pitWall', 0, fog));
   }
+  // the ground: grass on top, a layer of earth where it is cut
   for (let l = 0; l < LANES; l++) {
     if (!row.floor[l]) continue;
     const x0 = l - HALF, x1 = x0 + 1;
     if (l > 0 && !row.floor[l - 1] && camX < x0)
-      quad(proj(x0, hA, zA), proj(x0, hB, zB), proj(x0, hB - SLAB, zB), proj(x0, hA - SLAB, zA), T.slab(hue, fog, false));
+      quad(proj(x0, hA, zA), proj(x0, hB, zB), proj(x0, hB - SLAB, zB), proj(x0, hA - SLAB, zA), pal('soil', -5, fog));
     if (l < LANES - 1 && !row.floor[l + 1] && camX > x1)
-      quad(proj(x1, hA, zA), proj(x1, hB, zB), proj(x1, hB - SLAB, zB), proj(x1, hA - SLAB, zA), T.slab(hue, fog, false));
+      quad(proj(x1, hA, zA), proj(x1, hB, zB), proj(x1, hB - SLAB, zB), proj(x1, hA - SLAB, zA), pal('soil', -5, fog));
     if (zA === rz && (!prev || !prev.floor[l]))
-      quad(proj(x0, hA, rz), proj(x1, hA, rz), proj(x1, hA - SLAB, rz), proj(x0, hA - SLAB, rz), T.slab(hue, fog, true));
-    quad(proj(x0, hA, zA), proj(x1, hA, zA), proj(x1, hB, zB), proj(x0, hB, zB), T.floor(hue, fog, l & 1, rowShade, lit));
+      quad(proj(x0, hA, rz), proj(x1, hA, rz), proj(x1, hA - SLAB, rz), proj(x0, hA - SLAB, rz), pal('soil', 0, fog));
+    // patches of lighter and darker grass; faint near the camera, where cells rush past
+    const patch = (hash(rz, l) - 0.5) * 3 * clamp((dz - 4) / 8, 0.1, 1);
+    // cells overlap a hair so no seams show between them
+    const zE = zB + 0.02, hE = world.hAt(zE);
+    quad(proj(x0 - 0.01, hA, zA), proj(x1 + 0.01, hA, zA), proj(x1 + 0.01, hE, zE), proj(x0 - 0.01, hE, zE), pal('grass', lit + patch, fog));
   }
-  // bright rims along the outer edges and along hole edges
+  // a darker grass line where the ground ends
   for (let l = 0; l < LANES; l++) {
     if (!row.floor[l]) continue;
-    const w = Math.max(1, px * 0.03), c = T.rim(hue, fog);
     for (const [x, open] of [[l - HALF, l === 0 || !row.floor[l - 1]], [l - HALF + 1, l === LANES - 1 || !row.floor[l + 1]]]) {
-      if (!open) continue;
-      line(proj(x, hA + 0.01, zA), proj(x, hB + 0.01, zB), c, w, 1 - fog * 0.7);
+      if (open) line(proj(x, hA + 0.01, zA), proj(x, hB + 0.01, zB), pal('tuft', 0, fog), Math.max(1, px * 0.025), 1 - fog * 0.7);
     }
-    if (zA === rz && (!prev || !prev.floor[l])) line(proj(l - HALF, hA + 0.01, rz), proj(l - HALF + 1, hA + 0.01, rz), T.rim(hue, fog), Math.max(1, px * 0.03), 1 - fog * 0.7);
+    if (zA === rz && (!prev || !prev.floor[l])) line(proj(l - HALF, hA + 0.01, rz), proj(l - HALF + 1, hA + 0.01, rz), pal('tuft', 0, fog), Math.max(1, px * 0.025), 1 - fog * 0.7);
   }
-  if (rz > 0 && rz % SEC_ROWS === 0 && zA === rz) {   // section start line
-    ctx.globalAlpha = 1 - fog;
-    const h2 = world.hAt(rz + 0.15);
-    quad(proj(-HALF, hA + 0.01, rz), proj(HALF, hA + 0.01, rz), proj(HALF, h2 + 0.01, rz + 0.15), proj(-HALF, h2 + 0.01, rz + 0.15), T.rim(hue, 0));
+  if (dz < 22) drawDecor(rz, row, zA, px, fog);
+  if (rz > 0 && rz % SEC_ROWS === 0 && zA === rz) {   // section start line, like chalk on the grass
+    ctx.globalAlpha = 0.6 * (1 - fog);
+    const h2 = world.hAt(rz + 0.12);
+    quad(proj(-HALF, hA + 0.01, rz), proj(HALF, hA + 0.01, rz), proj(HALF, h2 + 0.01, rz + 0.12), proj(-HALF, h2 + 0.01, rz + 0.12), '#fff');
     ctx.globalAlpha = 1;
   }
   const order = [0, 1, 2, 3, 4].sort((a, b) => Math.abs(laneX(b) - camX) - Math.abs(laneX(a) - camX));
-  for (const l of order) {
+  for (const l of order) {   // wooden ramps
     if (!row.ramp[l]) continue;
     const x0 = l - HALF + 0.06, x1 = l - HALF + 1 - 0.06, rA = RAMP_H * (zA - rz);
-    if (camX < x0) quad(proj(x0, hA, zA), proj(x0, hB, zB), proj(x0, hB + RAMP_H, zB), proj(x0, hA + rA, zA), T.ramp.side(hue, fog));
-    if (camX > x1) quad(proj(x1, hA, zA), proj(x1, hB, zB), proj(x1, hB + RAMP_H, zB), proj(x1, hA + rA, zA), T.ramp.side(hue, fog));
-    quad(proj(x0, hA + rA, zA), proj(x1, hA + rA, zA), proj(x1, hB + RAMP_H, zB), proj(x0, hB + RAMP_H, zB), T.ramp.top(hue, fog));
-    for (const t of [0.3, 0.65]) {   // chevrons
-      const za = rz + t, zb = za + 0.12;
-      if (za < zA) continue;
-      const ya = world.hAt(za) + RAMP_H * t + 0.005, yb = world.hAt(zb) + RAMP_H * (t + 0.12) + 0.005, xm = (x0 + x1) / 2;
-      ctx.fillStyle = T.ramp.chev(hue, fog);
-      path([proj(x0 + 0.1, ya, za), proj(xm, ya, zb + 0.1), proj(x1 - 0.1, ya, za), proj(x1 - 0.1, yb, zb), proj(xm, yb, zb + 0.22), proj(x0 + 0.1, yb, zb)]);
-      ctx.fill();
+    if (camX < x0) quad(proj(x0, hA, zA), proj(x0, hB, zB), proj(x0, hB + RAMP_H, zB), proj(x0, hA + rA, zA), pal('woodDark', 0, fog));
+    if (camX > x1) quad(proj(x1, hA, zA), proj(x1, hB, zB), proj(x1, hB + RAMP_H, zB), proj(x1, hA + rA, zA), pal('woodDark', 0, fog));
+    quad(proj(x0, hA + rA, zA), proj(x1, hA + rA, zA), proj(x1, hB + RAMP_H, zB), proj(x0, hB + RAMP_H, zB), pal('wood', 0, fog));
+    for (const t of [0.25, 0.5, 0.75]) {   // planks
+      const z = rz + t;
+      if (z < zA) continue;
+      const y = world.hAt(z) + RAMP_H * t + 0.005;
+      line(proj(x0, y, z), proj(x1, y, z), pal('woodDark', 0, fog), Math.max(1, px * 0.02), 1 - fog);
+    }
+    line(proj(x0, hB + RAMP_H, zB), proj(x1, hB + RAMP_H, zB), pal('wood', 16, fog), Math.max(1, px * 0.03), 1 - fog);
+  }
+  for (const l of order) {   // obstacles: rocks and bushes, the same box for hitting
+    if (!row.block[l]) continue;
+    if (rz + 0.5 <= camZ + 0.9) continue;
+    if (hash(rz, l, 7) < 0.5) drawRock(l, rz, fog); else drawBush(l, rz, fog);
+  }
+}
+
+// grass tufts and little flowers, only on plain ground near the camera
+function drawDecor(rz, row, zA, px, fog) {
+  const blades = [], flowers = [];
+  for (let l = 0; l < LANES; l++) {
+    if (!row.floor[l] || row.block[l] || row.ramp[l]) continue;
+    for (let k = 0; k < 4; k++) {
+      const z = rz + 0.08 + hash(rz, l, 2 * k + 1) * 0.84;
+      if (z < zA) continue;
+      const x = l - HALF + 0.08 + hash(rz, l, 2 * k) * 0.84, p = proj(x, world.hAt(z), z), h = p[2] * 0.06;
+      blades.push([p[0], p[1], h]);
+    }
+    const nF = hash(rz, l, 99) < 0.3 ? 1 : hash(rz, l, 99) < 0.42 ? 2 : 0;
+    for (let k = 0; k < nF; k++) {
+      const z = rz + 0.12 + hash(rz, l, 50 + k) * 0.76;
+      if (z < zA) continue;
+      const x = l - HALF + 0.12 + hash(rz, l, 60 + k) * 0.76;
+      flowers.push([proj(x, world.hAt(z) + 0.02, z), FLOWERS[Math.floor(hash(rz, l, 70 + k) * FLOWERS.length)]]);
     }
   }
-  const bh = T.blockHue(hue), B = T.block;
-  for (const l of order) {
-    if (!row.block[l]) continue;
-    const x0 = l - HALF + INSET, x1 = l - HALF + 1 - INSET, z0 = rz + INSET, z1 = rz + 1 - INSET;
-    if (z1 <= camZ + 0.4) continue;
-    const za = Math.max(z0, camZ + 0.4), ba = world.hAt(za), bb = world.hAt(z1);
-    if (camX < x0) quad(proj(x0, ba, za), proj(x0, bb, z1), proj(x0, bb + BOX_H, z1), proj(x0, ba + BOX_H, za), B.side(bh, fog));
-    if (camX > x1) quad(proj(x1, ba, za), proj(x1, bb, z1), proj(x1, bb + BOX_H, z1), proj(x1, ba + BOX_H, za), B.side(bh, fog));
-    if (za === z0) quad(proj(x0, ba, z0), proj(x1, ba, z0), proj(x1, ba + BOX_H, z0), proj(x0, ba + BOX_H, z0), B.front(bh, fog));
-    quad(proj(x0, ba + BOX_H, za), proj(x1, ba + BOX_H, za), proj(x1, bb + BOX_H, z1), proj(x0, bb + BOX_H, z1), B.top(bh, fog));
+  if (blades.length) {
+    ctx.strokeStyle = pal('tuft', 0, fog); ctx.lineWidth = Math.max(1, px * 0.01); ctx.globalAlpha = 0.75 * (1 - fog);
+    ctx.beginPath();
+    for (const [x, y, h] of blades) {
+      ctx.moveTo(x - h * 0.35, y - h); ctx.lineTo(x, y);
+      ctx.lineTo(x + h * 0.05, y - h * 1.2); ctx.moveTo(x, y); ctx.lineTo(x + h * 0.4, y - h * 0.9);
+    }
+    ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  for (const [p, c] of flowers) {
+    const r = p[2] * 0.03, petal = hsl(c[0], c[1], Math.min(97, c[2] * P.flowerL / 72), fog);
+    if (P.glowF > 0.05) {   // flowers glow in the dark: a soft halo that fades out
+      const g = ctx.createRadialGradient(p[0], p[1], 0, p[0], p[1], r * 3);
+      g.addColorStop(0, petal); g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.globalAlpha = 0.45 * P.glowF * (1 - fog); ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(p[0], p[1], r * 3, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = petal;
+    if (r < 1.3) { ctx.beginPath(); ctx.arc(p[0], p[1], Math.max(0.8, r * 1.4), 0, 7); ctx.fill(); continue; }
+    ctx.beginPath();
+    for (let k = 0; k < 5; k++) {
+      const a = k * 1.2566;
+      ctx.moveTo(p[0] + Math.cos(a) * r * 1.1 + r * 0.7, p[1] + Math.sin(a) * r * 0.55);
+      ctx.arc(p[0] + Math.cos(a) * r * 1.1, p[1] + Math.sin(a) * r * 0.55, r * 0.7, 0, 7);
+    }
+    ctx.fill();
+    ctx.fillStyle = hsl(45, 95, 55, fog); ctx.beginPath(); ctx.arc(p[0], p[1], r * 0.5, 0, 7); ctx.fill();
+  }
+}
+
+// where an obstacle sits on the screen: front-bottom centre, half width and height in pixels
+function obstacleFrame(l, rz) {
+  const xc = laneX(l), zc = rz + 0.5, base = world.hAt(zc);
+  const pf = proj(xc, base, rz + INSET + 0.1), pt = proj(xc, base + BOX_H, zc);
+  const hw = proj(xc + 0.42, base, rz + INSET + 0.1)[0] - pf[0];
+  return { x: pf[0], bottom: pf[1], top: pt[1], hw, pc: proj(xc, base, zc) };
+}
+function obstacleShadow(o, fog) {
+  ctx.fillStyle = `rgba(${P.shadow.map(Math.round)},${0.3 * (1 - fog)})`;
+  ctx.beginPath(); ctx.ellipse(o.x, (o.bottom + o.pc[1]) / 2, o.hw * 1.15, Math.max(1, (o.bottom - o.pc[1]) * 0.9), 0, 0, 7); ctx.fill();
+}
+
+function drawRock(l, rz, fog) {
+  const o = obstacleFrame(l, rz), cx = o.x, cy = (o.bottom + o.top) / 2, rx = o.hw, ry = (o.bottom - o.top) / 2;
+  if (!(rx > 0 && ry > 0)) return;
+  obstacleShadow(o, fog);
+  // an irregular rounded outline, flat at the bottom
+  const pts = [];
+  for (let k = 0; k < 10; k++) {
+    const a = (k / 10) * Math.PI * 2, j = 1 + (hash(rz, l, 20 + k) - 0.5) * 0.22;
+    pts.push([cx + Math.cos(a) * rx * j, Math.min(o.bottom, cy + Math.sin(a) * ry * j * (Math.sin(a) > 0 ? 1.1 : 1))]);
+  }
+  ctx.beginPath();
+  for (let k = 0; k <= 10; k++) {
+    const p = pts[k % 10], q = pts[(k + 1) % 10], m = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+    if (k === 0) ctx.moveTo(m[0], m[1]); else ctx.quadraticCurveTo(p[0], p[1], m[0], m[1]);
+  }
+  const g = ctx.createRadialGradient(cx - rx * 0.35, cy - ry * 0.5, 0, cx, cy, Math.max(rx, ry) * 1.25);
+  g.addColorStop(0, pal('rock', 16, fog)); g.addColorStop(0.55, pal('rock', 0, fog)); g.addColorStop(1, pal('rock', -22, fog));
+  ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = pal('rock', -26, fog); ctx.lineWidth = Math.max(1, rx * 0.04); ctx.globalAlpha = 0.6;
+  ctx.beginPath(); ctx.moveTo(cx - rx * 0.1, cy - ry * 0.7); ctx.lineTo(cx + rx * 0.05, cy - ry * 0.2); ctx.lineTo(cx - rx * 0.15, cy + ry * 0.25); ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function drawBush(l, rz, fog) {
+  const o = obstacleFrame(l, rz), cx = o.x, rx = o.hw, ry = (o.bottom - o.top) / 2, cy = o.bottom - ry;
+  if (!(rx > 0 && ry > 0)) return;
+  obstacleShadow(o, fog);
+  // overlapping leafy balls, back ones first
+  const balls = [[-0.5, 0.25, 0.5], [0.5, 0.25, 0.5], [-0.25, -0.35, 0.5], [0.28, -0.3, 0.48], [0, 0.15, 0.62]];
+  for (const [bx, by, br] of balls) {
+    const x = cx + bx * rx, y = cy + by * ry, r = br * Math.max(rx, ry * 1.1);
+    const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.45, 0, x, y, r);
+    g.addColorStop(0, pal('bushHi', 0, fog)); g.addColorStop(0.7, pal('bush', 0, fog)); g.addColorStop(1, pal('bush', -8, fog));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, Math.min(y, o.bottom - r * 0.6), r, 0, 7); ctx.fill();
+  }
+  // a few berries or blossoms
+  const c = FLOWERS[Math.floor(hash(rz, l, 40) * FLOWERS.length)];
+  ctx.fillStyle = hsl(c[0], c[1], c[2], fog);
+  for (let k = 0; k < 4; k++) {
+    const x = cx + (hash(rz, l, 41 + k) - 0.5) * rx * 1.3, y = cy + (hash(rz, l, 45 + k) - 0.7) * ry * 1.2;
+    ctx.beginPath(); ctx.arc(x, y, Math.max(1, rx * 0.07), 0, 7); ctx.fill();
   }
 }
 
@@ -405,7 +507,7 @@ function draw() {
   drawStreaks();
   if (flash) {
     ctx.globalAlpha = Math.min(1, flash.t * 1.5);
-    ctx.fillStyle = theme.rim(secHue(flash.sec), 0);
+    ctx.fillStyle = '#ffffff';
     ctx.font = `700 ${Math.round(H * 0.09)}px system-ui, sans-serif`; ctx.textAlign = 'center';
     ctx.fillText(String(flash.sec + 1), W / 2, H * 0.3);
     ctx.globalAlpha = 1;
