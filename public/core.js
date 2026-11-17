@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.2.1';
+export const VERSION = '0.2.2';
 
 // ---- Tuning ----
 export const LANES = 5, HALF = LANES / 2;

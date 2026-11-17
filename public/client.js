@@ -9,7 +9,7 @@ const $over = document.getElementById('over'), $oscore = document.getElementById
 const BEST_KEY = 'roll.best';
 const SENS = 6;                     // world units per full screen-width drag
 const SLAB = 0.35, VIEW = 46;       // track thickness, rows drawn ahead
-const CAM_H = 2.8, CAM_BACK = 3.8, PITCH = 0.5;
+const CAM_H = 1.4, CAM_BACK = 1.9, PITCH = 0.5;
 const TRAIL = 9;                    // ball positions kept for the trail
 
 // mode: 'ready' | 'play' | 'pause' | 'over' (and 'shot' — frozen by the screenshot hook at the end);
@@ -214,7 +214,7 @@ function follow(dt) {
     trail.push({ x: b.x, y: b.y, z: b.z });
     if (trail.length > TRAIL) trail.shift();
   } else trail.length = 0;
-  camX += (b.x * 0.5 - camX) * Math.min(1, dt * 5);
+  camX += (b.x * 0.85 - camX) * Math.min(1, dt * 5);
 }
 
 // ---- Rendering ----
@@ -232,9 +232,9 @@ function resize() {
   W = cv.width = Math.round(innerWidth * dpr);
   H = cv.height = Math.round(innerHeight * dpr);
   f = Math.min(W * 1.2, H * 0.9);
-  // the ball's contact point sits at 80 % of the height on flat ground
+  // the ball's contact point sits at 84 % of the height on flat ground
   const dz = CAM_BACK, dy = -CAM_H, zc = dz * CP - dy * SP, yc = dy * CP + dz * SP;
-  cy = H * 0.8 + f * yc / zc;
+  cy = H * 0.84 + f * yc / zc;
   horY = cy - f * SP / CP;
   stars = document.createElement('canvas'); stars.width = W; stars.height = H;
   const s = stars.getContext('2d'), rr = mulberry(7);
@@ -343,8 +343,8 @@ function drawBall() {
   }
   trail.forEach((p, i) => {   // a fading trail of past positions
     const [tx, ty, ts] = proj(p.x, p.y, p.z), k = (i + 1) / trail.length;
-    ctx.fillStyle = `rgba(${T.trail},${0.22 * k})`;
-    ctx.beginPath(); ctx.arc(tx, ty, R * ts * (0.45 + 0.5 * k), 0, 7); ctx.fill();
+    ctx.fillStyle = `rgba(${T.trail},${0.1 * k})`;
+    ctx.beginPath(); ctx.arc(tx, ty, R * ts * (0.3 + 0.4 * k), 0, 7); ctx.fill();
   });
   const [px, py, sc] = proj(b.x, b.y, b.z), r = R * sc;
   if (T.glow && P.glow > 0.01) {
