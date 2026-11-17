@@ -1,10 +1,12 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 
 // ---- Tuning ----
-export const LANES = 5, HALF = LANES / 2;
+// The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
+// and then splits: the centre lane (MID) turns into a gap between two 3-lane roads. Slots outside the road are void.
+export const LANES = 7, HALF = LANES / 2, MID = 3;
 export const SEC_ROWS = 48;      // rows per section; the speed steps up at each section start
 export const BREATH = 8;         // obstacle-free rows at the start of every section
 export const START_OPEN = 16;    // obstacle-free, flat rows at the very start
@@ -47,13 +49,21 @@ export function mulberry(seed) {
 // enough to move sideways even at the fastest downhill speed. Patterns fill only cells outside the path,
 // except the jump set piece: there a wall or a gap spans the full width and a ramp is the way over it.
 // 'rest' is a stretch with nothing on it: the speed alone makes the later sections hard enough
+const ROAD_LANES = {
+  normal: (l) => l >= 1 && l <= 5,
+  widen: () => true,
+  split: (l) => l !== MID,
+  close: () => true,
+};
 const PATS = ['scatter', 'walls', 'bridge', 'slalom', 'strips', 'jump', 'rest'];
 
 export class Track {
   constructor(seed) {
     this.r = mulberry(seed);
     this.rows = [];
-    this.path = 2; this.to = -1; this.left = 0; this.cool = 6;
+    this.path = MID; this.to = -1; this.left = 0; this.cool = 6;
+    this.sh = { mode: 'normal', i: 0, len: START_OPEN + 60 };       // road shape: normal → widen → split → close
+    this.cur = { kind: 'straight', i: 0, len: START_OPEN + 10, A: 0, n: 1 };   // bends of the road (just looks)
     this.pat = ''; this.pi = 0; this.plen = 0; this.jump = null; this.wantJump = false;
     this.ter = { kind: 'flat', len: START_OPEN, i: 0, A: 0, base: 0 };
     this.flatRun = 0;
@@ -93,7 +103,7 @@ export class Track {
     } else J.gEnd = gMax - Math.floor(r() * Math.min(3, gMax + 1));
     const landMax = vhi * tLand + vhi / 30 + 2;
     J.len = J.rampAt + 1 + Math.ceil(landMax) + 1;
-    for (let l = 0; l < LANES; l++) if (sec < 2 || l === this.path || r() < 0.3) J.ramps.push(l);
+    for (let l = 1; l <= 5; l++) if (sec < 2 || l === this.path || r() < 0.3) J.ramps.push(l);   // jumps only on a normal road
     return J;
   }
 
@@ -116,6 +126,44 @@ export class Track {
     return h;
   }
 
+  // Sideways offset of the road centre, for drawing only: the ball keeps to the road on its own.
+  curve() {
+    const C = this.cur, r = this.r;
+    if (C.i >= C.len) {
+      C.i = 0;
+      if (r() < 0.4) { C.kind = 'straight'; C.len = 16 + Math.floor(r() * 30); }
+      else { C.kind = 'snake'; C.n = 1 + Math.floor(r() * 3); C.len = C.n * (34 + Math.floor(r() * 12)); C.A = (r() < 0.5 ? -1 : 1) * (0.8 + r() * 0.8); }
+    }
+    const t = C.i / C.len;
+    C.i++;
+    return C.kind === 'snake' ? C.A * Math.sin(2 * Math.PI * C.n * t) * Math.sin(Math.PI * t) ** 2 : 0;
+  }
+
+  // Advance the road shape by a row. Shapes change only between shifts of the path, and the path is moved
+  // out of the way first: off the centre lane before a split, back inside lanes 1..5 before the road narrows.
+  shape(m, busy) {
+    const S = this.sh, r = this.r;
+    S.i++;
+    if (S.mode === 'normal') {
+      if (S.i >= S.len && !busy && this.left === 0) { S.mode = 'widen'; S.i = 0; S.len = m + 3; }
+    } else if (S.mode === 'widen') {
+      if (S.i >= S.len && this.left === 0 && this.path !== MID) { S.mode = 'split'; S.i = 0; S.len = 24 + Math.floor(r() * 24); }
+    } else if (S.mode === 'split') {
+      if (S.i >= S.len && this.left === 0) { S.mode = 'close'; S.i = 0; S.len = m + 3; }
+    } else if (S.i >= S.len && this.left === 0 && this.path >= 1 && this.path <= 5) {
+      S.mode = 'normal'; S.i = 0; S.len = 90 + Math.floor(r() * 110);
+    }
+    return S.mode;
+  }
+
+  // lanes the path may move to under the current shape
+  pathLane(mode, l) {
+    if (l < 0 || l >= LANES) return false;
+    if (mode === 'normal' || mode === 'close') return l >= 1 && l <= 5;
+    if (mode === 'widen') return l !== MID;
+    return l !== MID && (l < MID) === (this.path < MID);   // split: stay on your side
+  }
+
   heightOf(T, t) {
     if (T.kind === 'hill') return T.base + T.A * (1 - Math.cos(2 * Math.PI * t)) / 2;
     if (T.kind === 'climb') return T.base + T.A * (1 - Math.cos(Math.PI * t)) / 2;
@@ -127,27 +175,33 @@ export class Track {
     const v = speedOf(sec), vhi = v + GS * SMAX / DRIVE + 0.5, m = Math.ceil(vhi * (1 / latOf(vhi) + STEER_LAG)) + 1;
     const inJump = this.pat === 'jump' && this.pi < this.plen;   // a jump may run into the next section
     const open = i < START_OPEN || (k < BREATH && !inJump);
-    const floor = Array(LANES).fill(true), block = Array(LANES).fill(false);
-    const ramp = Array(LANES).fill(false), safe = Array(LANES).fill(false);
+    const block = Array(LANES).fill(false), ramp = Array(LANES).fill(false), safe = Array(LANES).fill(false);
     if (!open && this.pi >= this.plen) {
       this.pat = this.wantJump ? 'jump' : this.pick(sec);
       this.pi = 0; this.plen = 8 + Math.floor(r() * 8);
       if (this.pat === 'jump') {
-        const J = this.flatRun >= LEAD && this.left === 0 && this.ter.kind === 'flat' ? this.planJump(v, sec) : null;
+        const J = this.flatRun >= LEAD && this.left === 0 && this.ter.kind === 'flat' && this.sh.mode === 'normal' ? this.planJump(v, sec) : null;
         if (J) { this.jump = J; this.plen = J.len; this.wantJump = false; }
         else { this.wantJump = true; this.pat = 'scatter'; this.plen = 4; }   // flatten the ground, then try again
       }
     }
     const jumping = !open && this.pat === 'jump';
-    const h = this.terrain(i < START_OPEN || jumping || this.wantJump);
+    const h = this.terrain(i < START_OPEN || jumping || this.wantJump), off = this.curve();
+    const mode = this.shape(m, inJump || jumping || this.wantJump);
+    const road = Array.from({ length: LANES }, (_, l) => ROAD_LANES[mode](l)), floor = road.slice();
     if (this.left > 0) {
       safe[this.path] = safe[this.to] = true;
       if (--this.left === 0) { this.path = this.to; this.to = -1; this.cool = 1 + Math.floor(r() * 4); }
     } else {
       safe[this.path] = true;
-      if (!open && !jumping && --this.cool <= 0 && r() < 0.6) {
-        const d = this.path === 0 ? 1 : this.path === LANES - 1 ? -1 : (r() < 0.5 ? -1 : 1);
-        this.to = this.path + d; this.left = m - 1; safe[this.to] = true;
+      // the shape needs the path somewhere else: move it now
+      const forced = (mode === 'widen' && this.path === MID) || (mode === 'close' && (this.path === 0 || this.path === LANES - 1));
+      if (forced || (!open && !jumping && --this.cool <= 0 && r() < 0.6)) {
+        const ds = [-1, 1].filter((d) => this.pathLane(mode, this.path + d));
+        if (ds.length) {
+          const d = forced && this.path !== MID ? (this.path === 0 ? 1 : -1) : ds[Math.floor(r() * ds.length)];
+          this.to = this.path + d; this.left = m - 1; safe[this.to] = true;
+        }
       }
     }
     // a row hidden behind a crest until the last moment gets no obstacles
@@ -155,6 +209,7 @@ export class Track {
     if (jumping) {
       const J = this.jump, j = this.pi++, d = j - J.rampAt - 1;
       for (let l = 0; l < LANES; l++) {
+        if (!road[l]) continue;
         if (j === J.rampAt && J.ramps.includes(l)) ramp[l] = true;
         if (hidden) continue;
         if (J.kind === 'wall' && J.rows.includes(d)) block[l] = true;
@@ -163,7 +218,7 @@ export class Track {
     } else if (!open) {
       const dens = Math.min(0.24, 0.12 + sec * 0.008), j = this.pi++;   // grows only a little: speed does the rest
       for (let l = 0; l < LANES; l++) {
-        if (safe[l] || hidden) continue;
+        if (!road[l] || safe[l] || hidden) continue;
         const x = r();
         switch (this.pat) {
           case 'scatter': if (x < dens * 0.45) floor[l] = false; else if (x < dens) block[l] = true; break;
@@ -174,7 +229,7 @@ export class Track {
         }
       }
     }
-    this.rows.push({ floor, block, ramp, h, sec, goal: this.to >= 0 ? this.to : this.path });
+    this.rows.push({ road, floor, block, ramp, h, off, sec, goal: this.to >= 0 ? this.to : this.path });
   }
 
   // Can the camera see the start of row i (height h) while the ball is still `ahead` rows before it?
@@ -208,6 +263,12 @@ export class World {
   }
 
   get score() { return Math.floor(this.ball.z); }
+
+  // sideways offset of the road centre at z (drawing only)
+  offAt(z) {
+    const zz = Math.max(0, z), i = Math.floor(zz), a = this.track.get(i).off, b = this.track.get(i + 1).off;
+    return a + (b - a) * (zz - i);
+  }
 
   // terrain height at z (linear between row starts)
   hAt(z) {

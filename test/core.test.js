@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { World, Track, SEC_ROWS, LANES, VERSION, laneX, speedOf } from '../public/core.js';
+import { World, Track, SEC_ROWS, LANES, MID, VERSION, laneX, speedOf } from '../public/core.js';
 
 const DT = 1 / 60;
 
@@ -30,7 +30,8 @@ test('every row keeps its goal lane open', () => {
   const t = new Track(42);
   for (let i = 0; i < SEC_ROWS * 25; i++) {
     const r = t.get(i);
-    const wall = r.block.every(Boolean), gap = !r.floor.some(Boolean);
+    const lanes = r.road.flatMap((on, l) => (on ? [l] : []));
+    const wall = lanes.every((l) => r.block[l]), gap = lanes.every((l) => !r.floor[l]);
     if (wall || gap) continue;   // a jump set piece: the ramp before it is the way over
     assert.ok(r.floor[r.goal] && !r.block[r.goal], `row ${i}`);
   }
@@ -138,8 +139,23 @@ test('rows hidden behind a crest have no obstacles', () => {
       const ahead = Math.max(5, Math.ceil((speedOf(r.sec) + 16 * 0.32 / 2 + 0.5) * 0.6) + 2);
       if (!t.hidden(i, r.h, ahead)) continue;
       hiddenRows++;
-      assert.ok(r.floor.every(Boolean) && !r.block.some(Boolean), `seed ${seed} row ${i}`);
+      assert.ok(r.road.every((on, l) => !on || r.floor[l]) && !r.block.some(Boolean), `seed ${seed} row ${i}`);
     }
   }
   assert.ok(hiddenRows > 20, `only ${hiddenRows} hidden rows: the check may not be wired in`);
+});
+
+test('the road splits now and then, and the path never runs into the gap or off the road', () => {
+  let splits = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const t = new Track(seed);
+    let inSplit = false;
+    for (let i = 0; i < SEC_ROWS * 20; i++) {
+      const r = t.get(i), split = !r.road[MID] && r.road[0];
+      if (split && !inSplit) splits++;
+      inSplit = split;
+      assert.ok(r.road[r.goal] && (r.floor[r.goal] || r.road.every((on, l) => !on || !r.floor[l])), `seed ${seed} row ${i}`);
+    }
+  }
+  assert.ok(splits >= 20, `only ${splits} splits on 20 tracks`);
 });

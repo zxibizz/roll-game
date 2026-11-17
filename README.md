@@ -6,7 +6,7 @@ Site: `https://roll.games.bubas.cc`.
 ## How it plays
 
 - The ball rolls forward by itself; drag a finger (or the mouse) left and right to steer, or use ← → / A D.
-- The track is 5 lanes wide and comes in sections of 48 rows. Every section has its own colour and is 6 % faster
+- The track is usually 5 lanes wide and comes in sections of 48 rows. Every section has its own colour and is 6 % faster
   (9 → 24 rows per second, the top speed from section 18). The first 8 rows of a section are free of obstacles; the first sections are sparse.
 - Hills: downhill speeds the ball up, uphill slows it down; on flat ground it settles back to the section's speed.
 - Ramps: a light tile with chevrons. Behind it a block wall or a gap spans the whole width — the only way over is to jump.
@@ -14,11 +14,13 @@ Site: `https://roll.games.bubas.cc`.
   in the air; its shadow shows where it lands.
 - Falling into a hole or off the edge, or hitting a block ends the run. The score is the number of rows covered;
   the best score is kept on the device (`localStorage`, key `roll.best`).
-- The road is a strip of grass with tufts and little flowers; where it is cut you see the earth. Holes are pits in the
-  ground, obstacles are rocks and bushes (the same box for hitting), ramps are wooden. The sky changes with the
-  distance: day, then sunset (from section 3), night (from section 5, the flowers glow) and open space with nebulas
-  and a ringed planet from section 10, where the grass turns teal. Speed lines show up at the screen edges on fast
-  sections.
+- The road is a strip of grass with wavy edges; it bends like a snake now and then (just the look: the ball keeps
+  to the road on its own). Sometimes it widens from 5 to 7 lanes and splits: the centre lane becomes a gap between
+  two 3-lane roads, and the safe path moves to one side beforehand. Holes are pits with ragged edges; ramps are wooden.
+- What stands on the road follows the sky: rocks and bushes of different shapes by day and at sunset; at night
+  (from section 5) Halloween — pumpkins with flickering faces, gravestones, dead trees, a waving skeleton, a swaying
+  zombie, fallen leaves and glowing toadstools; in space (from section 10) glowing crystals and alien mushrooms on
+  teal grass under nebulas and a ringed planet. They all move in place only; the hit box is the same block.
 - Obstacles stay sparse all the way: their density barely grows, the speed alone makes later sections harder, and
   there are empty stretches between patterns. Rows hidden behind a crest have no obstacles.
 - There are no words in the game, only numbers and icons, so there is nothing to translate.

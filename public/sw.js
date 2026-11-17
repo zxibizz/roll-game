@@ -1,7 +1,7 @@
 // Offline: every game file goes into the cache on install and is served from it from then on.
 // When any file in public/ changes, bump VERSION here and in core.js — otherwise devices stay on the old version.
 // A new version installs in the background and takes over the next time the game is opened.
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const CACHE = `roll-v${VERSION}`;
 const ASSETS = [
   './',
