@@ -10,11 +10,10 @@ const BEST_KEY = 'roll.best';
 const SENS = 6;                     // world units per full screen-width drag
 const SLAB = 0.35, VIEW = 46;       // track thickness, rows drawn ahead
 const CAM_H = 1.4, CAM_BACK = 1.9, PITCH = 0.5;
-const TRAIL = 9;                    // ball positions kept for the trail
 
 // mode: 'ready' | 'play' | 'pause' | 'over' (and 'shot' — frozen by the screenshot hook at the end);
 // the world has its own state inside a game
-let mode = 'ready', world = new World(1), parts = [], flash = null, trail = [];
+let mode = 'ready', world = new World(1), parts = [], flash = null;
 let camZ = 0, camX = 0, camY = 0, keyDir = 0, overlayAt = 0;
 let best = Number(localStorage.getItem(BEST_KEY)) || 0;
 
@@ -141,7 +140,7 @@ const theme = {
     side: (h, f) => hsl(h, P.blockS[2], P.blockL[2], f),
   },
   ramp: { top: (h, f) => hsl(h, P.rampS, P.rampL, f), side: (h, f) => hsl(h, 30, P.rampSideL, f), chev: (h, f) => hsl(h, 75, P.chevL, f) },
-  ball: { c: ['#fff1e6', '#ff8a5c', '#cf4b25'], band: 'rgba(255,255,255,.5)', glow: [255, 140, 90], trail: [255, 160, 120] },
+  ball: { c: ['#fff1e6', '#ff8a5c', '#cf4b25'], glow: [255, 140, 90] },
   get shadow() { return P.shadow.map(Math.round); },
   streak: [255, 255, 255],
 };
@@ -161,7 +160,7 @@ function setPhase(z) {
 // ---- Game flow ----
 function newGame() {
   world = new World((Math.random() * 1e9) | 0);
-  parts = []; flash = null; trail = []; camX = 0; camY = 0; camZ = world.ball.z - CAM_BACK;
+  parts = []; flash = null; camX = 0; camY = 0; camZ = world.ball.z - CAM_BACK;
   $score.textContent = '0'; $sec.textContent = '';
 }
 
@@ -205,15 +204,13 @@ function update(dt) {
   if (flash && (flash.t -= dt * 0.8) <= 0) flash = null;
 }
 
-// camera and trail follow the ball
+// the camera follows the ball
 function follow(dt) {
   const b = world.ball;
   if (world.state === 'run') {
     camZ = b.z - CAM_BACK;
     camY += (world.hAt(b.z) * 0.7 + world.hAt(b.z + 8) * 0.3 - camY) * Math.min(1, dt * 4);
-    trail.push({ x: b.x, y: b.y, z: b.z });
-    if (trail.length > TRAIL) trail.shift();
-  } else trail.length = 0;
+  }
   camX += (b.x * 0.85 - camX) * Math.min(1, dt * 5);
 }
 
@@ -341,11 +338,6 @@ function drawBall() {
     ctx.fillStyle = `rgba(${c},${0.38 * clamp(1 - up / 3, 0.25, 1)})`;
     ctx.beginPath(); ctx.ellipse(s[0], s[1], R * 1.15 * s[2], R * 0.45 * s[2], 0, 0, 7); ctx.fill();
   }
-  trail.forEach((p, i) => {   // a fading trail of past positions
-    const [tx, ty, ts] = proj(p.x, p.y, p.z), k = (i + 1) / trail.length;
-    ctx.fillStyle = `rgba(${T.trail},${0.1 * k})`;
-    ctx.beginPath(); ctx.arc(tx, ty, R * ts * (0.3 + 0.4 * k), 0, 7); ctx.fill();
-  });
   const [px, py, sc] = proj(b.x, b.y, b.z), r = R * sc;
   if (T.glow && P.glow > 0.01) {
     const gl = ctx.createRadialGradient(px, py, r * 0.8, px, py, r * 2.6);
@@ -355,13 +347,14 @@ function drawBall() {
   const gr = ctx.createRadialGradient(px - r * 0.35, py - r * 0.4, r * 0.1, px, py, r);
   gr.addColorStop(0, T.c[0]); gr.addColorStop(0.7, T.c[1]); gr.addColorStop(1, T.c[2]);
   ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.fill();
-  const a = b.roll % (Math.PI * 2), o = Math.cos(a);   // a band that rolls with the ball
-  if (Math.sin(a) > 0) {
-    ctx.save(); ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.clip();
-    ctx.strokeStyle = T.band; ctx.lineWidth = r * 0.22;
-    ctx.beginPath(); ctx.ellipse(px, py - o * r * 0.85, r, r * 0.25 * Math.sin(a), 0, 0, Math.PI); ctx.stroke();
-    ctx.restore();
-  }
+  // gloss: a soft highlight up-left and a faint rim of reflected light at the bottom
+  const hl = ctx.createRadialGradient(px - r * 0.38, py - r * 0.42, 0, px - r * 0.38, py - r * 0.42, r * 0.45);
+  hl.addColorStop(0, 'rgba(255,255,255,.85)'); hl.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = hl; ctx.beginPath(); ctx.arc(px - r * 0.38, py - r * 0.42, r * 0.45, 0, 7); ctx.fill();
+  ctx.save(); ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.clip();
+  ctx.strokeStyle = 'rgba(255,230,210,.35)'; ctx.lineWidth = r * 0.08;
+  ctx.beginPath(); ctx.arc(px, py - r * 0.06, r * 0.96, Math.PI * 0.2, Math.PI * 0.8); ctx.stroke();
+  ctx.restore();
 }
 
 // speed lines at the screen edges once the ball is fast
@@ -450,7 +443,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.ser
 
 // test hook for screenshots: jump the camera to row z of the given seed, driving the bot along the path
 window.__shot = (seed, z) => {
-  world = new World(seed); trail = []; mode = 'shot';
+  world = new World(seed); mode = 'shot';
   while (world.state === 'run' && world.ball.z < z) {
     world.ball.tx = world.autoTarget(); world.step(1 / 60); world.events.length = 0;
     follow(1 / 60);
