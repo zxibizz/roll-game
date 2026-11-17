@@ -349,6 +349,7 @@ function drawBall() {
     ctx.beginPath(); ctx.ellipse(s[0], s[1], R * 1.15 * s[2], R * 0.45 * s[2], 0, 0, 7); ctx.fill();
   }
   const [px, py, sc] = proj(b.x, b.y, b.z), r = R * sc;
+  if (!(sc > 0) || !Number.isFinite(px + py + r)) return;   // behind the camera: nothing to draw
   if (T.glow && P.glow > 0.01) {
     const gl = ctx.createRadialGradient(px, py, r * 0.8, px, py, r * 2.6);
     gl.addColorStop(0, `rgba(${T.glow},${0.55 * P.glow})`); gl.addColorStop(1, `rgba(${T.glow},0)`);
@@ -436,12 +437,17 @@ document.addEventListener('visibilitychange', () => {
 });
 
 let last = performance.now();
+// The next frame is requested first: an error in one frame must not stop the game for good.
 function frame(t) {
-  const dt = Math.min(1 / 30, (t - last) / 1000);
-  last = t;
-  update(dt);
-  draw();
   requestAnimationFrame(frame);
+  const dt = clamp((t - last) / 1000, 0, 1 / 30);
+  last = t;
+  try {
+    update(dt);
+    draw();
+  } catch (e) {
+    console.error(e);
+  }
 }
 addEventListener('resize', resize);
 resize();

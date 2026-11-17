@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.2.5';
+export const VERSION = '0.2.6';
 
 // ---- Tuning ----
 export const LANES = 5, HALF = LANES / 2;
@@ -228,6 +228,7 @@ export class World {
   }
 
   step(dt) {
+    if (!(dt > 0)) return;   // a repeated or backwards frame time must not divide by zero below
     const b = this.ball, t = this.track;
     if (this.state === 'run') {
       const sec = Math.floor(b.z / SEC_ROWS), target = speedOf(sec), rowPrev = Math.floor(b.z);
@@ -253,7 +254,12 @@ export class World {
         else {
           const yFree = b.y + b.vy * dt - G / 2 * dt * dt, yG = g + R;
           if (yFree > yG + 0.03) { b.air = true; b.airT = 0; b.fromRamp = false; b.vy -= G * dt; b.y = yFree; }
-          else { b.vy = (yG - b.y) / dt; b.y = yG; }
+          else {
+            // vertical speed from the slope under the ball, not from the height change this frame:
+            // a step in the ground (rolling onto a ramp from the side) must not turn into a launch
+            const slope = t.get(rz + 1).h - t.get(rz).h + (t.get(rz).ramp[lane] ? RAMP_H : 0);
+            b.vy = slope * this.v; b.y = yG;
+          }
         }
       } else {
         b.vy -= G * dt; b.y += b.vy * dt; b.airT += dt;

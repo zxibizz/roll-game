@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { World, Track, SEC_ROWS, LANES, VERSION } from '../public/core.js';
+import { World, Track, SEC_ROWS, LANES, VERSION, laneX } from '../public/core.js';
 
 const DT = 1 / 60;
 
@@ -90,4 +90,41 @@ test('sw.js caches every file in public/', () => {
   const root = new URL('../public/', import.meta.url);
   const files = fs.readdirSync(root, { recursive: true }).filter((f) => fs.statSync(new URL(f, root)).isFile() && f !== 'sw.js');
   for (const f of files) assert.ok(sw.includes(`'${f}'`), `${f} is not in ASSETS`);
+});
+
+// Regression: rolling onto a ramp from the side used to turn the step in the ground into a vertical
+// speed of step / dt and launch the ball tens of rows up (behind the camera, the page froze).
+test('rolling onto a ramp from the side does not launch the ball', () => {
+  for (const dt of [1 / 60, 1 / 120]) {
+    let tried = 0, worst = 0;
+    for (let seed = 1; seed <= 120; seed++) {
+      const t = new Track(seed);
+      let i = 20, l = -1;
+      for (; i < SEC_ROWS * 10; i++) {
+        const r = t.get(i);
+        l = r.ramp.findIndex((x, k) => x && k + 1 < LANES && !r.ramp[k + 1] && r.floor[k + 1]);
+        if (l >= 0) break;
+      }
+      if (l < 0) continue;
+      const w0 = new World(seed);
+      while (w0.state === 'run' && w0.ball.z < i - 3) { w0.ball.tx = w0.autoTarget(); w0.step(dt); }
+      if (w0.state !== 'run') continue;
+      for (let off = -1.2; off <= 0.4; off += 0.1) {
+        const w = new World(seed);
+        w.ball = { ...w0.ball, x: laneX(l + 1), tx: laneX(l + 1) }; w.v = w0.v; w.sec = w0.sec;
+        while (w.state === 'run' && w.ball.z < i + off) w.step(dt);
+        w.ball.tx = laneX(l);
+        for (let n = 0; n < 200 && w.state === 'run'; n++) { w.step(dt); worst = Math.max(worst, w.ball.y - w.hAt(w.ball.z)); }
+        tried++;
+      }
+    }
+    assert.ok(tried > 50, `only ${tried} side entries tried`);
+    assert.ok(worst < 1.5, `dt 1/${Math.round(1 / dt)}: the ball went ${worst.toFixed(1)} above the ground`);
+  }
+});
+
+test('a zero or negative frame time changes nothing and leaves no NaN', () => {
+  const w = new World(9);
+  for (let n = 0; n < 300; n++) { w.ball.tx = w.autoTarget(); w.step(n % 7 === 0 ? 0 : n % 11 === 0 ? -0.01 : 1 / 60); }
+  for (const k of ['x', 'y', 'z', 'vy']) assert.ok(Number.isFinite(w.ball[k]), `ball.${k} = ${w.ball[k]}`);
 });
