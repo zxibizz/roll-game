@@ -1,6 +1,6 @@
 // The page: draws the world from core.js in a hand-rolled perspective, reads the finger / mouse / keys,
 // shows the score and the play / game-over screen. The sky goes from day to night to space with the distance.
-import { World, LANES, HALF, SEC_ROWS, R, INSET, BOX_H, RAMP_H, laneX, clamp, mulberry } from './core.js';
+import { World, LANES, HALF, SEC_ROWS, R, INSET, BOX_H, RAMP_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
 
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 const $score = document.getElementById('score'), $sec = document.getElementById('sec');
@@ -9,7 +9,7 @@ const $over = document.getElementById('over'), $oscore = document.getElementById
 const BEST_KEY = 'roll.best';
 const SENS = 6;                     // world units per full screen-width drag
 const SLAB = 0.35, VIEW = 46;       // track thickness, rows drawn ahead
-const CAM_H = 1.4, CAM_BACK = 1.9, PITCH = 0.5;
+const PITCH = 0.5;
 
 // mode: 'ready' | 'play' | 'pause' | 'over' (and 'shot' — frozen by the screenshot hook at the end);
 // the world has its own state inside a game
@@ -131,7 +131,7 @@ const theme = {
       ctx.globalAlpha = 1;
     }
   },
-  floor: (h, f, par, lit) => hsl(h, P.floorS, clamp(P.floorL[par ? 0 : 1] + lit * P.litK, 8, 95), f),
+  floor: (h, f, lane, row, lit) => hsl(h, P.floorS, clamp(P.floorL[lane] + row + lit * P.litK, 8, 95), f),
   slab: (h, f, front) => hsl(h, 35, P.slabL[front ? 1 : 0], f),
   pit: (h, f, up) => hsl(h, P.pitS, P.pitL + up, f),
   rim: (h, f) => hsl(h, P.rimS, P.rimL, f),
@@ -210,7 +210,9 @@ function follow(dt) {
   const b = world.ball;
   if (world.state === 'run') {
     camZ = b.z - CAM_BACK;
-    camY += (world.hAt(b.z) * 0.7 + world.hAt(b.z + 8) * 0.3 - camY) * Math.min(1, dt * 4);
+    // never below the road under the ball (the generator counts on that to know what can be seen);
+    // a little higher when the road ahead climbs, to look over the crest
+    camY = world.hAt(b.z) + Math.max(0, world.hAt(b.z + 6) - world.hAt(b.z)) * 0.3;
   }
   camX += (b.x * 0.85 - camX) * Math.min(1, dt * 5);
 }
@@ -273,6 +275,8 @@ function drawRow(rz) {
   const fog = clamp(((zA + zB) / 2 - camZ - 12) / (VIEW - 12), 0, 1);
   const hue = secHue(row.sec), prev = rz > 0 ? track.get(rz - 1) : null;
   const lit = slope * 22;   // uphill faces the camera and looks brighter
+  // rows alternate only faintly near the camera: there they rush past and a full checker flickers
+  const rowShade = (rz & 1 ? -1 : 1) * 1.5 * clamp((zA - camZ - 4) / 8, 0.15, 1);
   const px = proj(0, hA, (zA + zB) / 2)[2];   // pixels per world unit at this row
   // holes: the opening is filled dark at road level and the far wall shows its depth, so a hole reads
   // against any sky even at the low camera angle
@@ -292,7 +296,7 @@ function drawRow(rz) {
       quad(proj(x1, hA, zA), proj(x1, hB, zB), proj(x1, hB - SLAB, zB), proj(x1, hA - SLAB, zA), T.slab(hue, fog, false));
     if (zA === rz && (!prev || !prev.floor[l]))
       quad(proj(x0, hA, rz), proj(x1, hA, rz), proj(x1, hA - SLAB, rz), proj(x0, hA - SLAB, rz), T.slab(hue, fog, true));
-    quad(proj(x0, hA, zA), proj(x1, hA, zA), proj(x1, hB, zB), proj(x0, hB, zB), T.floor(hue, fog, (l + rz) & 1, lit));
+    quad(proj(x0, hA, zA), proj(x1, hA, zA), proj(x1, hB, zB), proj(x0, hB, zB), T.floor(hue, fog, l & 1, rowShade, lit));
   }
   // bright rims along the outer edges and along hole edges
   for (let l = 0; l < LANES; l++) {

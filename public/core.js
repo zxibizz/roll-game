@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.2.6';
+export const VERSION = '0.2.7';
 
 // ---- Tuning ----
 export const LANES = 5, HALF = LANES / 2;
@@ -18,6 +18,12 @@ const DRIVE = 2;                 // how fast the speed returns to the section's 
 const GS = 16;                   // how much a slope speeds up / slows down the ball
 const SMAX = 0.32;               // steepest slope the terrain generator makes
 const JUMP_VY = 7;               // vertical speed a ramp gives
+// Steering: the ball has sideways inertia. It speeds up towards the finger's target and slows down
+// near it; STEER_LAG is roughly how much later than an instant move it arrives.
+const STEER_K = 12, STEER_ACC = 10, STEER_LAG = 1 / STEER_K + 1 / STEER_ACC;
+// The camera (client.js draws with these): it sits CAM_BACK rows behind the ball, CAM_H above the road.
+export const CAM_H = 1.4, CAM_BACK = 1.9;
+const SEE_AHEAD = 0.6;           // seconds of warning: an obstacle must be visible this long before the ball gets there
 const LEAD = 6;                  // flat rows needed before a jump, so the speed is predictable
 const SPEED_TOL = 0.25;          // speed spread the jump planner allows for
 
@@ -117,7 +123,7 @@ export class Track {
 
   gen() {
     const i = this.rows.length, r = this.r, sec = Math.floor(i / SEC_ROWS), k = i % SEC_ROWS;
-    const v = speedOf(sec), vhi = v + GS * SMAX / DRIVE + 0.5, m = Math.ceil(vhi / latOf(vhi)) + 1;
+    const v = speedOf(sec), vhi = v + GS * SMAX / DRIVE + 0.5, m = Math.ceil(vhi * (1 / latOf(vhi) + STEER_LAG)) + 1;
     const inJump = this.pat === 'jump' && this.pi < this.plen;   // a jump may run into the next section
     const open = i < START_OPEN || (k < BREATH && !inJump);
     const floor = Array(LANES).fill(true), block = Array(LANES).fill(false);
@@ -143,17 +149,20 @@ export class Track {
         this.to = this.path + d; this.left = m - 1; safe[this.to] = true;
       }
     }
+    // a row hidden behind a crest until the last moment gets no obstacles
+    const hidden = this.hidden(i, h, Math.max(5, Math.ceil(vhi * SEE_AHEAD) + 2));
     if (jumping) {
       const J = this.jump, j = this.pi++, d = j - J.rampAt - 1;
       for (let l = 0; l < LANES; l++) {
         if (j === J.rampAt && J.ramps.includes(l)) ramp[l] = true;
+        if (hidden) continue;
         if (J.kind === 'wall' && J.rows.includes(d)) block[l] = true;
         if (J.kind === 'gap' && d >= 0 && d <= J.gEnd) floor[l] = false;
       }
     } else if (!open) {
       const dens = Math.min(0.6, 0.12 + sec * 0.035), j = this.pi++;
       for (let l = 0; l < LANES; l++) {
-        if (safe[l]) continue;
+        if (safe[l] || hidden) continue;
         const x = r();
         switch (this.pat) {
           case 'scatter': if (x < dens * 0.45) floor[l] = false; else if (x < dens) block[l] = true; break;
@@ -166,6 +175,20 @@ export class Track {
     }
     this.rows.push({ floor, block, ramp, h, sec, goal: this.to >= 0 ? this.to : this.path });
   }
+
+  // Can the camera see the start of row i (height h) while the ball is still `ahead` rows before it?
+  // The eye is CAM_BACK behind and CAM_H above the road under the ball; any row in between that rises
+  // above the line of sight (a crest) hides row i.
+  hidden(i, h, ahead) {
+    const e = i - ahead;
+    if (e < 1) return false;
+    const ez = e - CAM_BACK, ey = this.rows[e].h + CAM_H;
+    for (let j = e + 1; j < i; j++) {
+      const sight = ey + (h - ey) * (j - ez) / (i - ez);
+      if (this.rows[j].h > sight + 0.02) return true;
+    }
+    return false;
+  }
 }
 
 // ---- World ----
@@ -174,7 +197,7 @@ export class Track {
 export class World {
   constructor(seed) {
     this.track = new Track(seed);
-    this.ball = { x: 0, y: R, vy: 0, z: 2, tx: 0, roll: 0, fallRow: 0, air: false, airT: 0, fromRamp: false };
+    this.ball = { x: 0, vx: 0, y: R, vy: 0, z: 2, tx: 0, roll: 0, fallRow: 0, air: false, airT: 0, fromRamp: false };
     this.v = speedOf(0);
     this.state = 'run';
     this.sec = 0;
@@ -237,8 +260,9 @@ export class World {
         this.v = Math.max(2.5, this.v + (DRIVE * (target - this.v) - GS * s) * dt);
       }
       b.z += this.v * dt; b.roll += this.v * dt / R;
-      const L = latOf(this.v);
-      b.x += clamp(b.tx - b.x, -L * dt, L * dt);
+      const L = latOf(this.v), want = clamp((b.tx - b.x) * STEER_K, -L, L);
+      b.vx += (want - b.vx) * Math.min(1, dt * STEER_ACC);
+      b.x += b.vx * dt;
       if (sec !== this.sec) { this.sec = sec; this.events.push('section'); }
       const lane = Math.floor(b.x + HALF), rz = Math.floor(b.z);
       const g = this.groundAt(b.x, b.z);

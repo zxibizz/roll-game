@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { World, Track, SEC_ROWS, LANES, VERSION, laneX } from '../public/core.js';
+import { World, Track, SEC_ROWS, LANES, VERSION, laneX, speedOf } from '../public/core.js';
 
 const DT = 1 / 60;
 
@@ -127,4 +127,19 @@ test('a zero or negative frame time changes nothing and leaves no NaN', () => {
   const w = new World(9);
   for (let n = 0; n < 300; n++) { w.ball.tx = w.autoTarget(); w.step(n % 7 === 0 ? 0 : n % 11 === 0 ? -0.01 : 1 / 60); }
   for (const k of ['x', 'y', 'z', 'vy']) assert.ok(Number.isFinite(w.ball[k]), `ball.${k} = ${w.ball[k]}`);
+});
+
+test('rows hidden behind a crest have no obstacles', () => {
+  let hiddenRows = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const t = new Track(seed);
+    for (let i = 30; i < SEC_ROWS * 20; i++) {
+      const r = t.get(i);
+      const ahead = Math.max(5, Math.ceil((speedOf(r.sec) + 16 * 0.32 / 2 + 0.5) * 0.6) + 2);
+      if (!t.hidden(i, r.h, ahead)) continue;
+      hiddenRows++;
+      assert.ok(r.floor.every(Boolean) && !r.block.some(Boolean), `seed ${seed} row ${i}`);
+    }
+  }
+  assert.ok(hiddenRows > 20, `only ${hiddenRows} hidden rows: the check may not be wired in`);
 });
