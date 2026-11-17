@@ -9,7 +9,7 @@ const $over = document.getElementById('over'), $oscore = document.getElementById
 const BEST_KEY = 'roll.best';
 const SENS = 6;                     // world units per full screen-width drag
 const SLAB = 0.35, VIEW = 46;       // track thickness, rows drawn ahead
-const CAM_H = 4.6, CAM_BACK = 6.5, PITCH = 0.5;
+const CAM_H = 2.8, CAM_BACK = 3.8, PITCH = 0.5;
 const TRAIL = 9;                    // ball positions kept for the trail
 
 // mode: 'ready' | 'play' | 'pause' | 'over' (and 'shot' — frozen by the screenshot hook at the end);
@@ -232,9 +232,9 @@ function resize() {
   W = cv.width = Math.round(innerWidth * dpr);
   H = cv.height = Math.round(innerHeight * dpr);
   f = Math.min(W * 1.2, H * 0.9);
-  // the ball's contact point sits at 76 % of the height on flat ground
+  // the ball's contact point sits at 80 % of the height on flat ground
   const dz = CAM_BACK, dy = -CAM_H, zc = dz * CP - dy * SP, yc = dy * CP + dz * SP;
-  cy = H * 0.76 + f * yc / zc;
+  cy = H * 0.8 + f * yc / zc;
   horY = cy - f * SP / CP;
   stars = document.createElement('canvas'); stars.width = W; stars.height = H;
   const s = stars.getContext('2d'), rr = mulberry(7);
