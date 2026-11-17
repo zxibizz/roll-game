@@ -14,6 +14,9 @@ Site: `https://roll.games.bubas.cc`.
   in the air; its shadow shows where it lands.
 - Falling into a hole or off the edge, or hitting a block ends the run. The score is the number of rows covered;
   the best score is kept on the device (`localStorage`, key `roll.best`).
+- The sky changes with the distance: day, then sunset (from section 3), night (from section 5) and open space
+  with nebulas and a ringed planet from section 10. The ball leaves a short trail, the track and hole edges have
+  light rims, and speed lines show up at the screen edges on fast sections.
 - There are no words in the game, only numbers and icons, so there is nothing to translate.
 
 ## Track generator

@@ -1,5 +1,5 @@
 // The page: draws the world from core.js in a hand-rolled perspective, reads the finger / mouse / keys,
-// shows the score and the play / game-over screen. Looks come from a theme (?theme=space|neon|day|mono).
+// shows the score and the play / game-over screen. The sky goes from day to night to space with the distance.
 import { World, LANES, HALF, SEC_ROWS, R, INSET, BOX_H, RAMP_H, laneX, clamp, mulberry } from './core.js';
 
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
@@ -33,119 +33,128 @@ const grad = (y0, y1, stops) => {
   return g;
 };
 
-// ---- Themes ----
-// sky(hue, horY) draws the background; colour functions take (hue, fog 0..1).
-const THEMES = {
-  space: {
-    fog: [5, 6, 13], hud: '#fff', overlay: 'rgba(5,6,13,.5)',
-    sky(hue, horY) {
-      ctx.fillStyle = '#05060d'; ctx.fillRect(0, 0, W, H);
-      nebula(W * 0.22, horY - H * 0.16, W * 0.7, hsl(hue, 70, 35), 0.45);
-      nebula(W * 0.85, horY - H * 0.32, W * 0.5, hsl(hue + 70, 70, 35), 0.35);
-      drawStars(1);
-      // a planet low over the horizon
+// ---- Sky cycle ----
+// One look that changes with the distance: day → sunset → night → space. PAL holds the key frames,
+// PHASE_AT says at which section each one is fully reached; in between everything is blended.
+const PAL = [
+  { // day
+    sky: [[111, 177, 242], [169, 211, 251], [226, 240, 255]], fog: [226, 240, 255],
+    floorS: 55, floorL: [78, 84], litK: 0.6, slabL: [60, 66], rimS: 60, rimL: 96,
+    blockS: [80, 65, 55], blockL: [70, 60, 51], rampS: 20, rampL: 99, rampSideL: 82, chevL: 62,
+    shadow: [40, 70, 130], hud: 0, stars: 0, space: 0, moon: 0,
+    sunA: 1, sunH: 0.22, sunC: [255, 253, 240], sunR: 0.06, clouds: 1, cloudC: [255, 255, 255], glow: 0,
+  },
+  { // sunset
+    sky: [[51, 64, 126], [201, 112, 143], [255, 195, 138]], fog: [255, 200, 165],
+    floorS: 50, floorL: [60, 66], litK: 0.7, slabL: [40, 46], rimS: 70, rimL: 88,
+    blockS: [75, 62, 52], blockL: [66, 56, 47], rampS: 25, rampL: 96, rampSideL: 72, chevL: 58,
+    shadow: [60, 20, 60], hud: 0.8, stars: 0.15, space: 0, moon: 0,
+    sunA: 1, sunH: 0.03, sunC: [255, 170, 100], sunR: 0.09, clouds: 0.85, cloudC: [255, 205, 215], glow: 0.25,
+  },
+  { // night: stars and a hint of space up top
+    sky: [[6, 10, 34], [17, 28, 74], [38, 52, 110]], fog: [26, 36, 84],
+    floorS: 45, floorL: [30, 35], litK: 1, slabL: [14, 18], rimS: 80, rimL: 70,
+    blockS: [65, 62, 60], blockL: [62, 50, 40], rampS: 30, rampL: 88, rampSideL: 60, chevL: 55,
+    shadow: [0, 0, 0], hud: 1, stars: 0.85, space: 0.3, moon: 1,
+    sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0.2, cloudC: [60, 72, 130], glow: 0.6,
+  },
+  { // space
+    sky: [[5, 6, 13], [5, 6, 13], [5, 6, 13]], fog: [5, 6, 13],
+    floorS: 42, floorL: [31, 36], litK: 1, slabL: [16, 20], rimS: 75, rimL: 72,
+    blockS: [65, 62, 60], blockL: [63, 50, 40], rampS: 30, rampL: 90, rampSideL: 62, chevL: 55,
+    shadow: [0, 0, 0], hud: 1, stars: 1, space: 1, moon: 0,
+    sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0, cloudC: [60, 72, 130], glow: 0.6,
+  },
+];
+const PHASE_AT = [2.5, 4.5, 7, 10];   // sections where day, sunset, night and space are fully in
+
+const mix = (a, b, t) => (Array.isArray(a) ? a.map((v, i) => mix(v, b[i], t)) : a + (b - a) * t);
+function phaseAt(z) {
+  const s = z / SEC_ROWS;
+  for (let i = 0; i < PHASE_AT.length - 1; i++) {
+    if (s < PHASE_AT[i + 1]) {
+      const t = clamp((s - PHASE_AT[i]) / (PHASE_AT[i + 1] - PHASE_AT[i]), 0, 1);
+      return i + t * t * (3 - 2 * t);
+    }
+  }
+  return PAL.length - 1;
+}
+function paletteAt(k) {
+  const i = Math.min(PAL.length - 2, Math.floor(k)), t = k - i, a = PAL[i], b = PAL[i + 1], out = {};
+  for (const key in a) out[key] = mix(a[key], b[key], t);
+  return out;
+}
+const css = (c, a = 1) => `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${a})`;
+let P = PAL[0], hudDark = null;
+
+const theme = {
+  sky(hue, horY) {
+    ctx.fillStyle = grad(0, horY, P.sky.map((c) => css(c))); ctx.fillRect(0, 0, W, horY + 1);
+    ctx.fillStyle = css(P.fog); ctx.fillRect(0, horY, W, H - horY);
+    if (P.stars > 0.01) drawStars(P.stars, horY + (H - horY) * P.space);
+    if (P.space > 0.01) {
+      nebula(W * 0.22, horY - H * 0.16, W * 0.7, hsl(hue, 70, 35), 0.45 * P.space);
+      nebula(W * 0.85, horY - H * 0.32, W * 0.5, hsl(hue + 70, 70, 35), 0.35 * P.space);
+    }
+    if (P.space > 0.6) {   // a ringed planet once it is properly space
+      ctx.globalAlpha = (P.space - 0.6) / 0.4;
       const px = W * 0.78 - camX * 4 * dpr, py = horY - H * 0.1, pr = Math.min(W, H) * 0.09;
       const g = ctx.createRadialGradient(px - pr * 0.4, py - pr * 0.4, pr * 0.1, px, py, pr);
       g.addColorStop(0, hsl(hue + 140, 45, 70)); g.addColorStop(1, hsl(hue + 140, 45, 18));
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(px, py, pr, 0, 7); ctx.fill();
-      ctx.strokeStyle = hsl(hue + 140, 40, 70); ctx.globalAlpha = 0.5; ctx.lineWidth = pr * 0.06;
+      ctx.strokeStyle = hsl(hue + 140, 40, 70); ctx.globalAlpha *= 0.5; ctx.lineWidth = pr * 0.06;
       ctx.beginPath(); ctx.ellipse(px, py, pr * 1.7, pr * 0.35, -0.25, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
-    },
-    floor: (h, f, par, lit) => hsl(h, 42, clamp((par ? 31 : 36) + lit, 12, 60), f),
-    slab: (h, f, front) => hsl(h, 35, front ? 20 : 16, f),
-    rim: (h, f) => hsl(h, 75, 72, f), rimGlow: false, grid: null,
-    blockHue: (h) => (h + 170) % 360,
-    block: { top: (h, f) => hsl(h, 65, 63, f), front: (h, f) => hsl(h, 62, 50, f), side: (h, f) => hsl(h, 60, 40, f), edge: null },
-    ramp: { top: (h, f) => hsl(h, 30, 90, f), side: (h, f) => hsl(h, 25, 62, f), chev: (h, f) => hsl(h, 70, 55, f) },
-    ball: { c: ['#ffffff', '#d8dcf0', '#8a90b0'], band: 'rgba(90,100,150,.55)', glow: null, trail: [220, 225, 255] },
-    shadow: [0, 0, 0], streak: [255, 255, 255],
-  },
-  neon: {
-    fog: [36, 8, 58], hud: '#fff', overlay: 'rgba(11,2,33,.55)',
-    sky(hue, horY) {
-      ctx.fillStyle = grad(0, horY, ['#0b0221', '#24073f', '#4a0d5e']); ctx.fillRect(0, 0, W, horY + 1);
-      drawStars(0.5, horY);
-      // striped sun sitting on the horizon
-      const sx = W / 2 - camX * 3 * dpr, r = Math.min(W, H) * 0.2;
-      ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, horY); ctx.clip();
-      ctx.fillStyle = grad(horY - r, horY, ['#ffe066', '#ff5fa2', '#c4157a']);
-      ctx.beginPath(); ctx.arc(sx, horY, r, Math.PI, 0); ctx.fill();
-      ctx.fillStyle = '#3a0b52';
-      for (let k = 0; k < 6; k++) { const y = horY - r * (0.08 + k * 0.11); ctx.fillRect(sx - r, y, 2 * r, r * 0.02 * (6 - k)); }
-      ctx.restore();
-      // the ground below: a dark plane with a magenta grid
-      ctx.fillStyle = grad(horY, H, ['#2a0844', '#0b0221']); ctx.fillRect(0, horY, W, H - horY);
-      ctx.strokeStyle = '#ff3ea5'; ctx.lineWidth = Math.max(1, dpr);
-      const GY = camY - 4;
-      for (let z = Math.ceil(camZ / 3) * 3; z < camZ + VIEW * 1.5; z += 3) {
-        const p = proj(0, GY, z); if (p[2] <= 0) continue;
-        ctx.globalAlpha = clamp(0.6 - (z - camZ) / (VIEW * 1.5), 0, 0.6);
-        ctx.beginPath(); ctx.moveTo(0, p[1]); ctx.lineTo(W, p[1]); ctx.stroke();
-      }
-      ctx.globalAlpha = 0.35;
-      for (let x = -40; x <= 40; x += 3) {
-        const a = proj(x, GY, camZ + 1.2), b = proj(x, GY, camZ + VIEW * 1.5);
-        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
-      }
+    }
+    if (P.moon > 0.01) {   // a crescent moon
+      const mx = W * 0.24 - camX * 3 * dpr, my = horY - H * 0.3, mr = Math.min(W, H) * 0.05;
+      ctx.globalAlpha = P.moon; ctx.fillStyle = '#f4f1de'; ctx.beginPath(); ctx.arc(mx, my, mr, 0, 7); ctx.fill();
+      ctx.fillStyle = css(P.sky[0]); ctx.beginPath(); ctx.arc(mx + mr * 0.45, my - mr * 0.2, mr * 0.85, 0, 7); ctx.fill();
       ctx.globalAlpha = 1;
-    },
-    floor: (h, f, par, lit) => hsl(h, 55, clamp((par ? 7 : 9) + lit * 0.3, 3, 20), f),
-    slab: (h, f) => hsl(h, 60, 5, f),
-    rim: (h, f) => hsl(h, 100, 66, f), rimGlow: true,
-    grid: (h, f) => hsl(h, 100, 60, f),
-    blockHue: (h) => (h + 170) % 360,
-    block: { top: (h, f) => hsl(h, 60, 16, f), front: (h, f) => hsl(h, 60, 11, f), side: (h, f) => hsl(h, 60, 8, f), edge: (h, f) => hsl(h, 100, 62, f) },
-    ramp: { top: (h, f) => hsl(55, 50, 14, f), side: (h, f) => hsl(55, 50, 9, f), chev: (h, f) => hsl(55, 100, 62, f) },
-    ball: { c: ['#ffffff', '#c9f6ff', '#38bdf8'], band: 'rgba(14,90,140,.5)', glow: [56, 189, 248], trail: [56, 189, 248] },
-    shadow: [0, 0, 0], streak: [255, 120, 210],
-  },
-  day: {
-    fog: [226, 240, 255], hud: '#1d2433', overlay: 'rgba(226,240,255,.6)',
-    sky(hue, horY) {
-      ctx.fillStyle = grad(0, horY, ['#6fb1f2', '#a9d3fb', '#e2f0ff']); ctx.fillRect(0, 0, W, horY + 1);
-      ctx.fillStyle = '#e2f0ff'; ctx.fillRect(0, horY, W, H - horY);
-      const sx = W * 0.8 - camX * 3 * dpr, sy = horY - H * 0.22, sr = Math.min(W, H) * 0.06;
+    }
+    if (P.sunA > 0.01) {   // the sun goes down towards the horizon and sets
+      const sx = W * 0.78 - camX * 3 * dpr, sy = horY - P.sunH * H, sr = Math.min(W, H) * P.sunR;
+      ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, horY); ctx.clip(); ctx.globalAlpha = P.sunA;
       const g = ctx.createRadialGradient(sx, sy, sr * 0.6, sx, sy, sr * 3);
-      g.addColorStop(0, 'rgba(255,250,220,1)'); g.addColorStop(0.3, 'rgba(255,245,200,.5)'); g.addColorStop(1, 'rgba(255,245,200,0)');
+      g.addColorStop(0, css(P.sunC, 1)); g.addColorStop(0.3, css(P.sunC, 0.45)); g.addColorStop(1, css(P.sunC, 0));
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, sr * 3, 0, 7); ctx.fill();
-      ctx.fillStyle = '#fffdf0'; ctx.beginPath(); ctx.arc(sx, sy, sr, 0, 7); ctx.fill();
-      const rr = mulberry(3);   // clouds, above and below the horizon
+      ctx.fillStyle = css(mix(P.sunC, [255, 255, 255], 0.5)); ctx.beginPath(); ctx.arc(sx, sy, sr, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+    if (P.clouds > 0.01) {   // clouds, above and below the horizon
+      const rr = mulberry(3);
       for (let n = 0; n < 9; n++) {
         const cx = ((rr() * 1.6 - 0.3) * W - camX * (2 + n) * dpr) % (W * 1.6), cy = horY + (rr() - 0.65) * H * 0.5, s = (0.05 + rr() * 0.06) * W;
-        ctx.globalAlpha = cy > horY ? 0.55 : 0.85; ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = P.clouds * (cy > horY ? 0.55 : 0.85); ctx.fillStyle = css(P.cloudC);
         for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.ellipse(cx + (k - 1.5) * s * 0.7, cy - (k % 2) * s * 0.25, s * 0.6, s * 0.38, 0, 0, 7); ctx.fill(); }
       }
       ctx.globalAlpha = 1;
-    },
-    floor: (h, f, par, lit) => hsl(h, 55, clamp((par ? 78 : 84) + lit * 0.6, 55, 95), f),
-    slab: (h, f, front) => hsl(h, 35, front ? 66 : 60, f),
-    rim: (h, f) => hsl(h, 60, 96, f), rimGlow: false, grid: null,
-    blockHue: (h) => (h + 170) % 360,
-    block: { top: (h, f) => hsl(h, 80, 70, f), front: (h, f) => hsl(h, 65, 60, f), side: (h, f) => hsl(h, 55, 51, f), edge: null },
-    ramp: { top: (h, f) => hsl(h, 20, 99, f), side: (h, f) => hsl(h, 30, 82, f), chev: (h, f) => hsl(h, 75, 62, f) },
-    ball: { c: ['#fff1e6', '#ff8a5c', '#cf4b25'], band: 'rgba(255,255,255,.5)', glow: null, trail: [255, 160, 120] },
-    shadow: [40, 70, 130], streak: [255, 255, 255],
+    }
   },
-  mono: {
-    fog: [18, 18, 22], hud: '#fff', overlay: 'rgba(15,15,18,.55)',
-    sky(hue, horY) {
-      ctx.fillStyle = grad(0, H, ['#0d0d10', '#17171c', '#0d0d10']); ctx.fillRect(0, 0, W, H);
-    },
-    floor: (h, f, par, lit) => hsl(230, 6, clamp((par ? 80 : 86) + lit * 0.6, 50, 96), f),
-    slab: (h, f, front) => hsl(230, 6, front ? 42 : 34, f),
-    rim: (h, f) => hsl(h, 85, 58, f), rimGlow: false, grid: null,
-    blockHue: () => 6,
-    block: { top: (h, f) => hsl(h, 90, 66, f), front: (h, f) => hsl(h, 75, 55, f), side: (h, f) => hsl(h, 65, 44, f), edge: null },
-    ramp: { top: (h, f) => hsl(217, 90, 60, f), side: (h, f) => hsl(217, 70, 42, f), chev: (h, f) => hsl(0, 0, 100, f) },
-    ball: { c: ['#8a8a96', '#2b2b33', '#0b0b0e'], band: 'rgba(255,255,255,.28)', glow: null, trail: [140, 140, 155] },
-    shadow: [0, 0, 0], streak: [255, 255, 255],
+  floor: (h, f, par, lit) => hsl(h, P.floorS, clamp(P.floorL[par ? 0 : 1] + lit * P.litK, 8, 95), f),
+  slab: (h, f, front) => hsl(h, 35, P.slabL[front ? 1 : 0], f),
+  rim: (h, f) => hsl(h, P.rimS, P.rimL, f), rimGlow: false, grid: null,
+  blockHue: (h) => (h + 170) % 360,
+  block: {
+    top: (h, f) => hsl(h, P.blockS[0], P.blockL[0], f), front: (h, f) => hsl(h, P.blockS[1], P.blockL[1], f),
+    side: (h, f) => hsl(h, P.blockS[2], P.blockL[2], f), edge: null,
   },
+  ramp: { top: (h, f) => hsl(h, P.rampS, P.rampL, f), side: (h, f) => hsl(h, 30, P.rampSideL, f), chev: (h, f) => hsl(h, 75, P.chevL, f) },
+  ball: { c: ['#fff1e6', '#ff8a5c', '#cf4b25'], band: 'rgba(255,255,255,.5)', glow: [255, 140, 90], trail: [255, 160, 120] },
+  get shadow() { return P.shadow.map(Math.round); },
+  streak: [255, 255, 255],
 };
-const themeName = new URLSearchParams(location.search).get('theme');
-const theme = THEMES[themeName] || THEMES.space;
-FOG = theme.fog;
-document.body.style.color = theme.hud;
-$over.style.background = theme.overlay;
+
+// blend the palette for the current distance; the HUD turns light once the sky is dark
+function setPhase(z) {
+  P = paletteAt(phaseAt(z));
+  FOG = P.fog;
+  const dark = P.hud < 0.5;
+  if (dark !== hudDark) {
+    hudDark = dark;
+    document.body.style.color = dark ? '#1d2433' : '#fff';
+  }
+  $over.style.background = css(P.fog, 0.55);
+}
 
 // ---- Game flow ----
 function newGame() {
@@ -344,9 +353,9 @@ function drawBall() {
     ctx.beginPath(); ctx.arc(tx, ty, R * ts * (0.45 + 0.5 * k), 0, 7); ctx.fill();
   });
   const [px, py, sc] = proj(b.x, b.y, b.z), r = R * sc;
-  if (T.glow) {
+  if (T.glow && P.glow > 0.01) {
     const gl = ctx.createRadialGradient(px, py, r * 0.8, px, py, r * 2.6);
-    gl.addColorStop(0, `rgba(${T.glow},.55)`); gl.addColorStop(1, `rgba(${T.glow},0)`);
+    gl.addColorStop(0, `rgba(${T.glow},${0.55 * P.glow})`); gl.addColorStop(1, `rgba(${T.glow},0)`);
     ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(px, py, r * 2.6, 0, 7); ctx.fill();
   }
   const gr = ctx.createRadialGradient(px - r * 0.35, py - r * 0.4, r * 0.1, px, py, r);
@@ -377,6 +386,7 @@ function drawStreaks() {
 
 function draw() {
   const hue = secHue(Math.floor(Math.max(0, camZ + CAM_BACK) / SEC_ROWS));
+  setPhase(camZ + CAM_BACK);
   theme.sky(hue, horY);
   const near = Math.max(0, Math.floor(camZ + 0.4)), far = Math.floor(camZ) + VIEW;
   const ballRow = world.state === 'fall' ? world.ball.fallRow : Math.floor(world.ball.z);
