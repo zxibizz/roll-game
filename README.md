@@ -62,9 +62,10 @@ Site: `https://roll.games.bubas.cc`.
   like snow or bubbles it leaves out are off), and an entry under that name in
   `MOVERS`, `SIDE`, `FLY` and `OBSTACLES` in `client.js` (checked when the page starts); the lengths and speeds need
   no change. The last name stays `glitch`: the end of the world, where it all comes apart. It has nothing of its
-  own. Every dozen or two rows of its road are a patch of another biome (`patchAt`: that biome's ground, obstacles
-  and walker; a cyan and magenta seam between two patches), every island beside it and everything in its air is from
-  anywhere, and its sky is in shards, each a piece of another biome's sky, with a sun, a moon, a rainbow, northern
+  own to stand on its road: obstacles, walkers, islands and what flies by are taken from all the other biomes
+  (and wear its colours). Its ground is its own: violet tiles whose colour wanders along and across the road
+  (`glitchHue`; always about as light, so nothing flickers at speed), bright cracks and stray pixels on them. Its sky
+  is in shards, each a piece of another biome's sky, with a sun, a moon, a rainbow, northern
   lights, a volcano and a city all at once. And its geometry is broken: the road ahead tips up into the sky and curls
   into rings, a corkscrew, a spiral, a twisted ribbon or tall waves (`bendAt`, another figure every 56 rows; a
   stretch turned over shows bare earth). That is for the eye only (`buildWarp`, `proj`): the world in `core.js`

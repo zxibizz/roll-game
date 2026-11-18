@@ -109,8 +109,8 @@ const grad = (y0, y1, stops) => {
 // ---- Biomes ----
 // One look that changes with the distance: a summer farm → autumn → a snowy winter evening → a Halloween night →
 // a pink magic land → the bottom of the sea → a jungle of dinosaurs → a land of robots → space → and past space the
-// end of the world, where it all comes apart: patches of every biome and a road that curls up (see patchAt, the
-// broken geometry). PAL holds the key
+// end of the world, where it all comes apart: a ground of its own in restless colours, things from every biome on it
+// and a road that curls up (see glitchHue, the broken geometry). PAL holds the key
 // frames; between two biomes everything is blended (colours given as [hue, saturation, lightness] turn the short
 // way round the colour wheel, see paletteAt). What stands and moves there is picked row by row (drawRowAs).
 // Sky layers a frame leaves out are off there: snow (falling flakes), aurora (northern lights), sea (water instead
@@ -193,10 +193,10 @@ const PAL = [
     shadow: [0, 0, 0], hud: 1, stars: 1, space: 1, moon: 0,
     sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0, cloudC: [60, 72, 130], glow: 0.6, rainbow: 0, city: 0,
   },
-  { // the end of the world: a dark violet void, a sky in shards, a bit of every biome's sky at once. The ground
-    // colours here show only while space turns into it: every patch of this biome wears another biome's (PATCH).
+  { // the end of the world: a dark violet void, a sky in shards, a bit of every biome's sky at once; the ground is
+    // violet tiles whose colour wanders (glitchHue), with bright cracks
     sky: [[16, 8, 40], [34, 14, 66], [70, 26, 96]], fog: [30, 14, 58],
-    grass: [268, 40, 26], grassHi: [262, 50, 38], tuft: [275, 45, 15], soil: [-70, 28, 16], pit: [-70, 30, 4], pitWall: [-70, 25, 10],
+    grass: [265, 52, 33], grassHi: [262, 60, 46], tuft: [285, 60, 62], soil: [-70, 28, 16], pit: [-70, 30, 4], pitWall: [-70, 25, 10],
     rock: [-80, 14, 36], bush: [285, 40, 18], bushHi: [280, 50, 30], wood: [-60, 25, 34], woodDark: [-60, 25, 22],
     flowerL: 72, glowF: 1, litK: 1,
     shadow: [0, 0, 0], hud: 1, stars: 0.8, space: 0, moon: 1,
@@ -208,26 +208,21 @@ const PAL = [
 // it stays as it is for most of that and turns into the next one over its last BIOME_BLEND sections. The last
 // biome never ends. To add a biome: a name in THEMES, a key frame in PAL at the same place, and an entry under that
 // name in MOVERS, SIDE, FLY and OBSTACLES (checked at start, see checkBiomes) — nothing else counts biomes.
-// 'glitch' stays the last one: it has nothing of its own, it is made of all the others (PLAIN).
+// 'glitch' stays the last one: what stands, walks and flies there is taken from all the others (PLAIN of them).
 const BIOME_BLEND = 0.75;
 const THEMES = ['farm', 'autumn', 'winter', 'spooky', 'magic', 'sea', 'dino', 'tech', 'alien', 'glitch'];
 const GLITCH = THEMES.length - 1, PLAIN = GLITCH;   // the index of the last biome; how many ordinary ones come before it
 // how far the world has come apart at row z: 0 up to space, 1 in the last biome, in between while one turns into the other
 const glitchAt = (z) => clamp(phaseAt(z) - (GLITCH - 1), 0, 1);
-// The last biome is a patchwork: every dozen or two rows of road (12 to 24) belong to another biome, with its
-// ground, its obstacles and its walker. (No shorter: at full speed a patch still lasts half a second, so the ground
-// under the ball never flickers between snow and night.) While space turns into it, more and more patches show up.
-// patchAt: the biome a row wears there, or -1 where the row is still its own. Even patches take the even biomes
-// and odd ones the odd, so two patches side by side are never the same biome.
-const PATCH_ROWS = 18;
-const patchId = (rz) => { const k = Math.floor(rz / PATCH_ROWS); return rz - k * PATCH_ROWS < hash(k, 4, 901) * PATCH_ROWS / 3 ? k - 1 : k; };
-function patchAt(rz) {
-  const g = glitchAt(rz);
-  if (g <= 0) return -1;
-  const k = patchId(rz), odd = k & 1;
-  if (g < 1 && hash(k, 7, 903) >= g) return -1;
-  return PLAIN < 2 ? 0 : odd + 2 * Math.floor(hash(k, 3, 902) * ((PLAIN + 1 - odd) >> 1));
+// The ground of the last biome is its own, and restless: the colour of the tiles wanders along the road and across
+// it, and now and then one is of quite another colour. Always about as light, so nothing flickers under the ball at
+// speed. glitchHue: how far a tile's hue is from the palette's, in degrees (0 before the last biome; it comes in
+// little by little while space turns into it).
+function glitchHue(rz, l, g) {
+  const odd = hash(rz, l, 901);
+  return g * (50 * Math.sin(rz * 0.11 + l * 0.8) + 30 * Math.sin(rz * 0.37 - l * 1.9) + (odd < 0.14 ? 80 + odd * 1400 : 0));
 }
+const CRACKS = ['#4ff', '#f5d', '#ff6', '#fff'];
 
 const mix = (a, b, t) => (Array.isArray(a) ? a.map((v, i) => mix(v, b[i], t)) : a + (b - a) * t);
 function phaseAt(z) {
@@ -247,14 +242,6 @@ function paletteAt(k) {
 const wrap = (v, m) => ((v % m) + m) % m;
 const css = (c, a = 1) => `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${a})`;
 let P = PAL[0], hudDark = null;
-// A patch's palette: the ground of its biome (and its clouds, for what flies by) under the sky of the moment.
-// Made anew when that changes: only while space turns into the last biome.
-const GROUND = ['grass', 'grassHi', 'tuft', 'soil', 'pit', 'pitWall', 'rock', 'bush', 'bushHi', 'wood', 'woodDark', 'flowerL', 'glowF', 'litK', 'clouds', 'cloudC'];
-let PATCH = [], patchSky = null;
-function patchPal(i, sky) {
-  if (patchSky !== sky) { patchSky = sky; PATCH = PAL.slice(0, PLAIN).map((frame) => { const out = { ...sky }; for (const k of GROUND) out[k] = frame[k]; return out; }); }
-  return PATCH[i];
-}
 
 const theme = {
   sky(hue, horY) {
@@ -1004,12 +991,6 @@ function blob(pts) {
 // part: 'ground' (grass, pits, little things), 'objects' (ramps, obstacles) or both
 let rowTheme = 'farm';   // the biome of the row being drawn, for sprites that differ a little from biome to biome
 function drawRow(rz, part = 'all') {
-  const base = P, patch = patchAt(rz);   // a patch of the last biome: the row wears another biome's ground
-  if (patch >= 0) P = patchPal(patch, base);
-  drawRowAs(rz, part, patch, base);
-  P = base;
-}
-function drawRowAs(rz, part, patch, sky) {
   const track = world.track, row = track.get(rz), zA = Math.max(rz, camZ + 0.4), zB = rz + 1;
   if (zB <= zA) return;
   const next = track.get(rz + 1), prev = rz > 0 ? track.get(rz - 1) : null;
@@ -1018,8 +999,8 @@ function drawRowAs(rz, part, patch, sky) {
   const lit = slope * 20 * P.litK;   // uphill faces the camera and looks brighter
   const px = proj(0, hA, (zA + zB) / 2)[2];   // pixels per world unit at this row
   const zM = (zA + zB) / 2, hM = world.hAt(zM), zE = zB + 0.02, hE = world.hAt(zE);
-  // what stands, walks and flies at a row: the biome that is closest there, or the one its patch is from
-  const theme = THEMES[patch >= 0 ? patch : Math.min(PLAIN - 1, Math.round(phaseAt(rz)))];
+  // what stands, walks and flies at a row: the biome that is closest there
+  const theme = THEMES[Math.round(phaseAt(rz))], glitch = glitchAt(rz);
   rowTheme = theme;
   if (warpOn && rz >= warpFrom && UNDER[rz - warpBase]) {   // turned over: bare earth, and nothing on it can be seen
     for (let l = 0, from = -1; l <= LANES; l++) {
@@ -1033,14 +1014,14 @@ function drawRowAs(rz, part, patch, sky) {
     return;
   }
   if (part !== 'objects') {
-  drawSide(rz, fog, theme, patch, sky);
+  drawSide(rz, fog, theme);
   // grass over the whole road, holes included (the pits are dug into it below); outer edges wave
   for (let l = 0; l < LANES; l++) {
     if (!row.road[l]) continue;
     const leftEdge = l === 0 || !row.road[l - 1], rightEdge = l === LANES - 1 || !row.road[l + 1];
     const xl = (z) => l - HALF - (leftEdge ? wave(z, l) : 0.01), xr = (z) => l - HALF + 1 + (rightEdge ? wave(z, l + 1) : 0.01);
     const patch = (hash(rz, l) - 0.5) * 3 * clamp((dz - 4) / 8, 0.1, 1) * Math.min(1, P.grass[2] / 50);   // dark grass shows squares
-    ctx.fillStyle = pal('grass', lit + patch, fog);
+    ctx.fillStyle = glitch > 0 ? hsl(P.grass[0] + glitchHue(rz, l, glitch), P.grass[1], clamp(P.grass[2] + lit + patch, 2, 97), fog) : pal('grass', lit + patch, fog);
     path([proj(xl(zA), hA, zA), proj(xr(zA), hA, zA), proj(xr(zM), hM, zM), proj(xr(zE), hE, zE), proj(xl(zE), hE, zE), proj(xl(zM), hM, zM)]);
     ctx.fill();
     const w = Math.max(1, px * 0.025);
@@ -1056,12 +1037,14 @@ function drawRowAs(rz, part, patch, sky) {
   }
   // pits dug into the grass: a ragged opening, earthen walls going down into the dark
   for (let l = 0; l < LANES; l++) if (row.road[l] && !row.floor[l]) drawPit(rz, l, row, prev, next, fog, px);
-  if (patch >= 0 && zA === rz && patchAt(rz - 1) !== patch) {   // a seam where two patches meet: the colours split, as on a broken screen
-    const w = Math.max(1, px * 0.03);
+  if (glitch > 0 && dz < 30) {   // bright cracks run across the tiles any which way
+    const w = Math.max(1, px * 0.02);
     for (let l = 0; l < LANES; l++) {
-      if (!row.road[l]) continue;
-      line(proj(l - HALF, hA + 0.01, rz), proj(l - HALF + 1, hA + 0.01, rz), '#3ff', w, 0.8 * (1 - fog));
-      line(proj(l - HALF, hA + 0.01, rz + 0.07), proj(l - HALF + 1, hA + 0.01, rz + 0.07), '#f3c', w, 0.8 * (1 - fog));
+      const c = hash(rz, l, 940);
+      if (!row.road[l] || !row.floor[l] || c > 0.3 * glitch) continue;
+      const z0 = rz + hash(rz, l, 941), z1 = rz + hash(rz, l, 942);
+      if (Math.min(z0, z1) < zA) continue;
+      line(proj(l - HALF + hash(rz, l, 943), world.hAt(z0) + 0.01, z0), proj(l - HALF + hash(rz, l, 944), world.hAt(z1) + 0.01, z1), CRACKS[Math.floor(c * 1e4) % CRACKS.length], w, 0.7 * (1 - fog));
     }
   }
   if (theme !== 'tech' && dz < VIEW) {   // faint dashes between the lanes: through a bend one can follow one's own lane ahead
@@ -1119,10 +1102,7 @@ function drawRowAs(rz, part, patch, sky) {
     for (const s of world.sky) if (s.z === rz && !s.got) drawStar(s.l, rz, 1 + FLY_H, fog);   // the trail of a flight
     if (flyShow > 0.01) drawFlightRow(rz, fog);
   }
-  if (patch >= 0) {   // in the last biome anything may fly by
-    const i = Math.floor(hash(rz, 5, 304) * PLAIN);
-    P = patchPal(i, sky); drawFlyers(rz, fog, THEMES[i]);
-  } else drawFlyers(rz, fog, theme);
+  drawFlyers(rz, fog, theme);
 }
 
 // A ramp must not read as one more thing in the way: a bright springboard, the same in every biome, glowing on
@@ -1312,7 +1292,7 @@ function drawDecor(rz, row, zA, px, fog, theme) {
   blades.length = 0; bits.length = 0;
   for (let l = 0; l < LANES; l++) {
     if (!row.road[l] || !row.floor[l] || row.block[l] || row.low[l] || row.ramp[l]) continue;
-    for (let k = 0; theme !== 'tech' && theme !== 'winter' && k < 4; k++) {   // no grass on steel or snow
+    for (let k = 0; theme !== 'tech' && theme !== 'winter' && theme !== 'glitch' && k < 4; k++) {   // no grass on steel, snow or broken tiles
       const z = rz + 0.08 + hash(rz, l, 2 * k + 1) * 0.84;
       if (z < zA) continue;
       const x = l - HALF + 0.08 + hash(rz, l, 2 * k) * 0.84, p = proj(x, world.hAt(z), z);
@@ -1338,7 +1318,8 @@ function drawDecor(rz, row, zA, px, fog, theme) {
   }
   for (let i = 0; i < bits.length; i += 2) {
     const p = bits[i], h = bits[i + 1], r = p[2] * 0.03;
-    if (theme === 'farm' || (theme === 'magic' && h < 0.6)) drawFlower(p, r, FLOWERS[Math.floor(h * FLOWERS.length) % FLOWERS.length], fog);
+    if (theme === 'glitch') { ctx.fillStyle = hsl(h * 997, 90, 66, fog); ctx.fillRect(p[0] - r * 1.2, p[1] - r * 0.6, r * 2.4, r * 1.2); }   // a stray pixel
+    else if (theme === 'farm' || (theme === 'magic' && h < 0.6)) drawFlower(p, r, FLOWERS[Math.floor(h * FLOWERS.length) % FLOWERS.length], fog);
     else if (theme === 'magic') glowBit(p, r * 0.7, [h < 0.8 ? 50 : 320, 95, 80], fog, false);   // a sparkle
     else if (theme === 'tech') glowBit(p, r * 0.6, h < 0.5 ? [185, 95, 60] : [35, 95, 60], fog, false);   // a little lamp
     else if (theme === 'winter') glowBit(p, r * 0.5, [200, 70, 94], fog, false);   // the snow glints
@@ -2100,13 +2081,10 @@ const SIDE = {
   alien: [crystal, mushroom, dome, rocket, crystal, mushroom],
 };
 const BIG = new Set([house, windmill, hauntedHouse, dome, rocket, barn, castle, factory, igloo, wreck, bronto]);
-function drawSide(rz, fog, th, patch = -1, sky = P) {
+function drawSide(rz, fog, th) {
   if (rz + 0.5 < camZ + 3) return;
-  const rowP = P, rowTh = th;
   for (const side of [-1, 1]) {
     if (hash(rz, side, 200) > 0.13) continue;
-    if (patch >= 0) { const i = Math.floor(hash(rz, side, 207) * PLAIN); th = THEMES[i]; P = patchPal(i, sky); }   // in the last biome every island is from anywhere
-    else { th = rowTh; P = rowP; }
     const z = rz + 0.5, r = 0.9 + hash(rz, side, 201) * 1.1;
     let edge = 2.5;   // how far the road reaches on this side around here
     for (let k = Math.max(0, rz - 3); k <= rz + 3; k++) {
@@ -2143,7 +2121,6 @@ function drawSide(rz, fog, th, patch = -1, sky = P) {
     }
     untilt(ang);
   }
-  P = rowP;
 }
 
 // ---- what flies by: (row, z, ground height, seed, direction, time, fog) ----
@@ -2734,13 +2711,19 @@ const OBSTACLES = {
   alien: [crystal, mushroom, meteor],
 };
 
+// the last biome takes from all the others: any obstacle, any island, anything in the air, any walker
+const allOf = (table) => [...new Set(Object.values(table).flat())];
+OBSTACLES.glitch = allOf(OBSTACLES); SIDE.glitch = allOf(SIDE); FLY.glitch = allOf(FLY);
+const WALKERS = Object.values(MOVERS);
+MOVERS.glitch = (o, s, fog, rz, ...rest) => WALKERS[Math.floor(hash(rz, 3, 930) * WALKERS.length)](o, s, fog, rz, ...rest);
+
 // every biome has everything it needs: a new one that is only half there must fail at once, not half a run in
 (function checkBiomes() {
   if (THEMES.indexOf('glitch') !== GLITCH) throw new Error('biomes: glitch must be the last name in THEMES');
   if (PAL.length !== THEMES.length) throw new Error(`biomes: ${THEMES.length} names in THEMES, ${PAL.length} key frames in PAL`);
   PAL.forEach((f, i) => { for (const k in f) if (!(k in PAL[0])) throw new Error(`biomes: PAL[${i}].${k} is not in PAL[0]`); });
   for (const [name, table] of Object.entries({ MOVERS, SIDE, FLY, OBSTACLES })) {
-    for (const th of THEMES.slice(0, PLAIN)) if (!(typeof table[th] === 'function' || table[th]?.length > 0)) throw new Error(`biomes: no ${name}.${th}`);
+    for (const th of THEMES) if (!(typeof table[th] === 'function' || table[th]?.length > 0)) throw new Error(`biomes: no ${name}.${th}`);
   }
 })();
 
