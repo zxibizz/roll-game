@@ -8,7 +8,7 @@ Site: `https://roll.games.bubas.cc`.
 - The ball rolls forward by itself along the middle of a lane. One touch is one swipe, and one swipe is one move,
   however long it is:
   - left / right (← → / A D) — the next lane, also in the air. A lane change takes about 0.17 s at any speed;
-  - up (↑ / W / Space) — a jump: about 1.05 of a lane high, 0.65 s long, the same up and down a slope. It clears
+  - up (↑ / W / Space), or a tap — a short touch (up to 0.3 s) that lets go before it becomes a swipe — a jump: about 1.05 of a lane high, 0.65 s long, the same up and down a slope. It clears
     anything on the road — a log, a rock or a bush, the walker, a row or two of them (more at higher speeds) — with
     a window of at least 0.15 s to start it in (a log: about 0.45 s). A ramp passed over in a jump still throws the
     ball on. Asked for up to 0.15 s before landing, it happens on landing;

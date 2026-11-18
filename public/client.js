@@ -2937,9 +2937,11 @@ function bigNumber(n, size, alpha) {
 // One finger steers: the first one down on the scene. Others are ignored, so a second touch can't jerk the ball.
 // A touch is one swipe and one swipe is one move, however long it is: sideways — the next lane, up — a jump,
 // down — out of the air straight to the ground. It counts as soon as the finger has gone SWIPE of the screen's
-// shorter side, without waiting for it to lift; the rest of the touch does nothing.
+// shorter side, without waiting for it to lift; the rest of the touch does nothing. A tap — a touch that lifts within
+// TAP_T without having become a swipe — is a jump too, the same as a swipe up.
 const SWIPE = 0.06, SWIPE_MIN = 18;   // SWIPE: of the shorter side of the screen; SWIPE_MIN: px, the least on any screen
-let dragId = null, dragX = 0, dragY = 0, dragDone = false;
+const TAP_T = 300;                    // ms: held longer than this and let go in place, a touch does nothing
+let dragId = null, dragX = 0, dragY = 0, dragDone = false, dragAt = 0;
 // during the 3-2-1 after a pause a swipe already counts: the ball sets off towards the chosen lane or with a jump
 const steerable = () => mode === 'play' || mode === 'count';
 function act(dx, dy) {   // dx, dy: -1, 0 or 1; up is dy = -1
@@ -2951,7 +2953,7 @@ function act(dx, dy) {   // dx, dy: -1, 0 or 1; up is dy = -1
 }
 addEventListener('pointerdown', (e) => {
   if (dragId !== null || e.target.closest('button, input, .card')) return;
-  dragId = e.pointerId; dragX = e.clientX; dragY = e.clientY; dragDone = false;
+  dragId = e.pointerId; dragX = e.clientX; dragY = e.clientY; dragDone = false; dragAt = e.timeStamp;
 });
 addEventListener('pointermove', (e) => {
   if (e.pointerId !== dragId || dragDone) return;
@@ -2961,7 +2963,10 @@ addEventListener('pointermove', (e) => {
   if (Math.abs(dx) >= Math.abs(dy)) act(Math.sign(dx), 0); else act(0, Math.sign(dy));
 });
 const dragEnd = (e) => { if (e.pointerId === dragId) dragId = null; };
-addEventListener('pointerup', dragEnd);
+addEventListener('pointerup', (e) => {
+  if (e.pointerId === dragId && !dragDone && e.timeStamp - dragAt <= TAP_T) act(0, -1);   // a tap: a jump
+  dragEnd(e);
+});
 addEventListener('pointercancel', dragEnd);
 addEventListener('contextmenu', (e) => e.preventDefault());
 
