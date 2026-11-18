@@ -47,7 +47,7 @@ let skinView = skinAt;                                                          
 
 // mode: 'home' | 'play' | 'count' (3-2-1 after a pause) | 'pause' | 'over' (and 'shot' — frozen by the screenshot
 // hook at the end); the world has its own state inside a game
-let mode = 'home', world = new World(1), parts = [], rings = [], flash = null;
+let mode = 'home', world = new World(1), parts = [], rings = [];
 let camZ = 0, camX = 0, camL = 0, camY = 0;   // camL: the camera across the road
 let flyLift = 0, flyShow = 0, flyT = 0;   // a flight: how far the camera has risen, how much of the show in the sky is on (0..1), its clock
 let lean = 0, wasOff = 0;   // weight: how far the ball leans in a lane change, its last distance to its lane
@@ -285,7 +285,7 @@ function setMode(m) {
 
 function resetView() {
   banked = null;
-  parts = []; rings = []; flash = null; nudge = null; lean = 0; wasOff = 0; flyLift = world.ball.fly ? 1.85 : 0; flyShow = world.ball.fly ? 1 : 0; shake = 0; squash = 0; hitStop = 0; beatBest = false;
+  parts = []; rings = []; nudge = null; lean = 0; wasOff = 0; flyLift = world.ball.fly ? 1.85 : 0; flyShow = world.ball.fly ? 1 : 0; shake = 0; squash = 0; hitStop = 0; beatBest = false;
   squashV = 0; gulp = 0; zoom = 0; rush = 0; tint = null; homing = []; passRow = -1; rollAcc = 0; Object.assign(kick, { x: 0, y: 0, vx: 0, vy: 0 });
   shownStars = world.stars; muffleMusic(false);
   $score.textContent = world.score; $score.style.color = ''; $starN.textContent = world.stars;
@@ -410,7 +410,7 @@ function hudStarAt() {
 function onEvent(e) {
   const b = world.ball, skin = theme.ball;
   if (e === 'section') {
-    flash = { sec: world.sec, t: 1 }; sfx.section(); haptic('section');
+    sfx.section(); haptic('section');   // (no number on the screen: the owner found it not needed)
     zoom = Math.max(zoom, 0.035); rush = 1; popEl($score);   // a push of speed: the view punches in, lines rush past
   } else if (e === 'star') {
     const run = sfx.star(b.x / HALF);
@@ -495,7 +495,6 @@ function update(dt) {
   if (tint && (tint.t += dt) > 0.45) tint = null;
   for (const h of homing) h.t += dt / h.d;
   if (homing.some((h) => h.t >= 1)) homing = homing.filter((h) => h.t < 1 || (shownStar(), false));
-  if (flash && (flash.t -= dt * 0.8) <= 0) flash = null;
   if (nudge && (nudge.t += dt / 0.18) >= 1) nudge = null;
   if (mode === 'count') {
     const was = Math.ceil(count / COUNT_T);
@@ -2884,7 +2883,7 @@ function draw() {
   if (mode === 'count') {   // 3-2-1, each digit shrinks into place
     const n = Math.ceil(count / COUNT_T), k = 1 - (count / COUNT_T - (n - 1));
     bigNumber(n, 0.16 * (1.5 - 0.5 * Math.min(1, k * 4)), Math.min(1, (1 - k) * 3));
-  } else if (flash) bigNumber(flash.sec + 1, 0.09 * (1 + 0.6 * Math.max(0, flash.t - 0.8) / 0.2), Math.min(1, flash.t * 1.5));
+  }
 }
 
 // stars on their way to the counter: up a curve, shrinking to the icon's size, spinning a little
