@@ -102,7 +102,12 @@ export function applyVolume() {
 // ---- building blocks ----
 const out = () => bus || actx.destination;
 // a note: attack a, decay until dur; `to` — where the pitch glides; lp — a low-pass filter for softer saws and squares
-function note(f, { type = 'sine', vol = 0.2, a = 0.004, dur = 0.2, delay = 0, to = 0, lp = 0, detune = 0 } = {}) {
+// pan: -1 left … 1 right, where the thing happens
+function panned(node, pan) {
+  if (!pan || !actx.createStereoPanner) { node.connect(out()); return; }
+  const p = actx.createStereoPanner(); p.pan.value = clamp(pan, -1, 1); node.connect(p); p.connect(out());
+}
+function note(f, { type = 'sine', vol = 0.2, a = 0.004, dur = 0.2, delay = 0, to = 0, lp = 0, detune = 0, pan = 0 } = {}) {
   if (!canSound()) return;
   const t = actx.currentTime + delay, o = actx.createOscillator(), g = actx.createGain();
   o.type = type; o.detune.value = detune; o.frequency.setValueAtTime(f, t);
@@ -112,7 +117,7 @@ function note(f, { type = 'sine', vol = 0.2, a = 0.004, dur = 0.2, delay = 0, to
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   let src = o;
   if (lp) { const fl = actx.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = lp; o.connect(fl); src = fl; }
-  src.connect(g); g.connect(out());
+  src.connect(g); panned(g, pan);
   o.start(t); o.stop(t + dur + 0.05);
 }
 let noiseBuf = null;
@@ -125,7 +130,7 @@ function noise() {   // two seconds of brownish noise, shared by every burst and
   return buf;
 }
 // a burst of filtered noise: f0 → f1 is the filter sweep
-function burst({ type = 'lowpass', f0 = 800, f1 = 0, q = 0.7, vol = 0.3, a = 0.005, dur = 0.2, delay = 0 } = {}) {
+function burst({ type = 'lowpass', f0 = 800, f1 = 0, q = 0.7, vol = 0.3, a = 0.005, dur = 0.2, delay = 0, pan = 0 } = {}) {
   if (!canSound()) return;
   const t = actx.currentTime + delay, s = actx.createBufferSource(), fl = actx.createBiquadFilter(), g = actx.createGain();
   s.buffer = noise(); s.loop = true;
@@ -134,10 +139,20 @@ function burst({ type = 'lowpass', f0 = 800, f1 = 0, q = 0.7, vol = 0.3, a = 0.0
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(vol * gainOf(), t + Math.min(a, dur * 0.9));
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  s.connect(fl); fl.connect(g); g.connect(out());
+  s.connect(fl); fl.connect(g); panned(g, pan);
   s.start(t, Math.random() * 1.5); s.stop(t + dur + 0.05);
 }
 const semi = (f, n) => f * Math.pow(2, n / 12);
+// the same sound a little different every time: a repeated identical sample reads as a machine
+const vary = (k = 0.05) => 1 + (Math.random() * 2 - 1) * k;
+// A knock that a phone speaker can actually play. Most of them give almost nothing below 200–300 Hz, so a low
+// thud alone is felt on headphones only: on the speaker the weight comes from a short click (the moment of contact)
+// and a body of 180–400 Hz falling in pitch.
+function knock(k, { f = 260, pan = 0, delay = 0 } = {}) {
+  const m = vary(0.06);
+  burst({ type: 'highpass', f0: 2500, q: 0.5, vol: 0.35 * k, a: 0.001, dur: 0.025, delay, pan });
+  note(f * m, { type: 'triangle', vol: 0.3 * k, a: 0.002, dur: 0.09, to: f * 0.45 * m, lp: 1400, delay, pan });
+}
 
 // ---- the hum of the rolling ball: noise through a low-pass filter, louder and brighter with the speed ----
 let hum = null;
@@ -159,31 +174,53 @@ export function setHum(speed, onGround) {   // speed 0..1 of the top speed
 // ---- effects ----
 // Everything sits low (150–800 Hz): high beeps tire on a phone speaker.
 const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];   // a pentatonic ladder for stars taken in a row
-let combo = 0, comboAt = 0;
+let combo = 0, run = 0, comboAt = 0;
 export const sfx = {
   tap() { note(420, { type: 'triangle', vol: 0.12, dur: 0.07, to: 300, lp: 1500 }); },
-  star() {
+  // Stars taken in a row climb a pentatonic ladder; every fifth in a row adds a glint on top. Returns how many in a
+  // row this one makes, so the picture can follow.
+  star(pan = 0) {
     const now = performance.now();
-    combo = now - comboAt < 900 ? Math.min(SCALE.length - 1, combo + 1) : 0;
+    run = now - comboAt < 900 ? run + 1 : 1;
+    combo = Math.min(SCALE.length - 1, run - 1);
     comboAt = now;
     const f = semi(330, SCALE[combo]);
-    note(f, { type: 'triangle', vol: 0.2, dur: 0.22, lp: 2400 });
-    note(f * 2, { vol: 0.07, dur: 0.3, delay: 0.015 });
+    note(f, { type: 'triangle', vol: 0.2, dur: 0.22, lp: 2400, pan: pan * 0.5 });
+    note(f * 2, { vol: 0.07, dur: 0.3, delay: 0.015, pan: pan * 0.5 });
+    if (run % 5 === 0) [12, 19, 24].forEach((n, i) => note(semi(330, SCALE[combo] + n), { vol: 0.06, dur: 0.25, delay: 0.05 + i * 0.045 }));
+    return run;
   },
-  move() {   // a lane change: something heavy starts rolling sideways
-    burst({ type: 'bandpass', f0: 340, f1: 760, q: 0.9, vol: 0.22, a: 0.025, dur: 0.13 });
-    note(110, { vol: 0.07, dur: 0.12, to: 150 });
+  preview() { note(330, { type: 'triangle', vol: 0.2, dur: 0.22, lp: 2400 }); note(660, { vol: 0.07, dur: 0.3, delay: 0.015 }); },   // the volume slider: the first star's note
+  move(dir = 0) {   // a lane change: something heavy starts rolling sideways, heard on the side it goes to
+    const m = vary();
+    burst({ type: 'bandpass', f0: 340 * m, f1: 760 * m, q: 0.9, vol: 0.22, a: 0.025, dur: 0.13, pan: dir * 0.45 });
+    note(110 * m, { vol: 0.07, dur: 0.12, to: 150 * m });
   },
-  settle() {   // and drops into its lane
-    note(120, { vol: 0.16, dur: 0.1, to: 70 });
-    burst({ f0: 380, f1: 130, vol: 0.14, dur: 0.07 });
+  settle(dir = 0) {   // and drops into its lane
+    note(120 * vary(), { vol: 0.16, dur: 0.1, to: 70 });
+    burst({ f0: 380 * vary(), f1: 130, vol: 0.14, dur: 0.07, pan: dir * 0.4 });
+    knock(0.35, { f: 230, pan: dir * 0.4 });
   },
-  bump() { note(150, { vol: 0.25, dur: 0.1, to: 90 }); },                                          // no lane there
+  bump(dir = 0) {   // no lane there: a dull knock against the edge
+    note(150, { vol: 0.25, dur: 0.1, to: 90 });
+    knock(0.7, { f: 200, pan: dir * 0.7 });
+  },
   drop() { burst({ type: 'bandpass', f0: 1000, f1: 300, q: 1, vol: 0.3, a: 0.01, dur: 0.12 }); },   // thrown down out of the air
-  bonus() { [0, 4, 7].forEach((n, i) => note(semi(440, n), { type: 'triangle', vol: 0.2, dur: 0.16, delay: i * 0.06, lp: 2600 })); },
+  // something rushed past close by: air torn on that side, from far to near
+  whoosh(pan = 0, k = 1) {
+    const m = vary(0.1);
+    burst({ type: 'bandpass', f0: 500 * m, f1: 2200 * m, q: 1.6, vol: 0.28 * k, a: 0.05, dur: 0.16, pan });
+    burst({ type: 'bandpass', f0: 2000 * m, f1: 600 * m, q: 1.4, vol: 0.22 * k, a: 0.01, dur: 0.14, delay: 0.12, pan });
+  },
+  bonus() {
+    [0, 4, 7].forEach((n, i) => note(semi(440, n), { type: 'triangle', vol: 0.2, dur: 0.16, delay: i * 0.06, lp: 2600 }));
+    burst({ type: 'bandpass', f0: 600, f1: 3000, q: 1, vol: 0.25, a: 0.02, dur: 0.25 });
+    note(semi(440, 12), { vol: 0.08, dur: 0.5, delay: 0.18 });
+  },
   pop() {   // the shield bursts
     burst({ type: 'bandpass', f0: 1800, f1: 500, q: 1.5, vol: 0.5, dur: 0.16 });
     note(520, { type: 'triangle', vol: 0.22, dur: 0.18, to: 180, lp: 2000 });
+    knock(0.8, { f: 300 });
   },
   fly() {   // off the ground
     burst({ type: 'bandpass', f0: 250, f1: 1600, q: 0.8, vol: 0.5, a: 0.2, dur: 0.7 });
@@ -191,15 +228,19 @@ export const sfx = {
   },
   flyEnd() { burst({ type: 'bandpass', f0: 1300, f1: 280, q: 0.8, vol: 0.4, a: 0.05, dur: 0.5 }); },
   jump() {
-    burst({ type: 'bandpass', f0: 300, f1: 1100, q: 1.2, vol: 0.5, a: 0.05, dur: 0.32 });
-    note(190, { type: 'triangle', vol: 0.16, dur: 0.2, to: 330, lp: 1200 });
+    const m = vary();
+    burst({ type: 'bandpass', f0: 300 * m, f1: 1100 * m, q: 1.2, vol: 0.5, a: 0.05, dur: 0.32 });
+    note(190 * m, { type: 'triangle', vol: 0.16, dur: 0.2, to: 330 * m, lp: 1200 });
+    knock(0.3, { f: 280 });   // the push off the ground
   },
   land(k = 0.5) {
-    note(120, { vol: 0.35 * (0.5 + k), dur: 0.16, to: 55 });
-    burst({ f0: 500, f1: 120, vol: 0.5 * (0.4 + k), dur: 0.14 });
+    note(120 * vary(), { vol: 0.35 * (0.5 + k), dur: 0.16, to: 55 });
+    burst({ f0: 500 * vary(), f1: 120, vol: 0.5 * (0.4 + k), dur: 0.14 });
+    knock(0.4 + 0.6 * k, { f: 300 - 90 * k });   // the harder, the lower
   },
   crash() {
     note(150, { vol: 0.6, dur: 0.35, to: 40 });
+    knock(1, { f: 240 }); knock(0.6, { f: 170, delay: 0.06 });
     burst({ f0: 2200, f1: 200, vol: 0.9, dur: 0.3 });
     for (let k = 0; k < 4; k++) burst({ type: 'bandpass', f0: 500 + Math.random() * 700, q: 3, vol: 0.3, dur: 0.06, delay: 0.1 + k * 0.07 + Math.random() * 0.03 });
   },
@@ -209,6 +250,7 @@ export const sfx = {
   },
   section() {
     burst({ type: 'bandpass', f0: 250, f1: 1400, q: 1, vol: 0.35, a: 0.12, dur: 0.4 });
+    knock(0.5, { f: 330, delay: 0.1 });
     note(392, { type: 'triangle', vol: 0.16, dur: 0.18, lp: 2000 });
     note(587, { type: 'triangle', vol: 0.16, dur: 0.3, delay: 0.1, lp: 2400 });
   },
@@ -237,6 +279,26 @@ const MUSIC_K = 3, MUSIC_SR = 32000;
 const music = { buf: null, id: null, src: null, gain: null, ctx: null, t0: 0, off: 0, loading: 0, bad: new Set(), miss: new Set(), retryAt: 0 };
 const musicVol = () => Math.min(1, gainOf() * cfg.music * cfg.music * MUSIC_K);   // never past full scale: it bypasses the compressor
 const musicOn = () => musicVol() > 0;
+// The music goes through a low-pass filter: after a crash it sounds as if from behind a wall, which makes the blow
+// feel heavier than any noise could; the next run opens it again.
+let muffle = null, muffled = false;
+function musicOut() {
+  if (muffle && muffle.ctx === actx) return muffle.fl;
+  try {
+    const fl = actx.createBiquadFilter(); fl.type = 'lowpass'; fl.Q.value = 0.7; fl.frequency.value = muffled ? 450 : 20000;
+    fl.connect(actx.destination); muffle = { ctx: actx, fl };
+    return fl;
+  } catch { return actx.destination; }
+}
+export function muffleMusic(on) {
+  muffled = on;
+  if (!muffle || muffle.ctx !== actx) return;
+  try {
+    const t = actx.currentTime, p = muffle.fl.frequency;
+    p.cancelScheduledValues(t); p.setValueAtTime(p.value, t);
+    p.exponentialRampToValueAtTime(on ? 450 : 20000, t + (on ? 0.35 : 0.6));
+  } catch { /* */ }
+}
 function musicGesture() {
   if (!musicOn() || document.hidden || !actx) { musicPause(); return; }
   if (!music.id && !music.loading) musicNext(); else musicPlay();
@@ -246,7 +308,7 @@ function musicPlay() {
   musicPause();
   try {
     const g = actx.createGain(), s = actx.createBufferSource(), off = music.off % music.buf.duration;
-    g.gain.value = musicVol(); g.connect(actx.destination);
+    g.gain.value = musicVol(); g.connect(musicOut());
     s.buffer = music.buf; s.connect(g);
     s.onended = () => { if (s === music.src) musicEnded(); };
     s.start(0, off);

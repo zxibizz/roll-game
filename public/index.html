@@ -40,6 +40,8 @@
   .stars svg { color: #ffc107; font-size: .95em; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .25)); }
   #hudStars.pop svg { animation: pop .25s; }
   @keyframes pop { 40% { transform: scale(1.5) rotate(18deg); } }
+  #score.pop { animation: score-pop .35s; transform-origin: left center; }
+  @keyframes score-pop { 30% { transform: scale(1.3); } }
 
   /* screens over the frozen game */
   .screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;

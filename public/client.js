@@ -2,7 +2,7 @@
 // screens around the game: home, pause, results, settings. The road is grass and earth; the sky goes from day to
 // night to space with the distance. There are no words in the interface, only numbers and icons.
 import { World, VERSION, LANES, HALF, BIOME_SECS, secOf, secStart, secPos, R, INSET, BOX_H, RAMP_H, LOW_H, LOW_Z0, LOW_Z1, MAGNET_T, SHIELD_T, FLY_T, FLY_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
-import { initAudio, applyVolume, setHum, sfx, haptic, canHaptic } from './audio.js';
+import { initAudio, applyVolume, setHum, sfx, haptic, canHaptic, muffleMusic } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -48,6 +48,14 @@ let flyLift = 0, flyShow = 0, flyT = 0;   // a flight: how far the camera has ri
 let lean = 0, wasOff = 0;   // weight: how far the ball leans in a lane change, its last distance to its lane
 let nudge = null;   // a refused lane change: the ball leans towards the edge and comes back
 let shake = 0, squash = 0, hitStop = 0, count = 0, beatBest = false, overAnim = null, hintUntil = 0, hintRow = -1;
+// Feel: with no vibration on the web the picture and the sound have to carry every touch. squash is a spring (a
+// landing squashes the ball, it springs back a little past round); kick — the camera jolted in a direction by a blow
+// and pulled back by a spring; zoom — a short punch of the view; rush — a burst of speed lines; gulp — the ball
+// swells for a moment as it takes something; tint — the screen's edges flash in a bonus's colour; homing — stars
+// flying from the ball up to the counter.
+let squashV = 0, gulp = 0, zoom = 0, rush = 0, tint = null, homing = [], shownStars = 0, hudStar = null;
+const kick = { x: 0, y: 0, vx: 0, vy: 0 };
+let passRow = -1, whooshAt = 0, rollAcc = 0, nearN = 0;
 
 // ---- Colours ----
 let FOG = [5, 6, 13];
@@ -264,13 +272,17 @@ function setPhase(z) {
 function setMode(m) {
   mode = m;
   $home.hidden = m !== 'home'; $pause.hidden = m !== 'pause'; $over.hidden = m !== 'over';
-  $hud.hidden = m === 'home' || m === 'shot';
+  $hud.hidden = m === 'home' || m === 'shot'; hudStar = null;
+  if (m !== 'play' && m !== 'count') flushHoming();   // nothing hangs in mid-air over a pause; the counter is right
+  if (m === 'home') muffleMusic(false);
   if (m !== 'play') { $hint.hidden = true; setHum(0, false); }
 }
 
 function resetView() {
   banked = null;
   parts = []; rings = []; flash = null; nudge = null; lean = 0; wasOff = 0; flyLift = world.ball.fly ? 1.85 : 0; flyShow = world.ball.fly ? 1 : 0; shake = 0; squash = 0; hitStop = 0; beatBest = false;
+  squashV = 0; gulp = 0; zoom = 0; rush = 0; tint = null; homing = []; passRow = -1; rollAcc = 0; Object.assign(kick, { x: 0, y: 0, vx: 0, vy: 0 });
+  shownStars = world.stars; muffleMusic(false);
   $score.textContent = world.score; $score.style.color = ''; $starN.textContent = world.stars;
   follow();
 }
@@ -375,44 +387,78 @@ function spray(n, at, make) {
 }
 const rnd = (a, b) => a + Math.random() * (b - a);
 
+function popEl(el) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
+function kickCam(x, y) { kick.vx += x * dpr; kick.vy += y * dpr; }   // px/s on a 1x screen; positive y is down
+function shownStar() {   // one more digit moves the icon: its place is looked up again
+  shownStars = Math.min(world.stars, shownStars + 1); $starN.textContent = shownStars; popEl($hudStars); hudStar = null;
+}
+function flushHoming() { for (const h of homing) shownStar(); homing = []; }
+// where the counter's star is on the canvas; null while the HUD is not on screen
+function hudStarAt() {
+  if (hudStar) return hudStar;
+  const r = $hudStars.querySelector('svg').getBoundingClientRect();
+  if (!r.width) return null;
+  return (hudStar = { x: (r.left + r.width / 2) * dpr, y: (r.top + r.height / 2) * dpr, r: r.height / 2 * dpr });
+}
+
 function onEvent(e) {
   const b = world.ball, skin = theme.ball;
   if (e === 'section') {
     flash = { sec: world.sec, t: 1 }; sfx.section(); haptic('section');
+    zoom = Math.max(zoom, 0.035); rush = 1; popEl($score);   // a push of speed: the view punches in, lines rush past
   } else if (e === 'star') {
-    sfx.star();
-    $starN.textContent = world.stars;
-    $hudStars.classList.remove('pop'); void $hudStars.offsetWidth; $hudStars.classList.add('pop');
+    const run = sfx.star(b.x / HALF);
+    gulp = 1;
+    // the star flies from the ball up to the counter, which counts it when it gets there
+    const [px, py, sc] = proj(b.x, b.y + R * 0.6, b.z), to = hudStarAt();
+    if (to && sc > 0 && homing.length < 14) homing.push({ x: px, y: py, r: 0.19 * sc, t: 0, d: rnd(0.38, 0.48), side: rnd(-1, 1) });
+    else shownStar();
+    rings.push({ x: b.x, y: b.y, z: b.z + 0.2, t: 0.1, s: 0.35, c: '#ffe58a' });
     spray(5, b, () => ({ vx: rnd(-1.6, 1.6), vy: rnd(1.5, 4), vz: world.v + rnd(-1, 1), g: 7, life: rnd(0.25, 0.45), size: rnd(0.02, 0.04), color: '#fff3b0' }));
+    if (run % 5 === 0) {   // a good run of stars: a golden ring and a fountain of sparks
+      rings.push({ x: b.x, y: b.y, z: b.z + 0.2, t: 0, s: 0.8, c: '#ffd84a' });
+      spray(10 + Math.min(10, run), b, () => ({ vx: rnd(-3, 3), vy: rnd(2, 6), vz: world.v + rnd(-1, 2), g: 8, life: rnd(0.4, 0.7), size: rnd(0.02, 0.04), color: Math.random() < 0.5 ? '#ffd84a' : '#ffffff' }));
+    }
   } else if (e === 'bonus') {
     sfx.bonus(); haptic('land');
     const c = BONUS_C[world.got];
+    gulp = 2; tint = { c, t: 0 }; zoom = Math.max(zoom, 0.025);
+    rings.push({ x: b.x, y: b.y, z: b.z + R, t: 0, s: 1.2, c: `rgb(${c})` });
     spray(14, b, () => ({ vx: rnd(-3, 3), vy: rnd(1, 5), vz: world.v + rnd(-2, 2), g: 6, life: rnd(0.3, 0.6), size: rnd(0.012, 0.028), color: `rgb(${c})` }));
   } else if (e === 'pop') {   // the shield took a hit: the thing flies apart, the bubble bursts
     const at = { x: world.popAt.x, y: world.hAt(world.popAt.z) + 0.35, z: world.popAt.z };
     sfx.pop(); haptic('crash'); shake = Math.max(shake, 0.5); rings.push({ x: b.x, y: b.y, z: b.z + R, t: 0.12 });
+    hitStop = 0.05; kickCam(0, -160); zoom = Math.max(zoom, 0.04); tint = { c: BONUS_C.shield, t: 0 };
     spray(22, at, (k) => ({ vx: rnd(-5, 5), vy: rnd(2, 7), vz: world.v * 0.8 + rnd(-2, 5), g: 16, life: rnd(0.5, 0.9), size: rnd(0.04, 0.09), color: k % 3 ? pal('rock', 0) : pal('wood', 0) }));
     spray(12, b, () => ({ vx: rnd(-4, 4), vy: rnd(-1, 4), vz: world.v + rnd(-2, 2), g: 3, life: rnd(0.3, 0.5), size: rnd(0.012, 0.025), color: 'rgb(170,225,255)' }));
   } else if (e === 'fly') {
-    sfx.fly(); haptic('best'); flyT = 0; rings.push({ x: b.x, y: b.y, z: b.z + R, t: 0 });
+    sfx.fly(); haptic('best'); flyT = 0; rings.push({ x: b.x, y: b.y, z: b.z + R, t: 0, w: true });
+    kickCam(0, 220); squash = -0.25; squashV = 0; rush = 1;
     spray(30, b, () => ({ vx: rnd(-4, 4), vy: rnd(-1, 6), vz: world.v + rnd(-3, 3), g: 4, life: rnd(0.5, 1), size: rnd(0.012, 0.028), color: '#fff3b0' }));
   } else if (e === 'flyend') sfx.flyEnd();
-  else if (e === 'jump') sfx.jump();
-  else if (e === 'drop') sfx.drop();
-  else if (e === 'move') sfx.move();
-  else if (e === 'bump') { sfx.bump(); haptic('land'); nudge = { dir: world.side, t: 0 }; }
+  else if (e === 'jump') {   // it pushes off: stretched up, a puff of dust left on the ground
+    sfx.jump(); squash = Math.min(squash, -0.08); squashV = 0; kickCam(0, 60);
+    if (!b.fromRamp || b.hop) {
+      const dust = pal('soil', 18);
+      spray(4, { x: b.x, y: b.y - R, z: b.z }, () => ({ vx: rnd(-1.4, 1.4), vy: rnd(0.2, 0.9), vz: world.v * 0.7 + rnd(-1, 1), g: 2, life: rnd(0.3, 0.5), size: rnd(0.06, 0.11), color: dust, grow: 1.5 }));
+    }
+  } else if (e === 'drop') { sfx.drop(); squash = -0.2; squashV = 0; }   // slammed down: stretched along the way
+  else if (e === 'move') sfx.move(Math.sign(b.tx - b.x));
+  else if (e === 'bump') { sfx.bump(world.side); haptic('land'); nudge = { dir: world.side, t: 0 }; kickCam(world.side * 110, 0); }
   else if (e === 'land') {
     const k = world.impact;
     sfx.land(k); haptic('land');
-    squash = Math.max(squash, 0.35 * k); shake = Math.max(shake, 0.25 * k);
+    squash = Math.max(squash, 0.35 * k); squashV = 0; shake = Math.max(shake, k > 0.7 ? 0.25 * k : 0);
+    kickCam(0, 120 + 200 * k);   // the whole view dips under the blow and comes back
+    if (k > 0.45) rings.push({ x: b.x, y: b.y - R + 0.02, z: b.z, t: 0, s: 0.4 + 0.5 * k, flat: true, c: 'rgba(255,255,255,.8)' });
     const dust = pal('soil', 18);
     spray(Math.round(4 + 8 * k), { x: b.x, y: b.y - R, z: b.z }, () => ({ vx: rnd(-2.2, 2.2), vy: rnd(0.3, 1.6), vz: world.v * 0.6 + rnd(-1, 2), g: 3, life: rnd(0.3, 0.6), size: rnd(0.08, 0.16), color: dust, grow: 1.5 }));
   } else if (e === 'crash') {
     bankRun();
-    sfx.crash(); haptic('crash');
-    shake = 1; hitStop = 0.07; rings.push({ x: b.x, y: b.y, z: b.z + R, t: 0 });
+    sfx.crash(); haptic('crash'); muffleMusic(true);
+    shake = 1; hitStop = 0.1; zoom = 0.07; rush = 0; kickCam(0, 300); rings.push({ x: b.x, y: b.y, z: b.z + R, t: 0, w: true });
     spray(26, b, (k) => ({ vx: rnd(-5, 5), vy: rnd(1, 7), vz: rnd(-3, 4), g: 18, life: rnd(0.6, 1.1), size: rnd(0.03, 0.065), color: skin.c[k % 3 === 0 ? 0 : 1] }));
-  } else if (e === 'fall') { bankRun(); sfx.fall(); haptic('fall'); }
+  } else if (e === 'fall') { bankRun(); sfx.fall(); haptic('fall'); muffleMusic(true); }
   else if (e === 'over') gameOver();
 }
 
@@ -427,7 +473,15 @@ function update(dt) {
   parts = parts.filter((p) => p.t < p.life);
   for (const r of rings) r.t += dt;
   rings = rings.filter((r) => r.t < 0.45);
-  shake = Math.max(0, shake - dt * 3.5); squash = Math.max(0, squash - dt * 2.2);
+  shake = Math.max(0, shake - dt * 3.5);
+  const sd = Math.min(dt, 1 / 30);   // springs: stable on a slow frame too
+  squashV += (-380 * squash - 15 * squashV) * sd; squash += squashV * sd;   // springs back a little past round
+  kick.vx += (-260 * kick.x - 20 * kick.vx) * sd; kick.vy += (-260 * kick.y - 20 * kick.vy) * sd;
+  kick.x += kick.vx * sd; kick.y += kick.vy * sd;
+  zoom *= Math.exp(-dt * 7); rush = Math.max(0, rush - dt * 1.6); gulp = Math.max(0, gulp - dt * 7);
+  if (tint && (tint.t += dt) > 0.45) tint = null;
+  for (const h of homing) h.t += dt / h.d;
+  if (homing.some((h) => h.t >= 1)) homing = homing.filter((h) => h.t < 1 || (shownStar(), false));
   if (flash && (flash.t -= dt * 0.8) <= 0) flash = null;
   if (nudge && (nudge.t += dt / 0.18) >= 1) nudge = null;
   if (mode === 'count') {
@@ -446,12 +500,21 @@ function update(dt) {
   const side = world.state === 'run' ? clamp(b.vx / 9, -1, 1) : 0, offNow = Math.abs(b.tx - b.x);
   lean += (side - lean) * Math.min(1, dt * 22);
   if (wasOff > 0.05 && offNow <= 0.05 && world.state === 'run' && !b.air) {   // in the air there is nothing to land on
-    sfx.settle(); haptic('tick');
-    squash = Math.max(squash, 0.07);
     const dir = Math.sign(lean) || 1, dust = pal('soil', 18);
+    sfx.settle(dir); haptic('tick');
+    squash = Math.max(squash, 0.07);
     spray(3, { x: b.x + dir * R * 0.8, y: b.y - R, z: b.z }, () => ({ vx: dir * rnd(0.8, 2.4), vy: rnd(0.3, 1.2), vz: world.v * 0.7 + rnd(-1, 1), g: 3, life: rnd(0.25, 0.45), size: rnd(0.06, 0.12), color: dust, grow: 1.5 }));
   }
   wasOff = offNow;
+  if (world.state === 'run' && !b.air && !b.fly) {   // bits of the ground thrown up behind the rolling ball, more with speed
+    rollAcc += dt * world.v * 0.3;
+    if (rollAcc >= 1 && parts.length < 100) {
+      rollAcc -= 1;
+      const c = Math.random() < 0.6 ? pal('grassHi', -6) : pal('soil', 10);
+      spray(1, { x: b.x + rnd(-0.12, 0.12), y: b.y - R + 0.02, z: b.z - R * 0.6 }, () => ({ vx: rnd(-0.8, 0.8), vy: rnd(0.6, 1.6), vz: world.v * 0.8, g: 9, life: rnd(0.2, 0.35), size: rnd(0.018, 0.03), color: c }));
+    } else rollAcc = Math.min(rollAcc, 1);
+  }
+  nearMiss();
   flyLift += ((b.fly ? 1.85 : 0) - flyLift) * Math.min(1, dt * 3);   // the camera goes up almost as far as the ball: the road is seen from above
   flyShow = clamp(flyShow + (b.fly ? dt / 0.6 : -dt / 0.8), 0, 1);
   if (b.fly) {   // a trail of sparks behind the wings
@@ -463,7 +526,11 @@ function update(dt) {
   follow();
   if (world.state === 'run') {
     $score.textContent = world.score;
-    if (!beatBest && save.best > 0 && world.score > save.best) { beatBest = true; $score.style.color = '#ffc107'; sfx.best(); }
+    if (!beatBest && save.best > 0 && world.score > save.best) {   // a new record, right now: confetti
+      beatBest = true; $score.style.color = '#ffc107'; sfx.best(); popEl($score);
+      const C = ['#ffd84a', '#ff6fa5', '#4fb4ff', '#7ee07e', '#ffffff'];
+      spray(30, { x: b.x, y: b.y + 0.4, z: b.z + 0.8 }, (k) => ({ vx: rnd(-4, 4), vy: rnd(3, 7), vz: world.v + rnd(-1, 2), g: 9, life: rnd(0.7, 1.1), size: rnd(0.025, 0.045), color: C[k % C.length] }));
+    }
   }
   if (!$hint.hidden && performance.now() > hintUntil) $hint.hidden = true;
   if (save.runs <= 5 && $hint.hidden && !b.air && world.state === 'run') {   // first runs: a hand shows the swipe up before a log
@@ -474,6 +541,25 @@ function update(dt) {
     }
   }
   setHum(world.v / 24, world.state === 'run' && !b.air);
+}
+
+// Something rushed past close by: a thing in the next lane level with the ball, or a log under it in a jump.
+// The sound comes from that side; it is what makes a narrow escape felt.
+function nearMiss() {
+  const b = world.ball, zr = Math.floor(b.z);
+  if (world.state !== 'run' || b.fly || zr === passRow) return;
+  passRow = zr;
+  const row = world.track.get(zr), lane = Math.floor(b.x + HALF), t = performance.now();
+  if (t - whooshAt < 280 || Math.abs(b.x - laneX(lane)) > 0.3) return;
+  if (b.air && (row.low[lane] || row.block[lane])) { whooshAt = t; nearN++; sfx.whoosh(0, 0.8); return; }   // right under it
+  if (row.block[lane]) return;
+  for (const d of [-1, 1]) {
+    const l = lane + d;
+    if (l < 0 || l >= LANES || !row.block[l]) continue;
+    whooshAt = t; nearN++; sfx.whoosh(d * 0.8, 1);
+    spray(3, { x: b.x + d * 0.5, y: b.y, z: b.z + 0.3 }, () => ({ vx: d * rnd(0.5, 1.5), vy: rnd(-0.2, 0.4), vz: world.v * 0.6, g: 0, life: rnd(0.15, 0.25), size: rnd(0.012, 0.02), color: 'rgba(255,255,255,.7)' }));
+    return;
+  }
 }
 
 // the camera follows the ball
@@ -2344,8 +2430,11 @@ function drawBall() {
   if (!(sc > 0) || !Number.isFinite(px + py0 + r)) return;   // behind the camera: nothing to draw
   // a landing squashes the ball for a moment: wider, lower, still touching the ground;
   // and a lane change makes it lean: its top lags behind, it stretches a little along the way
+  // In a jump it stretches with its speed up or down (round at the top); it swells for a moment as it takes a star.
   const py = py0, yb = py + r, al = Math.abs(lean);   // squashed and stretched about the point it stands on
-  ctx.save(); ctx.translate(px, yb); ctx.transform(1, 0, lean * 0.12, 1, 0, 0); ctx.scale((1 + squash * 0.5) * (1 + al * 0.04), (1 - squash) * (1 - al * 0.03)); ctx.translate(-px, -yb);
+  const st = b.air && !b.fly ? Math.min(1, Math.abs(b.vy) / 7) * 0.07 : 0, sq = squash - st, gulpK = 1 + 0.06 * Math.min(1, gulp);
+  const oy = b.air ? py : yb;   // on the ground about its foot (it never sinks in), in the air about its middle
+  ctx.save(); ctx.translate(px, oy); ctx.transform(1, 0, lean * 0.12, 1, 0, 0); ctx.scale(gulpK * (1 + sq * 0.5) * (1 + al * 0.04), gulpK * (1 - sq) * (1 - al * 0.03)); ctx.translate(-px, -oy);
   if (T.glow && P.glow > 0.01) {
     const gl = ctx.createRadialGradient(px, py, r * 0.8, px, py, r * 2.6);
     gl.addColorStop(0, `rgba(${T.glow},${0.55 * P.glow})`); gl.addColorStop(1, `rgba(${T.glow},0)`);
@@ -2493,7 +2582,7 @@ function drawFlightRow(rz, fog) {
 
 // speed lines at the screen edges once the ball is fast
 function drawStreaks() {
-  const k = Math.max(clamp((world.v - 13) / 11, 0, 1), flyShow * 0.8);   // and all through a flight
+  const k = Math.max(clamp((world.v - 13) / 11, 0, 1), flyShow * 0.8, rush * 0.9);   // and all through a flight, and for a moment on a push of speed
   if (k <= 0 || world.state !== 'run') return;
   const c = theme.streak, cx = W / 2, R0 = Math.hypot(W, H) * 0.42, rr = mulberry((performance.now() / 50) | 0);
   ctx.lineWidth = Math.max(1, 1.5 * dpr);
@@ -2511,7 +2600,10 @@ function draw() {
   theme.sky(hue, horY);
   if (flyShow > 0.01) drawFlightSky(hue);
   ctx.save();
-  if (shake > 0.01) { const k = shake * shake * 14 * dpr; ctx.translate((Math.random() - 0.5) * k, (Math.random() - 0.5) * k); }
+  // shake follows smooth waves rather than a new random spot every frame (that reads as a glitch, not a blow)
+  if (shake > 0.01) { const k = shake * shake * 7 * dpr, t = now(); ctx.translate(k * (Math.sin(t * 61) + Math.sin(t * 37 + 2)) * 0.5, k * (Math.sin(t * 53 + 1) + Math.sin(t * 29 + 4)) * 0.5); }
+  ctx.translate(kick.x, kick.y);
+  if (zoom > 0.002) { const z = 1 + zoom, oy = H * 0.7; ctx.translate(W / 2, oy); ctx.scale(z, z); ctx.translate(-W / 2, -oy); }
   const near = Math.max(0, Math.floor(camZ + 0.4)), far = Math.floor(camZ) + VIEW;
   const ballRow = world.state === 'fall' ? world.ball.fallRow : Math.floor(world.ball.z);
   if (world.state === 'fall') {   // falling into a pit: the near edge of the ground must hide the ball
@@ -2535,22 +2627,45 @@ function draw() {
     ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.fill();
   }
   ctx.globalAlpha = 1;
-  for (const g of rings) {   // a ring spreads from the point of impact
-    const [px, py, sc] = proj(g.x, g.y, g.z), k = g.t / 0.45;
+  for (const g of rings) {   // a ring spreads from the point of impact (flat: along the ground)
+    const [px, py, sc] = proj(g.x, g.y, g.z), k = g.t / 0.45, s = g.s || 1, rr = (0.2 + 1.3 * k) * sc * s;
     if (!(sc > 0)) continue;
-    ctx.globalAlpha = (1 - k) ** 2; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, (1 - k) * 0.12 * sc);
-    ctx.beginPath(); ctx.arc(px, py, (0.2 + 1.3 * k) * sc, 0, 7); ctx.stroke();
+    ctx.globalAlpha = (1 - k) ** 2; ctx.strokeStyle = g.c || '#fff'; ctx.lineWidth = Math.max(1, (1 - k) * 0.12 * sc * Math.sqrt(s));
+    ctx.beginPath(); ctx.ellipse(px, py, rr, g.flat ? rr * 0.3 : rr, 0, 0, 7); ctx.stroke();
   }
   ctx.globalAlpha = 1;
   ctx.restore();
   drawWeather();
   drawStreaks();
+  if (tint) {   // the edges of the screen flash in a bonus's colour
+    const k = 1 - tint.t / 0.45, g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.6);
+    g.addColorStop(0, `rgba(${tint.c},0)`); g.addColorStop(1, `rgba(${tint.c},${0.55 * k * k})`);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+  drawHoming();
   if (mode === 'play' || mode === 'count' || mode === 'pause') drawEffects();
-  if (rings.length && rings[0].t < 0.12) { ctx.fillStyle = `rgba(255,255,255,${0.35 * (1 - rings[0].t / 0.12)})`; ctx.fillRect(0, 0, W, H); }
+  const fl = rings.find((g) => g.w && g.t < 0.12);
+  if (fl) { ctx.fillStyle = `rgba(255,255,255,${0.35 * (1 - fl.t / 0.12)})`; ctx.fillRect(0, 0, W, H); }
   if (mode === 'count') {   // 3-2-1, each digit shrinks into place
     const n = Math.ceil(count / COUNT_T), k = 1 - (count / COUNT_T - (n - 1));
     bigNumber(n, 0.16 * (1.5 - 0.5 * Math.min(1, k * 4)), Math.min(1, (1 - k) * 3));
   } else if (flash) bigNumber(flash.sec + 1, 0.09 * (1 + 0.6 * Math.max(0, flash.t - 0.8) / 0.2), Math.min(1, flash.t * 1.5));
+}
+
+// stars on their way to the counter: up a curve, shrinking to the icon's size, spinning a little
+function drawHoming() {
+  const to = homing.length && hudStarAt();
+  if (!to) return;
+  for (const h of homing) {
+    const k = clamp(h.t, 0, 1), e = 1 - (1 - k) ** 3, u = 1 - e;
+    const cx = (h.x + to.x) / 2 + h.side * W * 0.12, cyy = Math.min(h.y, to.y) + H * 0.05;   // a bend to one side
+    const x = u * u * h.x + 2 * u * e * cx + e * e * to.x, y = u * u * h.y + 2 * u * e * cyy + e * e * to.y;
+    const r = h.r + (to.r * 0.9 - h.r) * e;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(k * 2.4 * (h.side < 0 ? -1 : 1));
+    ctx.beginPath(); STAR_PTS.forEach(([a, c], i) => (i ? ctx.lineTo(a * r, c * r) : ctx.moveTo(a * r, c * r))); ctx.closePath();
+    ctx.fillStyle = '#ffd84a'; ctx.fill(); ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(1, r * 0.14); ctx.strokeStyle = '#d99100'; ctx.stroke();
+    ctx.restore();
+  }
 }
 
 function bigNumber(n, size, alpha) {
@@ -2620,7 +2735,7 @@ on('btnSetDone', () => { $set.hidden = true; });
 $set.addEventListener('click', (e) => { if (e.target === $set) $set.hidden = true; });
 for (const [el, key] of [[$vol, 'vol'], [$music, 'music']]) {
   el.addEventListener('input', () => { save[key] = el.value / 100; applyVolume(); });
-  el.addEventListener('change', () => { persist(); if (key === 'vol') sfx.star(); });   // released: hear the new level
+  el.addEventListener('change', () => { persist(); if (key === 'vol') sfx.preview(); });   // released: hear the new level
 }
 on('hapticSw', () => { save.haptic = !save.haptic; $haptic.setAttribute('aria-checked', String(save.haptic)); persist(); haptic('land'); });
 
@@ -2673,7 +2788,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 
 initAudio(save);
-addEventListener('resize', () => { resize(); follow(); });
+addEventListener('resize', () => { resize(); follow(); hudStar = null; });
 resize();
 if (!restoreRun()) goHome();
 requestAnimationFrame(frame);
@@ -2691,3 +2806,4 @@ window.__shot = (seed, z) => {
 window.__world = () => world;
 window.__draw = draw;
 window.__follow = follow;
+window.__feel = () => ({ homing: homing.length, shown: shownStars, near: nearN, parts: parts.length, kick: { ...kick }, zoom, squash });
