@@ -1,12 +1,15 @@
 // Offline: every game file goes into the cache on install and is served from it from then on.
 // When any file in public/ changes, bump VERSION here and in core.js — otherwise devices stay on the old version.
-// A new version installs in the background and takes over the next time the game is opened.
-const VERSION = '0.4.5';
+// A new version installs in the background and takes over at once; the page reloads itself when it is safe to.
+// Music is not part of a version: tracks go into their own cache when first played and stay there across versions.
+const VERSION = '0.5.0';
 const CACHE = `roll-v${VERSION}`;
+const MUSIC_CACHE = 'roll-music-1';   // bump only if a track file changes
 const ASSETS = [
   './',
   'index.html',
   'client.js',
+  'audio.js',
   'core.js',
   'manifest.webmanifest',
   'icons/icon-192.png',
@@ -21,7 +24,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('roll-') && k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('roll-') && k !== CACHE && k !== MUSIC_CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -30,6 +33,16 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== location.origin || url.pathname.endsWith('/healthz')) return;
+  if (url.pathname.includes('/music/')) {
+    e.respondWith(caches.open(MUSIC_CACHE).then(async (c) => {
+      const hit = await c.match(req, { ignoreSearch: true });
+      if (hit) return hit;
+      const r = await fetch(req.url);
+      if (r.ok) e.waitUntil(c.put(req.url, r.clone()).catch(() => {}));   // the worker must not be stopped mid-write
+      return r;
+    }));
+    return;
+  }
   e.respondWith(
     caches.open(CACHE).then(async (c) => {
       const hit = await c.match(req, { ignoreSearch: true });

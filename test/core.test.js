@@ -89,7 +89,7 @@ test('sw.js has the same VERSION as core.js', () => {
 test('sw.js caches every file in public/', () => {
   const sw = fs.readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8');
   const root = new URL('../public/', import.meta.url);
-  const files = fs.readdirSync(root, { recursive: true }).filter((f) => fs.statSync(new URL(f, root)).isFile() && f !== 'sw.js');
+  const files = fs.readdirSync(root, { recursive: true }).filter((f) => fs.statSync(new URL(f, root)).isFile() && f !== 'sw.js' && !f.startsWith('music/'));   // music has its own cache
   for (const f of files) assert.ok(sw.includes(`'${f}'`), `${f} is not in ASSETS`);
 });
 
@@ -235,4 +235,96 @@ test('the ball may brush past an obstacle', () => {
     rollAlong(w, edge - 0.6, 20);
     assert.equal(rollAlong(w, x, 50) === 'crash' || w.state === 'over', hits, `ball at ${(x - edge).toFixed(2)} from the lane border`);
   }
+});
+
+test('stars lie only where the ball can be: on ground without obstacles, or in the air over a jump', () => {
+  let ground = 0, air = 0;
+  for (let seed = 1; seed <= 10; seed++) {
+    const t = new Track(seed);
+    for (let i = 0; i < SEC_ROWS * 20; i++) {
+      const r = t.get(i);
+      r.star.forEach((s, l) => {
+        if (!s) return;
+        assert.ok(r.road[l], `seed ${seed} row ${i}: a star off the road`);
+        if (s > 1) { air++; return; }
+        ground++;
+        assert.ok(r.floor[l] && !r.block[l], `seed ${seed} row ${i}: a star in an obstacle or over a pit`);
+      });
+    }
+  }
+  assert.ok(ground > 1000 && air > 100, `${ground} stars on the ground, ${air} in the air`);
+});
+
+test('a bot on the path picks up most of the stars along it, the arcs over jumps included', () => {
+  let got = 0, onPath = 0, arcs = 0, arcGot = 0;
+  for (let seed = 1; seed <= 10; seed++) {
+    const w = new World(seed), rows = SEC_ROWS * 20, t = w.track;
+    const before = [];
+    for (let i = 0; i < rows; i++) {
+      const r = t.get(i);
+      before.push(r.star.slice());
+      r.star.forEach((s, l) => { if (s > 1) arcs++; else if (s && l === r.goal) onPath++; });
+    }
+    while (w.state === 'run' && w.ball.z < rows) { w.ball.tx = w.autoTarget(); w.step(DT); }
+    got += w.stars;
+    for (let i = 0; i < rows - 2; i++) before[i].forEach((s, l) => { if (s > 1 && !t.get(i).star[l]) arcGot++; });
+  }
+  assert.ok(got >= onPath * 0.9, `${got} taken of ${onPath} on the path`);
+  assert.ok(arcGot >= arcs * 0.8, `${arcGot} taken of ${arcs} in arcs`);
+});
+
+test('stars do not change the track: the same seed gives the same road with or without looking at them', () => {
+  const a = new Track(11), b = new Track(11);
+  for (let i = 0; i < 400; i++) {
+    const r = a.get(i);
+    assert.ok(Array.isArray(r.star) && r.star.length === LANES);
+  }
+  b.rs = () => 0.99;   // no lone stars, other runs
+  for (let i = 0; i < 400; i++) {
+    const x = a.get(i), y = b.get(i);
+    assert.deepEqual([x.road, x.floor, x.block, x.ramp, x.h], [y.road, y.floor, y.block, y.ramp, y.h], `row ${i}`);
+  }
+});
+
+test('a saved run continues exactly where it stopped', () => {
+  const a = new World(21);
+  while (a.ball.z < 300) { a.ball.tx = a.autoTarget(); a.step(DT); }
+  const b = World.fromSave(JSON.parse(JSON.stringify(a.toSave())));
+  assert.ok(b);
+  assert.equal(b.stars, a.stars);
+  for (let n = 0; n < 1200; n++) {
+    a.ball.tx = a.autoTarget(); a.step(DT);
+    b.ball.tx = b.autoTarget(); b.step(DT);
+  }
+  assert.equal(b.state, 'run');
+  assert.equal(b.ball.z, a.ball.z);
+  assert.equal(b.ball.x, a.ball.x);
+  assert.equal(b.stars, a.stars);
+});
+
+test('a broken or outdated save is refused', () => {
+  const ok = new World(5).toSave();
+  for (const bad of [null, {}, { ...ok, v: 0 }, { ...ok, seed: 'x' }, { ...ok, ball: null }, { ...ok, speed: NaN }, { ...ok, ball: { ...ok.ball, z: -1 } }])
+    assert.equal(World.fromSave(bad), null);
+  const odd = World.fromSave({ ...ok, ball: { ...ok.ball, x: 'left', y: null } });
+  for (const k of ['x', 'y', 'z']) assert.ok(Number.isFinite(odd.ball[k]));
+});
+
+test('a slow frame is split into equal steps: the run goes the same at 20 frames a second', () => {
+  for (const seed of [2, 3, 4]) {
+    const w = new World(seed);
+    while (w.state === 'run' && w.ball.z < SEC_ROWS * 12) { w.ball.tx = w.autoTarget(); w.step(1 / 20); }
+    assert.equal(w.state, 'run', `seed ${seed} died at row ${w.score}`);
+  }
+});
+
+test('landing after a jump is reported with its strength', () => {
+  const w = new World(3);
+  let lands = 0;
+  while (w.state === 'run' && w.ball.z < SEC_ROWS * 8) {
+    w.ball.tx = w.autoTarget(); w.step(DT);
+    if (w.events.includes('land')) { lands++; assert.ok(w.impact > 0 && w.impact <= 1); }
+    w.events.length = 0;
+  }
+  assert.ok(lands >= 3 && lands >= w.stats.jumps - 1, `${lands} landings for ${w.stats.jumps} jumps`);
 });

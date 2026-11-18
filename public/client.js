@@ -1,24 +1,51 @@
-// The page: draws the world from core.js in a hand-rolled perspective, reads the finger / mouse / keys,
-// shows the score and the play / game-over screen. The road is grass and earth; the sky goes from day to night
-// to space with the distance.
+// The page: draws the world from core.js in a hand-rolled perspective, reads the finger / mouse / keys and runs the
+// screens around the game: home, pause, results, settings. The road is grass and earth; the sky goes from day to
+// night to space with the distance. There are no words in the interface, only numbers and icons.
 import { World, VERSION, LANES, HALF, SEC_ROWS, R, INSET, BOX_H, RAMP_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
+import { initAudio, applyVolume, setHum, sfx, haptic, canHaptic } from './audio.js';
 
-const cv = document.getElementById('c'), ctx = cv.getContext('2d');
-const $score = document.getElementById('score'), $sec = document.getElementById('sec');
-document.getElementById('ver').textContent = 'v' + VERSION;   // small, on the start screen: which version runs
-const $over = document.getElementById('over'), $oscore = document.getElementById('oscore'), $obest = document.getElementById('obest');
+const $ = (id) => document.getElementById(id);
+const cv = $('c'), ctx = cv.getContext('2d');
+const $hud = $('hud'), $score = $('score'), $starN = $('starN'), $hudStars = $('hudStars'), $hint = $('hint');
+const $home = $('home'), $pause = $('pause'), $over = $('over'), $set = $('set');
+$('ver').textContent = 'v' + VERSION;   // small, on the home screen: which version runs
 
-const BEST_KEY = 'roll.best';
 const SENS = 3.2;                   // lanes per full screen-width drag: one lane takes about a third of the screen
 const SLAB = 0.35, VIEW = 46;       // track thickness, rows drawn ahead
 const PITCH = 0.5;
-const CAM_FOLLOW = 0.6;              // how much of the ball's sideways move the camera repeats
+const CAM_FOLLOW = 0.6;             // how much of the ball's sideways move the camera repeats
+const COUNT_T = 0.55;               // seconds per digit of the 3-2-1 before a paused run goes on
 
-// mode: 'ready' | 'play' | 'pause' | 'over' (and 'shot' — frozen by the screenshot hook at the end);
-// the world has its own state inside a game
-let mode = 'ready', world = new World(1), parts = [], flash = null;
-let camZ = 0, camX = 0, camL = 0, camY = 0, keyDir = 0, overlayAt = 0;   // camL: the camera across the road
-let best = Number(localStorage.getItem(BEST_KEY)) || 0;
+// ---- What the device remembers ----
+// roll.save: settings and progress; roll.run: a run in progress (see saveRun)
+const SAVE_KEY = 'roll.save', RUN_KEY = 'roll.run';
+const read = (key) => { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } };
+const save = { vol: 0.5, music: 0.4, haptic: true, skin: 'coral', stars: 0, best: 0, runs: 0, ...read(SAVE_KEY) };
+if (!(save.best > 0)) save.best = Number(read('roll.best')) || 0;   // the record of versions before 0.5
+for (const k of ['vol', 'music']) save[k] = clamp(Number(save[k]) || 0, 0, 1);
+for (const k of ['stars', 'best', 'runs']) save[k] = Math.max(0, Math.floor(Number(save[k]) || 0));
+const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* private mode: play on without saving */ } };
+
+// Balls: smooth and glossy, they differ in colour only. `need` — stars collected over all runs that open one.
+const SKINS = [
+  { id: 'coral', need: 0, c: ['#fff1e6', '#ff8a5c', '#cf4b25'], glow: [255, 140, 90] },
+  { id: 'sky', need: 50, c: ['#f0faff', '#4fb4ff', '#1867c9'], glow: [90, 170, 255] },
+  { id: 'rose', need: 150, c: ['#fff0f6', '#ff6fa5', '#c42b6b'], glow: [255, 120, 170] },
+  { id: 'sun', need: 300, c: ['#fffde6', '#ffd84a', '#e08e00'], glow: [255, 215, 90] },
+  { id: 'violet', need: 500, c: ['#f8eaff', '#b56cff', '#6a2bc4'], glow: [190, 120, 255] },
+  { id: 'pearl', need: 800, c: ['#ffffff', '#ebe6f7', '#a79fc4'], glow: [230, 225, 255] },
+  { id: 'night', need: 1200, c: ['#c3cdf0', '#3b4466', '#10131f'], glow: [120, 140, 255] },
+  { id: 'ruby', need: 1800, c: ['#ffe3e3', '#e0193a', '#7a0018'], glow: [255, 70, 90], sparkle: true },
+];
+const skinOpen = (k) => save.stars >= k.need;
+let skinAt = Math.max(0, SKINS.findIndex((k) => k.id === save.skin && skinOpen(k)));   // the ball that plays
+let skinView = skinAt;                                                               // the ball on show on the home screen
+
+// mode: 'home' | 'play' | 'count' (3-2-1 after a pause) | 'pause' | 'over' (and 'shot' — frozen by the screenshot
+// hook at the end); the world has its own state inside a game
+let mode = 'home', world = new World(1), parts = [], rings = [], flash = null;
+let camZ = 0, camX = 0, camL = 0, camY = 0, keyDir = 0;   // camL: the camera across the road
+let shake = 0, squash = 0, hitStop = 0, count = 0, beatBest = false, overAnim = null, hintUntil = 0;
 
 // ---- Colours ----
 let FOG = [5, 6, 13];
@@ -131,14 +158,14 @@ const theme = {
     if (P.clouds > 0.01) {   // clouds, above and below the horizon
       const rr = mulberry(3);
       for (let n = 0; n < 9; n++) {
-        const cx = wrap(rr() * 1.6 * W - camX * (2 + n) * dpr, W * 1.6) - 0.3 * W, cy = horY + (rr() - 0.65) * H * 0.5, s = (0.05 + rr() * 0.06) * W;
+        const cx = wrap(rr() * 1.6 * W - camX * (2 + n) * dpr + now() * (1.5 + n * 0.4) * dpr, W * 1.6) - 0.3 * W, cy = horY + (rr() - 0.65) * H * 0.5, s = (0.05 + rr() * 0.06) * W;
         ctx.globalAlpha = P.clouds * (cy > horY ? 0.55 : 0.85); ctx.fillStyle = css(P.cloudC);
         for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.ellipse(cx + (k - 1.5) * s * 0.7, cy - (k % 2) * s * 0.25, s * 0.6, s * 0.38, 0, 0, 7); ctx.fill(); }
       }
       ctx.globalAlpha = 1;
     }
   },
-  ball: { c: ['#fff1e6', '#ff8a5c', '#cf4b25'], glow: [255, 140, 90] },
+  get ball() { return SKINS[mode === 'home' ? skinView : skinAt]; },
   get shadow() { return P.shadow.map(Math.round); },
   streak: [255, 255, 255],
 };
@@ -150,61 +177,186 @@ function setPhase(z) {
   const dark = P.hud < 0.5;
   if (dark !== hudDark) {
     hudDark = dark;
-    document.body.style.color = dark ? '#1d2433' : '#fff';
+    document.body.classList.toggle('dark', !dark);
   }
-  $over.style.background = css(P.fog, 0.55);
 }
 
 // ---- Game flow ----
-function newGame() {
-  world = new World((Math.random() * 1e9) | 0);
-  parts = []; flash = null; camX = 0; camL = 0; camY = 0; camZ = world.ball.z - CAM_BACK;
-  $score.textContent = '0'; $sec.textContent = '';
+function setMode(m) {
+  mode = m;
+  $home.hidden = m !== 'home'; $pause.hidden = m !== 'pause'; $over.hidden = m !== 'over';
+  $hud.hidden = m === 'home' || m === 'shot';
+  if (m !== 'play') { $hint.hidden = true; setHum(0, false); }
 }
 
-function showOverlay(score) {
-  $oscore.textContent = score == null ? '' : score;
-  $obest.textContent = best ? '★ ' + best : '';
-  $over.classList.remove('hide');
-  overlayAt = performance.now();
+function resetView() {
+  banked = null;
+  parts = []; rings = []; flash = null; shake = 0; squash = 0; hitStop = 0; beatBest = false;
+  $score.textContent = world.score; $score.style.color = ''; $starN.textContent = world.stars;
+  follow();
 }
 
-function play() {
-  if (mode === 'ready' || mode === 'over') newGame();
-  mode = 'play';
-  $over.classList.add('hide');
+function goHome() {
+  bankRun();
+  if (reloadWanted) { location.reload(); return; }
+  world = new World(1); skinView = skinAt;
+  resetView(); setMode('home'); showHome();
+}
+
+function showHome() {
+  const k = SKINS[skinView], open = skinOpen(k);
+  if (open && skinAt !== skinView) { skinAt = skinView; save.skin = k.id; persist(); }
+  $('bank').textContent = save.stars; $('bestN').textContent = save.best;
+  $('homeBest').hidden = !save.best;
+  $('lock').hidden = open; $('lockN').textContent = `${save.stars}/${k.need}`;
+  $('dots').innerHTML = SKINS.map((x, i) => `<i class="${i === skinView ? 'on' : ''} ${skinOpen(x) ? '' : 'locked'}"></i>`).join('');
+}
+
+function startGame() {
+  bankRun();
+  if (reloadWanted) { location.reload(); return; }
+  world = new World(2 + ((Math.random() * 1e9) | 0));
+  resetView(); setMode('play');
+  save.runs++; persist();
+  if (save.runs <= 3) { $hint.hidden = false; hintUntil = performance.now() + 4000; }   // a hand shows the swipe
+}
+
+function pause() {
+  if (mode !== 'play' && mode !== 'count') return;
+  saveRun();
+  $('pauseScore').textContent = world.score; $('pauseStars').textContent = world.stars;
+  setMode('pause');
+}
+
+// a paused run goes on after 3-2-1: at speed there is no time to find the ball again
+function resume() {
+  if (mode !== 'pause') return;
+  $set.hidden = true;
+  clearRun();   // from here on the stored run is out of date; hiding or pausing stores it afresh
+  count = COUNT_T * 3; setMode('count'); sfx.count(false);
+}
+
+// The run is over (the ball died, or the player left it from the pause): its stars go to the bank, its score may be
+// the new record, the stored copy goes. Done once per run, at the moment it ends — not after the last animation,
+// which the player may never see.
+let banked = null;
+function bankRun() {
+  if (banked || world.seed === 1) return banked;   // seed 1 is the scene behind the home screen
+  const s = world.score, was = save.stars, isBest = s > save.best;
+  save.stars += world.stars;
+  if (isBest) save.best = s;
+  persist(); clearRun();
+  banked = { s, isBest, stars: world.stars, fresh: SKINS.filter((k) => k.need > was && k.need <= save.stars) };
+  return banked;
 }
 
 function gameOver() {
-  if (reloadWanted) { location.reload(); return; }
-  mode = 'over';
-  const s = world.score;
-  if (s > best) { best = s; localStorage.setItem(BEST_KEY, String(best)); }
-  showOverlay(s);
+  const { s, isBest, stars, fresh } = bankRun();
+  $('overCard').classList.toggle('best', isBest); $('newBest').hidden = !isBest;
+  $('overBest').textContent = save.best; $('overStars').textContent = '+' + stars;
+  $('unlock').hidden = !fresh.length;
+  $('unlock').innerHTML = fresh.map((k) => `<i style="background:radial-gradient(circle at 35% 30%, ${k.c[0]}, ${k.c[1]} 60%, ${k.c[2]})"></i>`).join('');
+  $('overScore').textContent = '0'; overAnim = { t: 0, to: s };
+  $('overActs').classList.add('wait');   // a stray tap right after a crash must not restart or leave
+  setTimeout(() => $('overActs').classList.remove('wait'), 600);
+  setMode('over');
+  if (isBest) { setTimeout(() => { if (mode === 'over') { sfx.best(); haptic('best'); } }, 800); } else sfx.over();
+  if (fresh.length) sfx.unlock();
+}
+
+// A run in progress survives the game being closed or unloaded by the phone: it is stored when paused or hidden and
+// opens on pause the next time. The track comes back from its seed.
+function saveRun() {
+  if (banked || world.state !== 'run' || (mode !== 'play' && mode !== 'count' && mode !== 'pause')) return;
+  try { localStorage.setItem(RUN_KEY, JSON.stringify({ ...world.toSave(), game: VERSION })); } catch { /* */ }
+}
+function clearRun() { try { localStorage.removeItem(RUN_KEY); } catch { /* */ } }
+function restoreRun() {
+  const o = read(RUN_KEY), w = o && o.game === VERSION ? World.fromSave(o) : null;
+  if (!w) {
+    // a run of another version can't go on (the same seed may build another track): keep what it earned
+    if (o && o.ball) {
+      save.stars += clamp(Math.floor(o.stars) || 0, 0, 1e5);
+      save.best = Math.max(save.best, clamp(Math.floor(o.ball.z) || 0, 0, 1e6));
+      persist();
+    }
+    clearRun();
+    return false;
+  }
+  world = w; resetView();
+  $('pauseScore').textContent = world.score; $('pauseStars').textContent = world.stars;
+  setMode('pause');
+  return true;
+}
+
+function spray(n, at, make) {
+  for (let k = 0; k < n && parts.length < 160; k++) parts.push({ x: at.x, y: at.y, z: at.z, t: 0, ...make(k) });
+}
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+function onEvent(e) {
+  const b = world.ball, skin = theme.ball;
+  if (e === 'section') {
+    flash = { sec: world.sec, t: 1 }; sfx.section(); haptic('section');
+  } else if (e === 'star') {
+    sfx.star();
+    $starN.textContent = world.stars;
+    $hudStars.classList.remove('pop'); void $hudStars.offsetWidth; $hudStars.classList.add('pop');
+    spray(5, b, () => ({ vx: rnd(-1.6, 1.6), vy: rnd(1.5, 4), vz: world.v + rnd(-1, 1), g: 7, life: rnd(0.25, 0.45), size: rnd(0.02, 0.04), color: '#fff3b0' }));
+  } else if (e === 'jump') sfx.jump();
+  else if (e === 'land') {
+    const k = world.impact;
+    sfx.land(k); haptic('land');
+    squash = Math.max(squash, 0.35 * k); shake = Math.max(shake, 0.25 * k);
+    const dust = pal('soil', 18);
+    spray(Math.round(4 + 8 * k), { x: b.x, y: b.y - R, z: b.z }, () => ({ vx: rnd(-2.2, 2.2), vy: rnd(0.3, 1.6), vz: world.v * 0.6 + rnd(-1, 2), g: 3, life: rnd(0.3, 0.6), size: rnd(0.08, 0.16), color: dust, grow: 1.5 }));
+  } else if (e === 'crash') {
+    bankRun();
+    sfx.crash(); haptic('crash');
+    shake = 1; hitStop = 0.07; rings.push({ x: b.x, y: b.y, z: b.z + R, t: 0 });
+    spray(26, b, (k) => ({ vx: rnd(-5, 5), vy: rnd(1, 7), vz: rnd(-3, 4), g: 18, life: rnd(0.6, 1.1), size: rnd(0.03, 0.065), color: skin.c[k % 3 === 0 ? 0 : 1] }));
+  } else if (e === 'fall') { bankRun(); sfx.fall(); haptic('fall'); }
+  else if (e === 'over') gameOver();
 }
 
 function update(dt) {
-  if (mode !== 'play') return;
-  const b = world.ball;
-  if (keyDir) b.tx = b.x + keyDir;
-  world.step(dt);
-  for (const e of world.events) {
-    if (e === 'section') { flash = { sec: world.sec, t: 1 }; $sec.textContent = '» ' + (world.sec + 1); }
-    else if (e === 'crash') {
-      for (let n = 0; n < 18; n++) {
-        parts.push({ x: b.x, y: b.y, z: b.z, vx: (Math.random() - 0.5) * 6, vy: 2 + Math.random() * 5, vz: (Math.random() - 0.6) * 5 });
-      }
-    } else if (e === 'over') gameOver();
+  if (overAnim) {   // the score on the results card counts up
+    overAnim.t = Math.min(1, overAnim.t + dt / 0.7);
+    $('overScore').textContent = Math.round(overAnim.to * (1 - (1 - overAnim.t) ** 3));
+    if (overAnim.t >= 1) overAnim = null;
   }
-  world.events.length = 0;
-  for (const p of parts) { p.vy -= 18 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; }
-  follow(dt);
-  if (world.state === 'run') $score.textContent = world.score;
+  if (mode === 'pause' || mode === 'shot') return;
+  for (const p of parts) { p.t += dt; p.vy -= p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; }
+  parts = parts.filter((p) => p.t < p.life);
+  for (const r of rings) r.t += dt;
+  rings = rings.filter((r) => r.t < 0.45);
+  shake = Math.max(0, shake - dt * 3.5); squash = Math.max(0, squash - dt * 2.2);
   if (flash && (flash.t -= dt * 0.8) <= 0) flash = null;
+  if (mode === 'count') {
+    const was = Math.ceil(count / COUNT_T);
+    count -= dt;
+    if (count <= 0) setMode('play');
+    else if (Math.ceil(count / COUNT_T) !== was) sfx.count(Math.ceil(count / COUNT_T) === 1);
+    return;
+  }
+  if (mode !== 'play') return;
+  if (hitStop > 0) { hitStop -= dt; return; }   // the world holds its breath for a moment on impact
+  const b = world.ball;
+  if (keyDir) b.tx = clamp(b.x + keyDir, -HALF - 0.9, HALF + 0.9);
+  world.step(dt);
+  const events = world.events.splice(0);
+  for (const e of events) onEvent(e);
+  follow();
+  if (world.state === 'run') {
+    $score.textContent = world.score;
+    if (!beatBest && save.best > 0 && world.score > save.best) { beatBest = true; $score.style.color = '#ffc107'; sfx.best(); }
+  }
+  if (!$hint.hidden && performance.now() > hintUntil) $hint.hidden = true;
+  setHum(world.v / 24, world.state === 'run' && !b.air);
 }
 
 // the camera follows the ball
-function follow(dt) {
+function follow() {
   const b = world.ball;
   if (world.state === 'run') {
     camZ = b.z - CAM_BACK;
@@ -212,15 +364,18 @@ function follow(dt) {
     // a little higher when the road ahead climbs, to look over the crest
     camY = world.hAt(b.z) + Math.max(0, world.hAt(b.z + 6) - world.hAt(b.z)) * 0.3;
   }
-  // sideways the camera moves rigidly with the ball, part of the way: a lagging camera made the ball run
-  // past the finger on screen and drift back once the camera caught up
-  camL = b.x * CAM_FOLLOW;
+  // Sideways the camera moves rigidly with the ball, part of the way: a lagging camera made the ball run past the
+  // finger on screen and drift back once the camera caught up. On a narrow screen it repeats more of the move, so
+  // the ball never leaves the screen in the outer lanes.
+  const room = Math.max(0, W / 2 / (f / BALL_ZC) - R * 1.7);
+  camL = b.x - clamp(b.x * (1 - CAM_FOLLOW), -room, room);
   camX = world.offAt(b.z) + camL;   // the road bends: the camera goes along
 }
 
 // ---- Rendering ----
 let W, H, dpr, f, cy, horY, stars;
 const CP = Math.cos(PITCH), SP = Math.sin(PITCH);
+const BALL_ZC = CAM_BACK * CP + CAM_H * SP;   // depth of the ball's contact point in camera space
 
 function proj(x, y, z) {
   const dx = x + world.offAt(z) - camX, dy = y - camY - CAM_H, dz = z - camZ;   // x is across the road
@@ -237,6 +392,10 @@ function resize() {
   const dz = CAM_BACK, dy = -CAM_H, zc = dz * CP - dy * SP, yc = dy * CP + dz * SP;
   cy = H * 0.84 + f * yc / zc;
   horY = cy - f * SP / CP;
+  // the home screen places its arrows and the price round the ball in the scene
+  const br = R * f / BALL_ZC / dpr;
+  document.documentElement.style.setProperty('--ball-y', `${innerHeight * 0.84 - br}px`);
+  document.documentElement.style.setProperty('--ball-r', `${br}px`);
   stars = document.createElement('canvas'); stars.width = W; stars.height = H;
   const s = stars.getContext('2d'), rr = mulberry(7);
   for (let n = 0; n < W * H / 3000; n++) {
@@ -316,7 +475,7 @@ function drawRow(rz, part = 'all') {
     if (!row.road[l]) continue;
     const leftEdge = l === 0 || !row.road[l - 1], rightEdge = l === LANES - 1 || !row.road[l + 1];
     const xl = (z) => l - HALF - (leftEdge ? wave(z, l) : 0.01), xr = (z) => l - HALF + 1 + (rightEdge ? wave(z, l + 1) : 0.01);
-    const patch = (hash(rz, l) - 0.5) * 3 * clamp((dz - 4) / 8, 0.1, 1);
+    const patch = (hash(rz, l) - 0.5) * 3 * clamp((dz - 4) / 8, 0.1, 1) * Math.min(1, P.grass[2] / 50);   // dark grass shows squares
     ctx.fillStyle = pal('grass', lit + patch, fog);
     path([proj(xl(zA), hA, zA), proj(xr(zA), hA, zA), proj(xr(zM), hM, zM), proj(xr(zE), hE, zE), proj(xl(zE), hE, zE), proj(xl(zM), hM, zM)]);
     ctx.fill();
@@ -371,6 +530,28 @@ function drawRow(rz, part = 'all') {
     const kinds = OBSTACLES[theme];
     kinds[Math.floor(pick * kinds.length)](o, seed, fog, rz, l);
   }
+  if (rz + 0.5 > camZ + 0.9) for (const l of order) if (row.star[l]) drawStar(l, rz, row.star[l], fog);
+}
+
+// a star turns and bobs over the road (or hangs along the flight over a jump)
+const STAR_PTS = Array.from({ length: 10 }, (_, k) => {
+  const a = -Math.PI / 2 + k * Math.PI / 5, r = k % 2 ? 0.45 : 1;
+  return [Math.cos(a) * r, Math.sin(a) * r];
+});
+function drawStar(l, rz, s, fog) {
+  const zc = rz + 0.5, t = now(), y = world.hAt(zc) + R + s - 1 + Math.sin(t * 3 + rz) * 0.04;
+  const [x, py, sc] = proj(laneX(l), y, zc), r = 0.19 * sc;
+  if (!(sc > 0)) return;
+  const a = 1 - fog * 0.85;
+  if (r < 2.5) { ctx.globalAlpha = a; ctx.fillStyle = '#ffd84a'; ctx.beginPath(); ctx.arc(x, py, Math.max(1, r), 0, 7); ctx.fill(); ctx.globalAlpha = 1; return; }
+  halo(x, py, r * 2.4, 'rgba(255,214,90,1)', 0.3 * a * (0.6 + P.glow));
+  const turn = Math.cos(t * 2.4 + rz * 0.7), w = Math.max(0.12, Math.abs(turn));
+  ctx.save(); ctx.translate(x, py); ctx.scale(w, 1); ctx.globalAlpha = a;
+  ctx.beginPath(); STAR_PTS.forEach(([u, v], k) => (k ? ctx.lineTo(u * r, v * r) : ctx.moveTo(u * r, v * r))); ctx.closePath();
+  ctx.fillStyle = turn > 0 ? '#ffd84a' : '#f5b921'; ctx.fill();
+  ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(1, r * 0.14); ctx.strokeStyle = '#d99100'; ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.beginPath(); ctx.arc(-r * 0.2, -r * 0.25, r * 0.22, 0, 7); ctx.fill();
+  ctx.restore();
 }
 
 const PIT_DEPTH = 0.8;
@@ -738,8 +919,11 @@ function drawBall() {
     ctx.fillStyle = `rgba(${c},${0.38 * clamp(1 - up / 3, 0.25, 1)})`;
     ctx.beginPath(); ctx.ellipse(s[0], s[1], R * 1.15 * s[2], R * 0.45 * s[2], 0, 0, 7); ctx.fill();
   }
-  const [px, py, sc] = proj(b.x, b.y, b.z), r = R * sc;
-  if (!(sc > 0) || !Number.isFinite(px + py + r)) return;   // behind the camera: nothing to draw
+  const [px, py0, sc] = proj(b.x, b.y, b.z), r = R * sc;
+  if (!(sc > 0) || !Number.isFinite(px + py0 + r)) return;   // behind the camera: nothing to draw
+  // a landing squashes the ball for a moment: wider, lower, still touching the ground
+  const py = py0 + r * squash;
+  ctx.save(); ctx.translate(px, py); ctx.scale(1 + squash * 0.5, 1 - squash); ctx.translate(-px, -py);
   if (T.glow && P.glow > 0.01) {
     const gl = ctx.createRadialGradient(px, py, r * 0.8, px, py, r * 2.6);
     gl.addColorStop(0, `rgba(${T.glow},${0.55 * P.glow})`); gl.addColorStop(1, `rgba(${T.glow},0)`);
@@ -755,6 +939,16 @@ function drawBall() {
   ctx.save(); ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.clip();
   ctx.strokeStyle = 'rgba(255,230,210,.35)'; ctx.lineWidth = r * 0.08;
   ctx.beginPath(); ctx.arc(px, py - r * 0.06, r * 0.96, Math.PI * 0.2, Math.PI * 0.8); ctx.stroke();
+  ctx.restore();
+  if (T.sparkle) {   // the last ball glints
+    const t = now();
+    for (let k = 0; k < 3; k++) {
+      const ph = (t * 0.7 + k / 3) % 1, a = Math.sin(ph * Math.PI), sx = px + Math.cos(k * 2.4 + 1) * r * 0.55, sy = py + Math.sin(k * 2.4 + 1) * r * 0.55, q = r * 0.2 * a;
+      ctx.fillStyle = `rgba(255,255,255,${0.9 * a})`;
+      ctx.beginPath(); ctx.moveTo(sx, sy - q); ctx.quadraticCurveTo(sx, sy, sx + q, sy); ctx.quadraticCurveTo(sx, sy, sx, sy + q);
+      ctx.quadraticCurveTo(sx, sy, sx - q, sy); ctx.quadraticCurveTo(sx, sy, sx, sy - q); ctx.fill();
+    }
+  }
   ctx.restore();
 }
 
@@ -776,6 +970,8 @@ function draw() {
   const hue = secHue(Math.floor(Math.max(0, camZ + CAM_BACK) / SEC_ROWS));
   setPhase(camZ + CAM_BACK);
   theme.sky(hue, horY);
+  ctx.save();
+  if (shake > 0.01) { const k = shake * shake * 14 * dpr; ctx.translate((Math.random() - 0.5) * k, (Math.random() - 0.5) * k); }
   const near = Math.max(0, Math.floor(camZ + 0.4)), far = Math.floor(camZ) + VIEW;
   const ballRow = world.state === 'fall' ? world.ball.fallRow : Math.floor(world.ball.z);
   if (world.state === 'fall') {   // falling into a pit: the near edge of the ground must hide the ball
@@ -793,52 +989,115 @@ function draw() {
   }
   for (const p of parts) {
     const [px, py, sc] = proj(p.x, p.y, p.z);
-    if (sc <= 0) continue;
-    ctx.fillStyle = theme.ball.c[1]; ctx.beginPath(); ctx.arc(px, py, R * 0.32 * sc, 0, 7); ctx.fill();
+    if (!(sc > 0)) continue;
+    const k = p.t / p.life, r = Math.min(p.size * (1 + (p.grow || 0) * k) * sc, 16 * dpr);   // one flying at the camera stays a speck
+    ctx.globalAlpha = (1 - k) * (p.grow ? 0.5 : 1);
+    ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.fill();
   }
+  ctx.globalAlpha = 1;
+  for (const g of rings) {   // a ring spreads from the point of impact
+    const [px, py, sc] = proj(g.x, g.y, g.z), k = g.t / 0.45;
+    if (!(sc > 0)) continue;
+    ctx.globalAlpha = (1 - k) ** 2; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, (1 - k) * 0.12 * sc);
+    ctx.beginPath(); ctx.arc(px, py, (0.2 + 1.3 * k) * sc, 0, 7); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
   drawStreaks();
-  if (flash) {
-    ctx.globalAlpha = Math.min(1, flash.t * 1.5);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `700 ${Math.round(H * 0.09)}px system-ui, sans-serif`; ctx.textAlign = 'center';
-    ctx.fillText(String(flash.sec + 1), W / 2, H * 0.3);
-    ctx.globalAlpha = 1;
-  }
+  if (rings.length && rings[0].t < 0.12) { ctx.fillStyle = `rgba(255,255,255,${0.35 * (1 - rings[0].t / 0.12)})`; ctx.fillRect(0, 0, W, H); }
+  if (mode === 'count') {   // 3-2-1, each digit shrinks into place
+    const n = Math.ceil(count / COUNT_T), k = 1 - (count / COUNT_T - (n - 1));
+    bigNumber(n, 0.16 * (1.5 - 0.5 * Math.min(1, k * 4)), Math.min(1, (1 - k) * 3));
+  } else if (flash) bigNumber(flash.sec + 1, 0.09 * (1 + 0.6 * Math.max(0, flash.t - 0.8) / 0.2), Math.min(1, flash.t * 1.5));
+}
+
+function bigNumber(n, size, alpha) {
+  ctx.globalAlpha = alpha;
+  ctx.font = `800 ${Math.round(H * size)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round'; ctx.lineWidth = H * size * 0.08; ctx.strokeStyle = 'rgba(20,30,60,.35)';
+  ctx.strokeText(String(n), W / 2, H * 0.3);
+  ctx.fillStyle = '#fff'; ctx.fillText(String(n), W / 2, H * 0.3);
+  ctx.globalAlpha = 1;
 }
 
 // ---- Input ----
-let dragX = null;
-cv.addEventListener('pointerdown', (e) => { dragX = e.clientX; });
+// One finger steers: the first one down on the scene. Others are ignored, so a second touch can't jerk the ball.
+let dragId = null, dragX = 0;
+addEventListener('pointerdown', (e) => {
+  if (dragId !== null || e.target.closest('button, input, .card')) return;
+  dragId = e.pointerId; dragX = e.clientX;
+});
 addEventListener('pointermove', (e) => {
-  if (dragX == null || mode !== 'play') return;
+  if (e.pointerId !== dragId) return;
+  const dx = e.clientX - dragX;
+  dragX = e.clientX;
+  if (mode !== 'play') return;
   const b = world.ball;
-  b.tx = clamp(b.tx + (e.clientX - dragX) / innerWidth * SENS, -HALF - 0.9, HALF + 0.9);
-  dragX = e.clientX;
+  b.tx = clamp(b.tx + dx / innerWidth * SENS, -HALF - 0.9, HALF + 0.9);
+  if (Math.abs(dx) > 2) $hint.hidden = true;
 });
-addEventListener('pointerup', () => { dragX = null; });
-addEventListener('pointercancel', () => { dragX = null; });
-$over.addEventListener('pointerdown', (e) => {
-  if (performance.now() - overlayAt < 400) return;   // a stray tap right after a crash doesn't restart
-  dragX = e.clientX;
-  play();
-});
+const dragEnd = (e) => { if (e.pointerId === dragId) dragId = null; };
+addEventListener('pointerup', dragEnd);
+addEventListener('pointercancel', dragEnd);
+addEventListener('contextmenu', (e) => e.preventDefault());
+
+// the button gives the focus back, or Space and Enter would press it again instead of doing their own job
+const on = (id, fn) => $(id).addEventListener('click', (e) => { e.currentTarget.blur(); sfx.tap(); fn(); });
+on('btnPlay', startGame);
+on('btnAgain', startGame);
+on('btnPause', pause);
+on('btnResume', resume);
+on('btnPauseAgain', startGame);
+on('btnPauseHome', goHome);
+on('btnOverHome', goHome);
+const turnSkin = (d) => { skinView = (skinView + d + SKINS.length) % SKINS.length; showHome(); };
+on('skPrev', () => turnSkin(-1));
+on('skNext', () => turnSkin(1));
+
+// settings: one sheet for the home screen and the pause
+const $vol = $('volRange'), $music = $('musicRange'), $haptic = $('hapticSw');
+function openSettings() {
+  $vol.value = Math.round(save.vol * 100); $music.value = Math.round(save.music * 100);
+  $('hapticRow').hidden = !canHaptic(); $haptic.setAttribute('aria-checked', String(!!save.haptic));
+  $set.hidden = false;
+}
+on('btnSet', openSettings);
+on('btnPauseSet', openSettings);
+on('btnSetDone', () => { $set.hidden = true; });
+$set.addEventListener('click', (e) => { if (e.target === $set) $set.hidden = true; });
+for (const [el, key] of [[$vol, 'vol'], [$music, 'music']]) {
+  el.addEventListener('input', () => { save[key] = el.value / 100; applyVolume(); });
+  el.addEventListener('change', () => { persist(); if (key === 'vol') sfx.star(); });   // released: hear the new level
+}
+on('hapticSw', () => { save.haptic = !save.haptic; $haptic.setAttribute('aria-checked', String(save.haptic)); persist(); haptic('land'); });
+
 const KEYS = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1 };
 addEventListener('keydown', (e) => {
-  if (KEYS[e.code]) keyDir = KEYS[e.code];
-  else if ((e.code === 'Space' || e.code === 'Enter') && mode !== 'play') play();
+  if (e.repeat || e.target.closest('input')) return;
+  if (KEYS[e.code]) {
+    if (mode === 'home') turnSkin(KEYS[e.code]); else keyDir = KEYS[e.code];
+  } else if (e.code === 'Space' || e.code === 'Enter') {
+    if (e.target.closest('button')) return;   // the focused button gets its click
+    if (!$set.hidden) $set.hidden = true;
+    else if (mode === 'home' || (mode === 'over' && !$('overActs').classList.contains('wait'))) startGame();
+    else if (mode === 'pause') resume();
+  } else if (e.code === 'Escape' || e.code === 'KeyP') {
+    if (!$set.hidden) $set.hidden = true;
+    else if (mode === 'pause') resume(); else pause();
+  }
 });
 addEventListener('keyup', (e) => {
   if (KEYS[e.code] === keyDir) { keyDir = 0; world.ball.tx = world.ball.x; }
 });
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden && mode === 'play') { mode = 'pause'; showOverlay(world.score); }
-});
+document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+addEventListener('pagehide', saveRun);
+addEventListener('blur', () => { keyDir = 0; });
 
 let last = performance.now();
 // The next frame is requested first: an error in one frame must not stop the game for good.
 function frame(t) {
   requestAnimationFrame(frame);
-  const dt = clamp((t - last) / 1000, 0, 1 / 30);
+  const dt = clamp((t - last) / 1000, 0, 1 / 20);
   last = t;
   try {
     update(dt);
@@ -847,29 +1106,35 @@ function frame(t) {
     console.error(e);
   }
 }
-addEventListener('resize', resize);
-resize();
-camZ = world.ball.z - CAM_BACK;
-showOverlay(null);
-requestAnimationFrame(frame);
 
-// A new version takes over as soon as it is downloaded: reload right away unless a run is going on, then after it.
+// A new version takes over as soon as it is downloaded: reload right away on the home screen, otherwise when the
+// player gets there (a stored run belongs to the version that made it).
 let reloadWanted = false;
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!hadController) return;   // the very first install: nothing old is running
-    if (mode === 'play') reloadWanted = true; else location.reload();
+    if (mode === 'home' && $set.hidden) location.reload(); else reloadWanted = true;
   });
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
-// test hook for screenshots: jump the camera to row z of the given seed, driving the bot along the path
+initAudio(save);
+addEventListener('resize', () => { resize(); follow(); });
+resize();
+if (!restoreRun()) goHome();
+requestAnimationFrame(frame);
+
+// test hooks: __shot jumps the camera to row z of the given seed, driving the bot along the path; the rest let a
+// script reach the world and redraw
 window.__shot = (seed, z) => {
-  world = new World(seed); mode = 'shot';
+  world = new World(seed); setMode('shot');
   while (world.state === 'run' && world.ball.z < z) {
     world.ball.tx = world.autoTarget(); world.step(1 / 60); world.events.length = 0;
-    follow(1 / 60);
   }
-  $over.classList.add('hide'); $score.textContent = world.score; draw();
+  follow();
+  $hud.hidden = false; $score.textContent = world.score; $starN.textContent = world.stars; draw();
 };
+window.__world = () => world;
+window.__draw = draw;
+window.__follow = follow;

@@ -1,6 +1,6 @@
 # Roll (roll-game)
 
-A ball rolls down an endless track over space: steer it, don't fall off and don't crash. No ads, works offline (PWA).
+A ball rolls down an endless track: steer it, collect stars, don't fall off and don't crash. No ads, works offline (PWA).
 Site: `https://roll.games.bubas.cc`.
 
 ## How it plays
@@ -15,7 +15,7 @@ Site: `https://roll.games.bubas.cc`.
 - Falling into a pit or off the edge, or hitting an obstacle ends the run. The ball still rolls on the rim of a pit
   until its centre is 0.2 of a lane past the edge (0.12 at the road edge), and the hit boxes are smaller than the
   drawn obstacles, with rounded corners, so brushing past is fine. The score is the number of rows covered;
-  the best score is kept on the device (`localStorage`, key `roll.best`).
+  the best score is kept on the device.
 - The road is a strip of grass with wavy edges; it bends like a snake now and then (just the look: the ball keeps
   to the road on its own). Sometimes it widens from 5 to 7 lanes and splits: the centre lane becomes a gap between
   two 3-lane roads, and the safe path moves to one side beforehand. Holes are pits with ragged edges; ramps are wooden.
@@ -26,6 +26,38 @@ Site: `https://roll.games.bubas.cc`.
 - Obstacles stay sparse all the way: their density barely grows, the speed alone makes later sections harder, and
   there are empty stretches between patterns. Rows hidden behind a crest have no obstacles.
 - There are no words in the game, only numbers and icons, so there is nothing to translate.
+- Stars: runs of them lie along the safe path, an arc hangs over most jumps, and now and then a lone one sits off
+  the path (about 95 per 500 rows for a careful player). They add up over all runs and open ball colours
+  (`SKINS` in `client.js`: 50, 150, 300, 500, 800, 1200, 1800). The score stays the distance.
+
+## Screens
+
+- **Home**: the title, the star bank, the best score, a big play button. The ball in the scene is the colour on show:
+  arrows beside it (or ← →) turn through the colours, a locked one shows `have/need` stars over it.
+- **In the game**: pause, the score (it turns gold once the record is beaten), stars taken. The first three runs a
+  hand shows the swipe.
+- **Pause** (the button, Esc / P, or the game going into the background): resume, home, start over, settings.
+  Resuming counts 3-2-1 first. Leaving a run from here banks its stars and score. A run in progress is stored (`roll.run`: the seed and the ball) whenever it is paused
+  or hidden, and opens on pause the next time the game is started, even after the phone unloaded it.
+- **Results**: the score counts up, a cup if it is a new record, the record, stars earned, colours just opened.
+  The buttons ignore taps for the first 0.6 s.
+- **Settings** (home and pause): volume, music volume, vibration (Android only; hidden elsewhere).
+- Settings and progress live in `localStorage` under `roll.save`.
+
+## Feel
+
+- Landing squashes the ball, raises dust and shakes the camera a little; a crash stops the world for a moment, then
+  the ball bursts into shards with a ring and a flash; a star gives a few sparks and a pop of the counter.
+- The camera follows 60 % of the ball's sideways move, more on a narrow screen, so the ball never leaves the screen
+  in the outer lanes.
+- The world advances in steps of at most 1/60 s, so on a slow frame the ball can't skip an obstacle or a star.
+- Sound (`public/audio.js`): everything is synthesized and kept low (150–800 Hz) — a hum of the rolling ball that
+  follows the speed, jump, landing, crash, fall, a rising note for stars taken in a row, section, countdown, record.
+  Music: five CC0 tracks in `public/music/` (32 kHz, 64 kbps), a random one after another, played through Web Audio
+  without an `<audio>` element (no "now playing" card on the lock screen, the iPhone silent switch is obeyed), kept
+  in their own cache `roll-music-1`. Sources (OpenGameArt, CC0): "Free Run [8 bit(ish)]" (TAD), "Happy Adventure
+  (Loop)" (TinyWorlds), "Magic Space" (CodeManu), and "super action stage 6" and "retro sports stage 3" from
+  "12 Music Loops" (SubspaceAudio).
 
 ## Track generator
 
@@ -37,7 +69,8 @@ The tests drive a bot along the path on 30 tracks up to the top speed and expect
 
 ## Layout
 
-- `public/` — the game: `index.html`, `client.js` (drawing and input), `core.js` (world), `sw.js` (offline cache),
+- `public/` — the game: `index.html` (screens), `client.js` (drawing, input, screens), `core.js` (world), `audio.js`
+  (sound, music, vibration), `music/`, `sw.js` (offline cache),
   `manifest.webmanifest`, `icons/`.
 - `server/server.js` — Node 22 without dependencies: static files and `/healthz`.
 - `test/` — `node --test test/*.test.js`.

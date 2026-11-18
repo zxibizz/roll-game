@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.4.5';
+export const VERSION = '0.5.0';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -24,6 +24,11 @@ const DRIVE = 2;                 // how fast the speed returns to the section's 
 const GS = 16;                   // how much a slope speeds up / slows down the ball
 const SMAX = 0.32;               // steepest slope the terrain generator makes
 const JUMP_VY = 7;               // vertical speed a ramp gives
+const MAX_DT = 1 / 60;           // the world advances in steps no longer than this, however slow the frame
+export const SAVE_V = 1;         // format of a saved run (World.toSave); bump when it changes
+// Stars: runs of them lie along the guaranteed path, an arc of them hangs over most jumps, and now and then a lone
+// one sits off the path. A star is taken when the ball's centre is this close to it (sideways / along / up).
+const STAR_X = 0.5, STAR_Z = 0.55, STAR_Y = 0.75;
 // Steering: the ball follows the finger's target closely. Speeding up is limited (STEER_ACC, no jerks), slowing
 // down is not: when the finger stops or turns back, the ball does too, with no momentum carrying it on. Close to the
 // target it settles in at STEER_K per second and never steps past it.
@@ -85,6 +90,8 @@ const PATS = ['scatter', 'walls', 'bridge', 'slalom', 'strips', 'jump', 'rest'];
 export class Track {
   constructor(seed) {
     this.r = mulberry(seed);
+    this.rs = mulberry((seed ^ 0x5bd1e995) >>> 0);   // stars draw from their own stream: the track stays the same
+    this.starRun = 0; this.starCool = 4;
     this.rows = [];
     this.path = MID; this.to = -1; this.left = 0; this.cool = 6;
     this.sh = { mode: 'normal', i: 0, len: START_OPEN + 60 };       // road shape: normal → widen → split → close
@@ -201,12 +208,13 @@ export class Track {
     const inJump = this.pat === 'jump' && this.pi < this.plen;   // a jump may run into the next section
     const open = i < START_OPEN || (k < BREATH && !inJump);
     const block = Array(LANES).fill(false), ramp = Array(LANES).fill(false), safe = Array(LANES).fill(false);
+    const star = Array(LANES).fill(0);   // 0 — none, otherwise 1 + its height above the spot where a resting ball would be
     if (!open && this.pi >= this.plen) {
       this.pat = this.wantJump ? 'jump' : this.pick(sec);
       this.pi = 0; this.plen = 8 + Math.floor(r() * 8);
       if (this.pat === 'jump') {
         const J = this.flatRun >= LEAD && this.left === 0 && this.ter.kind === 'flat' && this.sh.mode === 'normal' ? this.planJump(v, sec) : null;
-        if (J) { this.jump = J; this.plen = J.len; this.wantJump = false; }
+        if (J) { this.jump = J; this.plen = J.len; this.wantJump = false; J.arc = this.rs() < 0.75; }
         else { this.wantJump = true; this.pat = 'scatter'; this.plen = 4; }   // flatten the ground, then try again
       }
     }
@@ -240,6 +248,10 @@ export class Track {
         if (J.kind === 'wall' && J.rows.includes(d)) block[l] = true;
         if (J.kind === 'gap' && d >= 0 && d <= J.gEnd) floor[l] = false;
       }
+      if (J.arc && d >= 0 && !hidden) {   // stars along the flight of a ball that left the ramp at the section's speed
+        const t = (d + 0.5) / v, y = RAMP_H + JUMP_VY * t - G / 2 * t * t;
+        if (y > 0.2) star[this.path] = 1 + y;
+      }
     } else if (!open) {
       const dens = Math.min(0.24, 0.12 + sec * 0.008), j = this.pi++;   // grows only a little: speed does the rest
       for (let l = 0; l < LANES; l++) {
@@ -253,8 +265,17 @@ export class Track {
           case 'strips': if (j % 6 === 2 && x < 0.7) floor[l] = false; break;
         }
       }
+      const rs = this.rs, goal = this.to >= 0 ? this.to : this.path;
+      if (this.starRun > 0) {
+        if (!hidden) star[goal] = 1;
+        if (--this.starRun === 0) this.starCool = 6 + Math.floor(rs() * 14);
+      } else if (--this.starCool <= 0) this.starRun = 3 + Math.floor(rs() * 4);
+      if (rs() < 0.06) {   // a lone star off the path: worth a detour, never inside an obstacle or over a pit
+        const l = Math.floor(rs() * LANES);
+        if (road[l] && floor[l] && !block[l] && !safe[l] && !hidden) star[l] = 1;
+      }
     }
-    this.rows.push({ road, floor, block, ramp, h, off, sec, goal: this.to >= 0 ? this.to : this.path });
+    this.rows.push({ road, floor, block, ramp, star, h, off, sec, goal: this.to >= 0 ? this.to : this.path });
   }
 
   // Can the camera see the start of row i (height h) while the ball is still `ahead` rows before it?
@@ -274,9 +295,11 @@ export class Track {
 
 // ---- World ----
 // state: 'run' → 'fall' (off the track or into a hole) or 'crash' (into a block) → 'over'.
-// events: 'section', 'jump', 'fall', 'crash', 'over' — the page drains them for effects.
+// events: 'section', 'jump', 'land' (how hard — in `impact`, 0..1), 'star', 'fall', 'crash', 'over' — the page
+// drains them for effects.
 export class World {
   constructor(seed) {
+    this.seed = seed;
     this.track = new Track(seed);
     this.ball = { x: 0, vx: 0, y: R, vy: 0, z: 2, tx: 0, roll: 0, fallRow: 0, air: false, airT: 0, fromRamp: false };
     this.v = speedOf(0);
@@ -284,6 +307,8 @@ export class World {
     this.sec = 0;
     this.tOver = 0;
     this.events = [];
+    this.stars = 0;      // stars taken in this run
+    this.impact = 0;     // strength of the last landing
     this.stats = { jumps: 0, hops: 0, vRatioMin: Infinity, vRatioMax: 0 };
   }
 
@@ -349,8 +374,44 @@ export class World {
     this.events.push('fall');
   }
 
+  // The ball takes the stars it touches. They hang where a resting or a jumping ball's centre passes.
+  takeStars() {
+    const b = this.ball, lane = Math.floor(b.x + HALF), rz = Math.floor(b.z);
+    for (let r = Math.max(0, rz - 1); r <= rz + 1; r++) {
+      const row = this.track.get(r);
+      for (let l = Math.max(0, lane - 1); l <= Math.min(LANES - 1, lane + 1); l++) {
+        const s = row.star[l];
+        if (!s || Math.abs(b.x - laneX(l)) > STAR_X || Math.abs(b.z - r - 0.5) > STAR_Z) continue;
+        if (Math.abs(b.y - (this.hAt(r + 0.5) + R + s - 1)) > STAR_Y) continue;
+        row.star[l] = 0; this.stars++; this.events.push('star');
+      }
+    }
+  }
+
+  // A run in progress as plain data, and back. The track is rebuilt from the seed, so only the ball is stored.
+  toSave() {
+    return { v: SAVE_V, seed: this.seed, ball: { ...this.ball }, speed: this.v, sec: this.sec, stars: this.stars };
+  }
+
+  static fromSave(o) {
+    if (!o || o.v !== SAVE_V || !Number.isFinite(o.seed) || !o.ball || !(o.ball.z >= 0 && o.ball.z < 2e5) || !(o.speed > 0 && o.speed < 100)) return null;
+    const w = new World(o.seed), b = w.ball;
+    for (const k in b) if (typeof o.ball[k] === typeof b[k] && (typeof b[k] !== 'number' || Number.isFinite(o.ball[k]))) b[k] = o.ball[k];
+    w.v = o.speed; w.sec = Math.floor(b.z / SEC_ROWS); w.stars = Math.max(0, Math.floor(o.stars) || 0);
+    // what is behind was taken or missed; so was the next row's star if the ball already reached it
+    for (let r = 0; r <= Math.floor(b.z + 0.05); r++) w.track.get(r).star.fill(0);
+    return w;
+  }
+
+  // Advance by dt in equal steps of at most MAX_DT: on a slow frame the ball still can't skip over an obstacle or
+  // a star, and a jump stays close to the planned one.
   step(dt) {
     if (!(dt > 0)) return;   // a repeated or backwards frame time must not divide by zero below
+    const n = Math.ceil(dt / MAX_DT - 1e-9);
+    for (let k = 0; k < n; k++) this.tick(dt / n);
+  }
+
+  tick(dt) {
     const b = this.ball, t = this.track;
     if (this.state === 'run') {
       const sec = Math.floor(b.z / SEC_ROWS), target = speedOf(sec), rowPrev = Math.floor(b.z);
@@ -386,9 +447,11 @@ export class World {
         b.vy -= G * dt; b.y += b.vy * dt; b.airT += dt;
         if (g !== null && b.y <= g + R) {
           if (!b.fromRamp && b.airT > 0.15) this.stats.hops++;
+          if (b.airT > 0.12) { this.impact = clamp(-b.vy / 9, 0.15, 1); this.events.push('land'); }
           b.y = g + R; b.vy = 0; b.air = false;
         } else if (g === null && b.y < this.hAt(b.z) + R - 0.3) this.fall();
       }
+      if (this.state === 'run') this.takeStars();
       if (this.state === 'run' && this.hit()) { this.state = 'crash'; this.tOver = 0.9; this.events.push('crash'); }
       if (this.state === 'run' && b.z > START_OPEN) {
         const ratio = this.v / target;
