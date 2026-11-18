@@ -645,7 +645,7 @@ const STAR_PTS = Array.from({ length: 10 }, (_, k) => {
 function drawStar(l, rz, s, fog) {
   const zc = rz + 0.5, t = now(), b = world.ball;
   let wx = laneX(l), y = world.hAt(zc) + R + s - 1 + Math.sin(t * 3 + rz) * 0.04;
-  if (world.fx.magnet > 0 && !b.fly && s < FLY_H && zc - b.z < 3.5 && Math.abs(wx - b.x) <= 1.5) {   // a magnet draws it in from the lanes beside the ball
+  if (world.fx.magnet > 0 && !b.fly && s < FLY_H && zc - b.z < 3.5) {   // a magnet draws it in from any lane
     const k = clamp(1 - (zc - b.z) / 3.5, 0, 1) ** 2;
     wx += (b.x - wx) * k; y += (b.y - y) * k;
   }

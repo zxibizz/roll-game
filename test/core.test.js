@@ -747,93 +747,40 @@ test('with bonuses on the track both bots still get through, and use them', () =
   assert.ok(seen.bonus > 150 && seen.fly > 30 && seen.flyend >= seen.fly - 10, JSON.stringify(seen));
 });
 
-// the stars a magnet laid in each row, as they are while the row is still a few rows ahead of the ball (closer in,
-// the ball may already be taking them), against the same track without the magnet
-function magnetRows(seed, z) {
-  const a = new GameWorld(seed), b = new GameWorld(seed);
-  for (const w of [a, b]) while (w.ball.z < z) { w.auto(); w.step(DT); }
-  a.take('magnet');
-  const seen = new Map();
-  for (let k = 0; k < 9 * 60; k++) {
-    a.step(DT); b.step(DT);
-    for (let i = Math.floor(a.ball.z) + 4; i < a.ball.z + 46; i++) {
-      const lanes = a.track.get(i).star.flatMap((x, l) => (x && !b.track.get(i).star[l] ? [l] : []));
-      seen.set(i, { i, lanes, goal: a.track.get(i).goal, road: a.track.get(i).road });
+test('stars run in lines in the other lanes too: a ball keeping to the path takes about a third of them, a magnet all', () => {
+  let path = 0, all = 0, side = 0, rows = 0;
+  for (let seed = 1; seed <= 10; seed++) {
+    const t = new Track(seed);
+    for (let i = 20; i < 1500; i++) {
+      const r = t.get(i);
+      rows++;
+      r.star.forEach((x, l) => { if (x) { all++; if (l === r.goal) path++; else side++; } });
     }
   }
-  return { a, out: [...seen.values()].sort((p, q) => p.i - q.i) };
-}
-
-test('a magnet lays patches of stars two or three lanes wide, off the path, on one side and then the other, with time between', () => {
-  let patches = 0;
-  for (let seed = 1; seed <= 12; seed++) {
-    const { out } = magnetRows(seed, 150 + seed * 23);
-    let cur = null, prev = null, gapFrom = -1;
-    const close = () => {
-      if (!cur) return;
-      patches++;
-      const ls = [...cur.lanes].sort((x, y) => x - y), mid = (ls[0] + ls[ls.length - 1]) / 2;
-      assert.ok(ls.length <= 3 && ls[ls.length - 1] - ls[0] === ls.length - 1, `seed ${seed} row ${cur.at}: lanes ${ls}`);
-      assert.ok(mid !== cur.goal, `seed ${seed} row ${cur.at}: centred on the path`);
-      // (on a 3-lane road the other side may not be there)
-      if (prev && !cur.narrow) assert.ok(Math.sign(mid - cur.goal) !== Math.sign(prev.mid - prev.goal) || prev.goal !== cur.goal, `seed ${seed} row ${cur.at}: on the same side twice`);
-      prev = { mid, goal: cur.goal }; cur = null; gapFrom = -1;
-    };
-    for (const r of out) {
-      if (r.lanes.length) {
-        if (!cur) {
-          if (prev && gapFrom >= 0) assert.ok(r.i - gapFrom >= Math.round(9 * 0.65) - 1, `seed ${seed} row ${r.i}: only ${r.i - gapFrom} rows after the last patch`);
-          // (where the path runs along the edge of the road or the road is narrow, the other side may not be there)
-          cur = { at: r.i, lanes: new Set(), goal: r.goal, narrow: r.road.filter(Boolean).length <= 3 || !r.road[r.goal - 1] || !r.road[r.goal + 1] || !r.road[r.goal - 2] || !r.road[r.goal + 2] };
-        }
-        r.lanes.forEach((l) => cur.lanes.add(l));
-      } else if (cur && !out.slice(out.indexOf(r) + 1, out.indexOf(r) + 3).some((q) => q.lanes.length)) { close(); gapFrom = r.i; }   // (a row or two skipped for an obstacle is still the patch)
-    }
-    close();
-  }
-  assert.ok(patches >= 50, `${patches} patches`);
+  assert.ok(path / all > 0.25 && path / all < 0.45, `${path} on the path of ${all}`);
+  assert.ok(side / rows > 0.35 && side / rows < 0.8, `${(side / rows).toFixed(2)} stars off the path a row`);
 });
 
-test('a magnet pays off only with swipes: steering to the patches gives far more than keeping to the path, and a restore lays the same', () => {
-  let lazyMore = 0, keenMore = 0, n = 0;
+test('a magnet brings in the stars of every lane for 8 s: a few times what a ball on the path gets', () => {
+  let ratio = 0, n = 0;
   for (let seed = 1; seed <= 12; seed++) {
-    const run = (how) => {
+    const got = [false, true].map((on) => {
       const w = new GameWorld(seed);
       while (w.ball.z < 150) { w.auto(); w.step(DT); }
       const s0 = w.stars;
-      if (how !== 'none') w.take('magnet');
-      while (w.fx.magnet > 0 || (how === 'none' && w.ball.z < 150 + 8 * w.v)) {
-        if (how === 'keen') {   // swipe to the middle of the nearest patch ahead, if the way there is clear
-          const z = Math.floor(w.ball.z), ahead = [];
-          for (let i = z + 1; i < z + w.v * 0.6; i++) w.track.get(i).star.forEach((x, l) => { if (x && l !== w.track.get(i).goal) ahead.push(l); });
-          const goal = ahead.length ? Math.round(ahead.reduce((t, l) => t + l, 0) / ahead.length) : -1;
-          const clear = (l) => { for (let i = z; i < z + w.v * 0.9; i++) { const r = w.track.get(i); if (!r.road[l] || !r.floor[l] || r.block[l] || r.low[l] || r.mover || r.ramp.some(Boolean)) return false; } return true; };
-          const lo = Math.min(goal, w.lane), hi = Math.max(goal, w.lane);
-          let ok = goal >= 0;
-          for (let l = lo; ok && l <= hi; l++) ok = clear(l);
-          if (ok) { if (goal !== w.lane && Math.abs(w.ball.tx - w.ball.x) < 0.05) w.move(Math.sign(goal - w.lane)); }
-          else w.auto();
-        } else w.auto();
-        w.step(DT);
-        if (w.state !== 'run') return null;
-      }
-      return w.stars - s0;
-    };
-    const none = run('none'), lazy = run('lazy'), keen = run('keen');
-    if (none === null || lazy === null || keen === null) continue;
-    lazyMore += lazy / Math.max(1, none); keenMore += keen / Math.max(1, none); n++;
+      if (on) w.take('magnet');
+      for (let k = 0; k < MAGNET_T * 60; k++) { w.auto(); w.step(DT); }
+      return w.state === 'run' ? w.stars - s0 : null;
+    });
+    if (got.includes(null)) continue;
+    ratio += got[1] / Math.max(1, got[0]); n++;
   }
-  assert.ok(n >= 8, `${n} runs`);
-  // keeping to the path the magnet still brings in the near lane of each patch; the rest takes a swipe over
-  assert.ok(lazyMore / n < 2.7 && keenMore / n > lazyMore / n + 1, `keeping to the path ${(lazyMore / n).toFixed(1)}x, swiping ${(keenMore / n).toFixed(1)}x`);
-  const a = new GameWorld(4);
-  while (a.ball.z < 200) { a.auto(); a.step(DT); }
-  a.take('magnet');
-  for (let k = 0; k < 120; k++) { a.auto(); a.step(DT); }
-  const b = GameWorld.fromSave(JSON.parse(JSON.stringify(a.toSave())));
-  for (let i = Math.floor(a.ball.z) + 1; i < a.ball.z + 40; i++) assert.deepEqual(b.track.get(i).star, a.track.get(i).star, `row ${i}`);
-  for (let k = 0; k < 600; k++) { a.auto(); a.step(DT); b.auto(); b.step(DT); }
-  assert.equal(b.stars, a.stars);
+  assert.ok(n >= 10 && ratio / n > 1.8 && ratio / n < 3.5, `${(ratio / n).toFixed(1)} times the stars with a magnet`);
+  const w = flatWorld(300);
+  for (let i = 30; i < 40; i++) for (let l = 1; l <= 5; l++) w.track.get(i).star[l] = 1;
+  w.take('magnet');
+  while (w.ball.z < 50) w.step(DT);
+  assert.equal(w.stars, 50, 'every lane, from the edge to the edge');
 });
 
 test('a shield lasts four sections if nothing is hit', () => {

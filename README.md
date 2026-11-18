@@ -67,9 +67,7 @@ Site: `https://roll.games.bubas.cc`.
 - There are no words in the game, only numbers and icons, so there is nothing to translate.
 - Bonuses: a bubble with an icon lies on the track about every 100–150 rows, on the path or one lane off it, in a
   free stretch with time to come back. What is at work shows as icons in rings under the pause button.
-  - Magnet: for 8 s patches of stars lie on the road ahead — two or three adjacent lanes, about half a second
-    long, next to the path or over it but never centred on it, on one side and then the other, with time to swipe
-    over between them; and the stars of the lanes beside the ball come to it. Getting a patch whole takes a swipe.
+  - Magnet: for 8 s stars come to the ball from every lane of the road, the lines off the path included.
   - Shield: a bubble round the ball for four sections (20 s), the ring under the pause button runs down and the
     bubble blinks in its last two seconds. The first thing the ball hits meanwhile flies apart instead, the bubble
     bursts, and nothing can hit the ball for 0.7 s after. It does not save from rolling off where a lane ends.
@@ -83,8 +81,8 @@ Site: `https://roll.games.bubas.cc`.
     stars, clouds (star dust where there are no clouds) rushing past well to the sides, sparks behind the wings,
     speed lines.
   - Stars are not spent on bonuses. A run saved mid-flight goes on mid-flight.
-- Stars: runs of them lie along the safe path, an arc hangs over most jumps, and now and then a lone one sits off
-  the path, and one hangs over most logs on the path (about 130 per 500 rows). They add up over all runs and open ball colours
+- Stars: runs of them lie along the safe path, an arc hangs over most jumps, one hangs over most logs on the path,
+  and lines of them run in the other lanes too, alongside: a ball takes one lane of them, a magnet all. They add up over all runs and open ball colours
   (`SKINS` in `client.js`: 50, 150, 300, 500, 800, 1200, 1800). The score stays the distance.
 
 ## Screens
