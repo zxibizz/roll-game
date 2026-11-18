@@ -646,17 +646,17 @@ test('sections and biomes are cut by time: a section takes SEC_T seconds at any 
   assert.equal(secOf(0), 0);
   assert.equal(secOf(-3), 0);
   assert.ok(Math.abs(secPos(secStart(7) + (secStart(8) - secStart(7)) / 2) - 7.5) < 0.02);
-  // the bot's own clock, far past the six biomes the page has now
+  // the bot's own clock, past the nine biomes the page has now
   const w = new World(3), t = [];
-  while (w.state === 'run' && w.ball.z < secStart(BIOME_SECS * 9)) { const b = Math.floor(secOf(w.ball.z) / BIOME_SECS); t[b] = (t[b] || 0) + DT; w.auto(); w.step(DT); }
+  while (w.state === 'run' && w.ball.z < secStart(BIOME_SECS * 12)) { const b = Math.floor(secOf(w.ball.z) / BIOME_SECS); t[b] = (t[b] || 0) + DT; w.auto(); w.step(DT); }
   assert.equal(w.state, 'run');
   t.forEach((x, b) => assert.ok(Math.abs(x - SEC_T * BIOME_SECS) < 1.5, `biome ${b}: ${x.toFixed(1)} s`));
 });
 
 test('the walker of a biome crosses the road at least twice in every biome', () => {
   for (let seed = 1; seed <= 300; seed++) {
-    const t = new Track(seed), n = Array(9).fill(0);
-    for (let i = 0; i < secStart(BIOME_SECS * 9); i++) if (t.get(i).mover) n[Math.floor(secOf(i) / BIOME_SECS)]++;
+    const t = new Track(seed), n = Array(12).fill(0);
+    for (let i = 0; i < secStart(BIOME_SECS * 12); i++) if (t.get(i).mover) n[Math.floor(secOf(i) / BIOME_SECS)]++;
     n.forEach((x, b) => assert.ok(x >= 2, `seed ${seed} biome ${b}: ${x}`));
   }
 });

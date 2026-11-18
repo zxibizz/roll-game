@@ -194,13 +194,13 @@ const theme = {
       ctx.strokeStyle = hsl(hue + 140, 40, 70); ctx.globalAlpha *= 0.5; ctx.lineWidth = pr * 0.06;
       ctx.beginPath(); ctx.ellipse(px, py, pr * 1.7, pr * 0.35, -0.25, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
     }
-    if (P.aurora > 0.01) aurora(P.aurora);
     if (P.moon > 0.01) {   // a crescent moon
       const mx = W * 0.24 - camX * 3 * dpr, my = horY - H * 0.3, mr = Math.min(W, H) * 0.05;
       ctx.globalAlpha = P.moon; ctx.fillStyle = '#f4f1de'; ctx.beginPath(); ctx.arc(mx, my, mr, 0, 7); ctx.fill();
       ctx.fillStyle = css(P.sky[0]); ctx.beginPath(); ctx.arc(mx + mr * 0.45, my - mr * 0.2, mr * 0.85, 0, 7); ctx.fill();
       ctx.globalAlpha = 1;
     }
+    if (P.aurora > 0.01) aurora(P.aurora);   // after the moon: its crescent is cut out with a disc of flat sky
     if (P.sunA > 0.01) {   // the sun goes down towards the horizon and sets
       const sx = W * 0.78 - camX * 3 * dpr, sy = horY - P.sunH * H, sr = Math.min(W, H) * P.sunR;
       ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, horY); ctx.clip(); ctx.globalAlpha = P.sunA;
@@ -534,7 +534,7 @@ function drawStars(alpha, maxY = H) {
 
 // northern lights: green and violet curtains that ripple slowly high in the sky
 function aurora(a) {
-  const t = now(), n = 48, sw = W / n * 1.6;
+  const t = now(), n = 36, sw = W / n * 1.6;
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, horY); ctx.clip(); ctx.globalCompositeOperation = 'lighter';
   for (const [band, hue, y0, amp] of [[0, 140, 0.5, 0.05], [1, 175, 0.62, 0.04], [2, 290, 0.42, 0.035]]) {
     for (let k = 0; k < n; k++) {
@@ -559,8 +559,8 @@ function volcano(a) {
   ctx.quadraticCurveTo(vx - vw * 0.35, vb - vh * 0.55, vx - vw * 0.16, vb - vh); ctx.lineTo(vx + vw * 0.14, vb - vh);
   ctx.quadraticCurveTo(vx + vw * 0.4, vb - vh * 0.5, vx + vw, vb); ctx.fill();
   const puff = (t % 9) / 9, boom = puff < 0.25 ? Math.sin(puff / 0.25 * Math.PI) : 0;   // every 9 s a puff
-  halo(vx, vb - vh, vw * (0.25 + 0.2 * boom), 'rgba(255,110,40,1)', 0.5 + 0.4 * boom);
-  ctx.strokeStyle = 'rgba(255,120,50,.7)'; ctx.lineWidth = Math.max(1, vw * 0.025); ctx.lineCap = 'round';   // lava down the side
+  halo(vx, vb - vh, vw * (0.25 + 0.2 * boom), 'rgba(255,110,40,1)', (0.5 + 0.4 * boom) * a);
+  ctx.globalAlpha = a; ctx.strokeStyle = 'rgba(255,120,50,.7)'; ctx.lineWidth = Math.max(1, vw * 0.025); ctx.lineCap = 'round';   // lava down the side
   ctx.beginPath(); ctx.moveTo(vx - vw * 0.05, vb - vh); ctx.quadraticCurveTo(vx - vw * 0.12, vb - vh * 0.6, vx - vw * 0.22, vb - vh * 0.35); ctx.stroke(); ctx.lineCap = 'butt';
   for (let k = 0; k < 6; k++) {
     const q = (t * 0.07 + k / 6) % 1, r = vw * (0.06 + q * 0.2);
@@ -2204,9 +2204,6 @@ function dinoEgg(o, s, fog, rz, l) {   // a big speckled egg: now and then its t
     for (let k = 0; k < 7; k++) ell(x + (hash(rz, l, 90 + k) - 0.5) * w * 1.3, cy + (hash(rz, l, 97 + k) - 0.55) * ry * 1.5, w * 0.11, w * 0.08);
   };
   ctx.fillStyle = hsl(40, 50, 42, fog); ell(x, by, w * 1.3, H * 0.1);   // straw under it
-  ctx.save(); ctx.translate(x + w * 0.8, crack - peek * ry * 0.75); ctx.rotate(peek * 0.35); ctx.translate(-x - w * 0.8, -crack);   // the top of the shell
-  ctx.beginPath(); ctx.moveTo(x - w * 1.3, cy - ry * 1.3); ctx.lineTo(x + w * 1.3, cy - ry * 1.3); ctx.lineTo(x + w * 1.3, crack); zig(-1); ctx.closePath(); ctx.save(); ctx.clip(); paint(); ctx.restore();
-  ctx.restore();
   if (peek > 0.02) {   // the baby
     const hy = crack - peek * ry * 0.5, hr = w * 0.55;
     ctx.fillStyle = hsl(110, 50, 55, fog); ell(x, hy, hr, hr * 0.9);
@@ -2214,6 +2211,9 @@ function dinoEgg(o, s, fog, rz, l) {   // a big speckled egg: now and then its t
     ctx.fillStyle = hsl(220, 30, 10, fog); for (const e of [-1, 1]) ell(x + e * hr * 0.38, hy - hr * 0.1, hr * 0.13, hr * 0.16);
     ctx.strokeStyle = hsl(110, 40, 28, fog); ctx.lineWidth = Math.max(1, hr * 0.08); ctx.beginPath(); ctx.arc(x, hy + hr * 0.2, hr * 0.3, 0.4, Math.PI - 0.4); ctx.stroke();
   }
+  ctx.save(); ctx.translate(x + w * 0.8, crack - peek * ry * 0.75); ctx.rotate(peek * 0.35); ctx.translate(-x - w * 0.8, -crack);   // the top of the shell
+  ctx.beginPath(); ctx.moveTo(x - w * 1.3, cy - ry * 1.3); ctx.lineTo(x + w * 1.3, cy - ry * 1.3); ctx.lineTo(x + w * 1.3, crack); zig(-1); ctx.closePath(); ctx.save(); ctx.clip(); paint(); ctx.restore();
+  ctx.restore();
   ctx.save(); ctx.beginPath(); ctx.moveTo(x - w * 1.3, by + 2); ctx.lineTo(x + w * 1.3, by + 2); ctx.lineTo(x + w * 1.3, crack); zig(-1); ctx.closePath(); ctx.clip(); paint(); ctx.restore();
 }
 function palm(o, s, fog, rz, l) {
@@ -2324,6 +2324,7 @@ const OBSTACLES = {
 // every biome has everything it needs: a new one that is only half there must fail at once, not half a run in
 (function checkBiomes() {
   if (PAL.length !== THEMES.length) throw new Error(`biomes: ${THEMES.length} names in THEMES, ${PAL.length} key frames in PAL`);
+  PAL.forEach((f, i) => { for (const k in f) if (!(k in PAL[0])) throw new Error(`biomes: PAL[${i}].${k} is not in PAL[0]`); });
   for (const [name, table] of Object.entries({ MOVERS, SIDE, FLY, OBSTACLES })) {
     for (const th of THEMES) if (!(typeof table[th] === 'function' || table[th]?.length > 0)) throw new Error(`biomes: no ${name}.${th}`);
   }
