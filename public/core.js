@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.16.0';
+export const VERSION = '0.17.0';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -20,7 +20,7 @@ const CORNER = 0.15;             // the hit box has rounded corners: brushing pa
 // Near a pit the ball still rolls on the rim until its centre is this far past the edge of the ground;
 // at the road edge (void) a little less, about as much as the drawn edge waves.
 export const RIM_PIT = 0.2, RIM_EDGE = 0.12;
-export const BOX_H = 0.7;        // block height: too tall to jump over
+export const BOX_H = 0.7;        // block height: the ball's own jump clears it, if not too many rows of them in a row
 // A low barrier (a log across the lane): the only way past is to jump. It lies in the middle of its row.
 export const LOW_H = 0.25, LOW_Z0 = 0.38, LOW_Z1 = 0.62;
 export const RAMP_H = 0.3;       // ramp height at its far edge
@@ -29,11 +29,19 @@ export const G = 30;             // gravity, rows/s²
 const DRIVE = 2;                 // how fast the speed returns to the section's speed
 const GS = 16;                   // how much a slope speeds up / slows down the ball
 const SMAX = 0.32;               // steepest slope the terrain generator makes
-const JUMP_VY = 7;               // vertical speed a ramp gives
-// The ball's own jump (swipe up): about 0.65 high, 0.5 s long, and it follows the ground, so it is the same on a slope.
-// It is floatier than a fall (HOP_G instead of G): a log is cleared by a jump started anywhere from 0.37 to 0.1 s
-// before it. It clears a low barrier, not a block. A swipe down in the air throws the ball to the ground.
-export const HOP_VY = 5.5, HOP_G = 22, DROP_VY = 16;
+const JUMP_VY = 8.5;             // vertical speed a ramp gives: higher and farther than a jump of the ball's own
+// The ball's own jump (swipe up): about 1.05 high, 0.65 s long, and it follows the ground, so it is the same on a slope.
+// It is floatier than a fall (HOP_G instead of G). It clears anything on the road: a log, a block, someone walking
+// across, a row or two of blocks (more at higher speeds, see hopRows) — a jump started anywhere in a window of at
+// least HOP_WIN seconds gets over. A swipe down in the air throws the ball to the ground.
+export const HOP_VY = 6.5, HOP_G = 20, DROP_VY = 16;
+export const HOP_WIN = 0.15;
+// how long a jump keeps the bottom of the ball above height h
+const hopAbove = (h) => 2 * Math.sqrt(HOP_VY ** 2 - 2 * HOP_G * h) / HOP_G;
+// How many rows of blocks one behind the other a jump clears at speed v with a window of HOP_WIN: n rows of
+// blocks keep a ball from coming down over about n + 0.2 rows (the hit box with its rounded corners, the ball's
+// radius, and the bottom of the ball rising and sinking past the top of the box over a frame or two; measured).
+export const hopRows = (v) => Math.max(1, Math.floor(v * (hopAbove(BOX_H) - HOP_WIN) - 0.2 + 1e-9));
 const HOP_BUFFER = 0.15;         // a jump asked for this long before landing happens on landing
 // Bonuses lie on the track now and then (row.bonus), on the path or one lane off it:
 //   'magnet' — for MAGNET_T seconds stars come to the ball from every lane of the road;
@@ -85,7 +93,7 @@ function shiftTime(v) {
 export const CAM_H = 1.4, CAM_BACK = 1.9;
 const SEE_AHEAD = 0.6;           // seconds of warning: an obstacle must be visible this long before the ball gets there
 const LEAD = 6;                  // flat rows needed before a jump, so the speed is predictable
-const SPEED_TOL = 0.25;          // speed spread the jump planner allows for
+export const SPEED_TOL = 0.25;          // speed spread the jump planner allows for
 
 export const speedOf = (s) => Math.min(VMAX, V0 * Math.pow(VMUL, Math.max(0, s)));
 const SEC_AT = [0], ROW_SEC = [];   // the first row of each section; the section of each row (both filled as far as asked)
@@ -107,6 +115,7 @@ export function secPos(z) {
   return s + clamp((z - a) / (secStart(s + 1) - a), 0, 1);
 }
 export const fastOf = (s) => speedOf(s) + GS * SMAX / DRIVE + 0.5;   // the fastest the ball gets downhill in section s
+export const slowOf = (s) => speedOf(s) - GS * SMAX / DRIVE - 0.5;   // and the slowest uphill
 export const latOf = (v) => 6 + v * 0.3;         // max sideways speed at forward speed v
 export const laneX = (l) => l - HALF + 0.5;
 export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -126,10 +135,11 @@ export function mulberry(seed) {
 // the time for one swipe at the fastest downhill speed (REACT plus the lane change). In a wave every lane is either
 // free, or has a free lane right next to it, or holds a low barrier to jump over. So whatever lane the ball is in,
 // one swipe or one jump before each wave is enough, and never two in a hurry. A wave of low barriers across the
-// whole road ('hurdle') can only be jumped.
+// whole road ('hurdle') can only be jumped. Any obstacle can also be jumped: a wave is never deeper than a jump
+// clears at the slowest the ball goes there (hopRows; early in a section it may still have the last one's speed).
 // A guaranteed path (row.goal) runs through every row: it moves by at most one lane between waves, right after a
 // wave, and stars lie along it. The jump set piece is the exception: a wall spans the full width and a
-// ramp is the way over it; every lane has a ramp or one next to it.
+// ramp is the best way over it (a jump of the ball's own clears it too); every lane has a ramp or one next to it.
 // Lanes that end (the centre when the road splits, the outer ones when it narrows) get the same K rows of warning
 // with no waves around.
 // The road changes shape in two ways. normal → widen → split → close: it widens to 7 lanes and the centre turns into
@@ -219,7 +229,7 @@ export class Track {
       if (!shut[l]) continue;
       cells[l] = kind === 'lows' && r() < 0.65 ? 'low' : 'block';
     }
-    return { cells, left: kind === 'grove' ? 2 + Math.floor(r() * 3) : 1 };
+    return { cells, left: kind === 'grove' ? Math.min(2 + Math.floor(r() * 3), hopRows(slowOf(Math.max(0, sec - 1)))) : 1 };
   }
 
   // After a wave or a jump: free rows to come, and now and then the path moves one lane over.
@@ -263,7 +273,8 @@ export class Track {
     const r = this.r;
     const need = BOX_H + 0.08 - RAMP_H, disc = Math.sqrt(JUMP_VY ** 2 - 2 * G * need);
     const t1 = (JUMP_VY - disc) / G, t2 = (JUMP_VY + disc) / G;   // ball bottom above block tops
-    const tLand = (JUMP_VY + Math.sqrt(JUMP_VY ** 2 + 2 * G * RAMP_H)) / G;
+    // the latest landing is that of a ball that jumped over the ramp at the top of its own jump: it keeps its height
+    const tLand = (JUMP_VY + Math.sqrt(JUMP_VY ** 2 + 2 * G * (RAMP_H + HOP_VY ** 2 / (2 * HOP_G)))) / G;
     // rows where a wall fits for any speed within the spread; at the slowest sections the full spread leaves no
     // room for a row, so half of it is allowed for (the flat rows before a jump keep the speed close)
     let valid = [], vhi = v;
@@ -276,7 +287,8 @@ export class Track {
       if (valid.length) break;
     }
     if (!valid.length) return null;
-    const J = { rampAt: 2, rows: [], ramps: [] }, n = Math.min(valid.length, 1 + Math.floor(r() * 3));
+    // the wall is no deeper than a jump of the ball's own clears either (the speed is close to the section's here)
+    const J = { rampAt: 2, rows: [], ramps: [] }, n = Math.min(valid.length, 1 + Math.floor(r() * 3), hopRows(v * (1 - SPEED_TOL)));
     const s = valid[Math.floor((valid.length - n) / 2)];
     for (let k = 0; k < n; k++) J.rows.push(s + k);
     const landMax = vhi * tLand + vhi / 30 + 2;
@@ -309,12 +321,18 @@ export class Track {
   }
 
   // Sideways offset of the road centre, for drawing only: the ball keeps to the road on its own.
-  curve() {
+  // Bends are gentle: up to 0.7 of a lane to the side, and as long in time at any speed (longer in rows when faster).
+  // Sharp ones (1.6 lanes) made the lanes ahead swing past the ball at speed: one could not tell which lane a thing
+  // lay in.
+  curve(v) {
     const C = this.cur, r = this.r;
     if (C.i >= C.len) {
       C.i = 0;
       if (r() < 0.4) { C.kind = 'straight'; C.len = 16 + Math.floor(r() * 30); }
-      else { C.kind = 'snake'; C.n = 1 + Math.floor(r() * 3); C.len = C.n * (34 + Math.floor(r() * 12)); C.A = (r() < 0.5 ? -1 : 1) * (0.8 + r() * 0.8); }
+      else {
+        C.kind = 'snake'; C.n = 1 + Math.floor(r() * 3); C.len = Math.round(C.n * (34 + Math.floor(r() * 12)) * v / V0);
+        C.A = (r() < 0.5 ? -1 : 1) * (0.35 + r() * 0.35);
+      }
     }
     const t = C.i / C.len;
     C.i++;
@@ -377,7 +395,7 @@ export class Track {
     const block = Array(LANES).fill(false), ramp = Array(LANES).fill(false), low = Array(LANES).fill(false);
     const star = Array(LANES).fill(0);   // 0 — none, otherwise 1 + its height above the spot where a resting ball would be
     // the ground is flat at the start, under a jump and while one is waiting for flat ground
-    const h = this.terrain(i < START_OPEN || !!this.jump || this.wantJump), off = this.curve();
+    const h = this.terrain(i < START_OPEN || !!this.jump || this.wantJump), off = this.curve(v);
     // a row hidden behind a crest until the last moment gets no obstacles
     const hidden = this.hidden(i, h, Math.max(5, Math.ceil(vhi * SEE_AHEAD) + 2));
     const mode = this.shape(K, !!this.jump || this.wantJump, hidden, sec);
@@ -497,7 +515,7 @@ export class Track {
 // off a crest; `hop` — its own jump, which follows the ground below; `hopQ` — a jump waiting for the landing.
 // `fly` — carried through the air by a bonus.
 // events: 'bonus' (which — in `got`), 'pop' (a shield broke something at `popAt`), 'fly', 'flyend',
-// 'section', 'jump', 'drop', 'land' (how hard — in `impact`, 0..1), 'star', 'move' and 'bump' (a lane change made
+// 'section', 'jump', 'boost' (a ramp under a jump threw the ball on), 'drop', 'land' (how hard — in `impact`, 0..1), 'star', 'move' and 'bump' (a lane change made
 // or refused; which way it was refused — in `side`), 'fall', 'crash', 'over' — the page drains them for effects.
 export class World {
   constructor(seed) {
@@ -807,18 +825,18 @@ export class World {
       if (sec !== this.sec) { this.sec = sec; this.events.push('section'); }
       const lane = Math.floor(b.x + HALF), rz = Math.floor(b.z);
       const g = this.groundAt(b.x, b.z);
-      // a ramp throws the ball the same way whether it rolled onto it or came down on it in a jump of its own
-      const offRamp = !b.fly && rz !== rowPrev && lane >= 0 && lane < LANES && t.get(rowPrev).ramp[lane]
-        && (!b.air || (b.hop && b.y - R < hPrev + RAMP_H + 0.45));
+      // a ramp throws the ball whether it rolled onto it or passed over it in a jump of its own (one who took the
+      // ramp for an obstacle and jumped it still gets over the wall behind it)
+      const offRamp = !b.fly && rz !== rowPrev && lane >= 0 && lane < LANES && t.get(rowPrev).ramp[lane] && (!b.air || b.hop);
       if (b.fly) this.flight(dt);
       else if (!b.air || offRamp) {
         if (offRamp) {
-          // left the ramp: launch as if exactly from its top edge
+          // left the ramp: launch as if exactly from its top edge; a ball jumping over it keeps its height
           const over = (b.z - rz) / this.v;
-          b.air = true; b.airT = 0; b.fromRamp = true; b.hop = false; this.stats.jumps++;
-          b.y = this.hAt(rz) + RAMP_H + R + JUMP_VY * over - G / 2 * over * over;
+          b.y = Math.max(b.air ? b.y : -Infinity, this.hAt(rz) + RAMP_H + R + JUMP_VY * over - G / 2 * over * over);
+          this.events.push(b.air ? 'boost' : 'jump');   // (in a jump of its own nothing pushes off the ground)
+          b.air = true; b.airT = 0; b.fromRamp = true; b.hop = false; b.hopQ = 0; this.stats.jumps++;
           b.vy = JUMP_VY - G * over;
-          this.events.push('jump');
         } else if (g === null) this.fall();
         else {
           const yFree = b.y + b.vy * dt - G / 2 * dt * dt, yG = g + R;

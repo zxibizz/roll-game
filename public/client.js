@@ -447,7 +447,14 @@ function onEvent(e) {
     if (!b.fromRamp || b.hop) {
       const dust = pal('soil', 18);
       spray(4, { x: b.x, y: b.y - R, z: b.z }, () => ({ vx: rnd(-1.4, 1.4), vy: rnd(0.2, 0.9), vz: world.v * 0.7 + rnd(-1, 1), g: 2, life: rnd(0.3, 0.5), size: rnd(0.06, 0.11), color: dust, grow: 1.5 }));
+    } else {   // a ramp threw it: a burst of the ramp's colour, so it feels like a gift, not a bump
+      kickCam(0, 120); zoom = Math.max(zoom, 0.03);
+      rings.push({ x: b.x, y: b.y - R, z: b.z, t: 0, s: 0.9, flat: true, c: `hsl(${RAMP_HUE + 12},100%,70%)` });
+      spray(12, { x: b.x, y: b.y - R, z: b.z }, () => ({ vx: rnd(-2.5, 2.5), vy: rnd(1, 4), vz: world.v * 0.8 + rnd(-1, 2), g: 6, life: rnd(0.35, 0.6), size: rnd(0.015, 0.03), color: `hsl(${RAMP_HUE + rnd(0, 20)},100%,${rnd(65, 85)}%)` }));
     }
+  } else if (e === 'boost') {   // a ramp passed under a jump threw the ball higher: sparks, no dust, no ring on the ground
+    sfx.jump(); zoom = Math.max(zoom, 0.03);
+    spray(12, b, () => ({ vx: rnd(-2.5, 2.5), vy: rnd(-1, 3), vz: world.v * 0.8 + rnd(-1, 2), g: 6, life: rnd(0.35, 0.6), size: rnd(0.015, 0.03), color: `hsl(${RAMP_HUE + rnd(0, 20)},100%,${rnd(65, 85)}%)` }));
   } else if (e === 'drop') { sfx.drop(); squash = -0.2; squashV = 0; }   // slammed down: stretched along the way
   else if (e === 'move') sfx.move(Math.sign(b.tx - b.x));
   else if (e === 'bump') { sfx.bump(world.side); haptic('land'); nudge = { dir: world.side, t: 0 }; kickCam(world.side * 110, 0); }
@@ -576,6 +583,8 @@ function follow() {
     // never below the road under the ball (the generator counts on that to know what can be seen);
     // a little higher when the road ahead climbs, to look over the crest
     camY = world.hAt(b.z) + Math.max(0, world.hAt(b.z + 6) - world.hAt(b.z)) * 0.3 + flyLift;   // up with a flight
+    // and part of the way up with a high throw off a ramp, or the ball would leave the top of the screen
+    if (b.air && !b.fly) camY += Math.max(0, b.y - world.hAt(b.z) - 1.1) * 0.75;
   }
   // Sideways the camera moves rigidly with the ball, part of the way: a lagging camera made the ball run past the
   // finger on screen and drift back once the camera caught up. On a narrow screen it repeats more of the move, so
@@ -801,6 +810,15 @@ function drawRow(rz, part = 'all') {
   }
   // pits dug into the grass: a ragged opening, earthen walls going down into the dark
   for (let l = 0; l < LANES; l++) if (row.road[l] && !row.floor[l]) drawPit(rz, l, row, prev, next, fog, px);
+  if (theme !== 'tech') {   // faint dashes between the lanes: through a bend one can follow one's own lane ahead
+    const z0 = Math.max(zA, rz + 0.15), z1 = rz + 0.7, a = 0.28 * (1 - fog);
+    if (z1 > z0) {
+      const h0 = world.hAt(z0) + 0.01, h1 = world.hAt(z1) + 0.01, w = Math.max(1, px * 0.025);
+      for (let l = 1; l < LANES; l++) {
+        if (row.road[l] && row.road[l - 1] && row.floor[l] && row.floor[l - 1]) line(proj(l - HALF, h0, z0), proj(l - HALF, h1, z1), '#fff', w, a);
+      }
+    }
+  }
   if (theme === 'tech') {   // steel plates: neon seams between the lanes and across every other row
     const c = `rgba(70,235,255,${0.35 * (1 - fog)})`, w = Math.max(1, px * 0.012), plate = (l) => l >= 0 && l < LANES && row.road[l] && row.floor[l];
     for (let l = 0; l < LANES; l++) {
@@ -823,20 +841,7 @@ function drawRow(rz, part = 'all') {
   if (part === 'ground') return;
   const order = [...Array(LANES).keys()].sort((a, b) => Math.abs(laneX(b) - (camX - world.offAt(rz))) - Math.abs(laneX(a) - (camX - world.offAt(rz))));
   const camL = camX - world.offAt(rz + 0.5);   // the camera's place across this row
-  for (const l of order) {   // wooden ramps
-    if (!row.ramp[l]) continue;
-    const x0 = l - HALF + 0.06, x1 = l - HALF + 1 - 0.06, rA = RAMP_H * (zA - rz);
-    if (camL < x0) quad(proj(x0, hA, zA), proj(x0, hB, zB), proj(x0, hB + RAMP_H, zB), proj(x0, hA + rA, zA), pal('woodDark', 0, fog));
-    if (camL > x1) quad(proj(x1, hA, zA), proj(x1, hB, zB), proj(x1, hB + RAMP_H, zB), proj(x1, hA + rA, zA), pal('woodDark', 0, fog));
-    quad(proj(x0, hA + rA, zA), proj(x1, hA + rA, zA), proj(x1, hB + RAMP_H, zB), proj(x0, hB + RAMP_H, zB), pal('wood', 0, fog));
-    for (const t of [0.25, 0.5, 0.75]) {   // planks
-      const z = rz + t;
-      if (z < zA) continue;
-      const y = world.hAt(z) + RAMP_H * t + 0.005;
-      line(proj(x0, y, z), proj(x1, y, z), pal('woodDark', 0, fog), Math.max(1, px * 0.02), 1 - fog);
-    }
-    line(proj(x0, hB + RAMP_H, zB), proj(x1, hB + RAMP_H, zB), pal('wood', 16, fog), Math.max(1, px * 0.03), 1 - fog);
-  }
+  for (const l of order) if (row.ramp[l]) drawRamp(l, rz, zA, zB, hA, hB, camL, fog, px);
   // obstacles: the same box for hitting, drawn as whatever fits the theme; a full wall is all one kind
   const wall = row.road.every((on, l) => !on || row.block[l]);
   for (const l of order) {
@@ -861,6 +866,42 @@ function drawRow(rz, part = 'all') {
     if (flyShow > 0.01) drawFlightRow(rz, fog);
   }
   drawFlyers(rz, fog, theme);
+}
+
+// A ramp must not read as one more thing in the way: a bright springboard, the same in every biome, glowing on
+// the grass, with white arrows running up it towards the edge it throws the ball from.
+const RAMP_HUE = 38;
+function drawRamp(l, rz, zA, zB, hA, hB, camL, fog, px) {
+  const x0 = l - HALF + 0.06, x1 = l - HALF + 1 - 0.06, xc = (x0 + x1) / 2, rA = RAMP_H * (zA - rz), t0 = zA - rz;
+  const on = (x, t) => proj(x, world.hAt(rz + t) + RAMP_H * t + 0.004, rz + t);   // a point on the slope, t along it
+  const beat = 0.5 + 0.5 * Math.sin(now() * 5 + l);
+  const g0 = proj(xc, world.hAt(rz + 0.5), rz + 0.5);
+  halo(g0[0], g0[1], px * (0.95 + 0.1 * beat), `hsl(${RAMP_HUE + 12},100%,62%)`, (0.35 + 0.15 * beat) * (1 - fog) * (P.glowF + 0.6));
+  // the wedge's sides: whichever one the camera sees
+  if (camL < x0) quad(proj(x0, hA, zA), proj(x0, hB, zB), proj(x0, hB + RAMP_H, zB), proj(x0, hA + rA, zA), hsl(RAMP_HUE - 22, 90, 40, fog));
+  if (camL > x1) quad(proj(x1, hA, zA), proj(x1, hB, zB), proj(x1, hB + RAMP_H, zB), proj(x1, hA + rA, zA), hsl(RAMP_HUE - 22, 90, 40, fog));
+  // the slope: brighter towards the top edge
+  const a = proj(x0, hA + rA, zA), b = proj(x1, hA + rA, zA), c = proj(x1, hB + RAMP_H, zB), d = proj(x0, hB + RAMP_H, zB);
+  const g = ctx.createLinearGradient(0, a[1], 0, d[1]);
+  g.addColorStop(0, hsl(RAMP_HUE - 8, 100, 50, fog)); g.addColorStop(1, hsl(RAMP_HUE + 10, 100, 62, fog));
+  ctx.fillStyle = g; path([a, b, c, d]); ctx.fill();
+  // rails along both sides of the slope
+  const rw = Math.max(1, px * 0.035);
+  for (const x of [x0 + 0.03, x1 - 0.03]) line(on(x, t0), on(x, 1), hsl(RAMP_HUE - 25, 95, 42, fog), rw, 1 - fog);
+  // three arrows running up, appearing at the bottom and fading out at the edge
+  const w = Math.max(1.5, px * 0.06), run = (now() * 1.6) % 1;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (let k = 0; k < 3; k++) {
+    const t = (k + run) / 3, tip = t + 0.2;
+    if (t < t0 || tip > 1) continue;
+    const alpha = Math.min(1, t * 5, (1 - tip) * 6) * (1 - fog);
+    ctx.globalAlpha = alpha; ctx.strokeStyle = '#fff'; ctx.lineWidth = w;
+    const p = on(xc - 0.24, t), q = on(xc, tip), r = on(xc + 0.24, t);
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.lineTo(r[0], r[1]); ctx.stroke();
+  }
+  ctx.globalAlpha = 1; ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+  // the edge it throws from, lit
+  line(d, c, hsl(RAMP_HUE + 15, 100, 88, fog), Math.max(1, px * 0.04), 1 - fog);
 }
 
 // a star turns and bobs over the road (or hangs along the flight over a jump)
@@ -2804,11 +2845,14 @@ function draw() {
     // The rows around the ball get all their ground first and the ball, its shadow and the obstacles on top:
     // drawn row by row, the nearer grass cut the shadow off with a straight line that jumped from row to row.
     // Farther rows stay row by row, so a crest still hides what is behind it.
+    // A ball jumping over something is drawn over it: a tree's crown drawn on top of it read as flying through.
+    // (for the whole jump, not only its top: the order flipping half-way down made a tree jump in front of the ball)
+    const b = world.ball, over = b.air && !b.fly;
     const split = Math.min(far, ballRow + 1);
     for (let rz = far; rz > split; rz--) drawRow(rz);
     for (let rz = split; rz >= near; rz--) drawRow(rz, 'ground');
-    for (let rz = split; rz >= near; rz--) { drawRow(rz, 'objects'); if (rz === ballRow) drawBall(); }
-    if (ballRow < near) drawBall();
+    for (let rz = split; rz >= near; rz--) { drawRow(rz, 'objects'); if (rz === ballRow && !over) drawBall(); }
+    if (ballRow < near || over) drawBall();
   }
   for (const p of parts) {
     const [px, py, sc] = proj(p.x, p.y, p.z);
