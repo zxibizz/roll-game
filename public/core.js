@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.18.1';
+export const VERSION = '0.19.0';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -50,6 +50,7 @@ const HOP_BUFFER = 0.15;         // a jump asked for this long before landing ha
 //   'fly'    — for FLY_T seconds the ball flies FLY_H above the road, over everything, in three lanes of its own,
 //              along a trail of stars in the air; a swipe down lands it early. It lands on the path by itself. Nothing can hit it for FLY_SAFE after it starts down.
 export const SHIELD_T = 4 * SEC_T;
+export const BONUS_KINDS = ['magnet', 'shield', 'fly'];
 export const MAGNET_T = 8, FLY_T = 7, FLY_H = 2.2, SHIELD_SAFE = 0.7, FLY_SAFE = 1.6;
 // a flight coming down heads for the path lane LAND_LOOK seconds ahead and wants LAND_AHEAD seconds of road there:
 // the way down and time to react
@@ -171,6 +172,7 @@ export class Track {
     this.rs = mulberry((seed ^ 0x5bd1e995) >>> 0);   // stars draw from their own stream: the track stays the same
     this.rb = mulberry((seed ^ 0x2545f491) >>> 0);   // and so do bonuses
     this.bonusCool = 30; this.bonusIn = 0;           // rows until a bonus is due; rows until it is laid
+    this.bonusBag = []; this.bonusLast = null;       // kinds still to come in this round of them, the last one laid
     // stars: rows left of the stretch or of the break; rows to wait for a lane's line and rows of it
     // starI: rows into the stretch, starN: a star every starN rows in it, starDue: one was due while the path moved
     this.starOn = 0; this.starOff = 4; this.starSkip = 0; this.starI = 0; this.starN = 1; this.starDue = false;
@@ -265,6 +267,18 @@ export class Track {
       this.sideWait[l] = Math.floor(rs() * len * 0.3);
       this.sideRun[l] = on ? Math.max(3, 2 * step, Math.round(len * (0.5 + rs() * 0.5)) - this.sideWait[l]) : 0;   // two stars at least
     }
+  }
+
+  // Bonuses come out of a bag: each kind once in every three, shuffled, and the next bag never starts with the kind
+  // the last one ended with — never the same bonus twice in a row.
+  nextBonus() {
+    if (!this.bonusBag.length) {
+      const bag = [...BONUS_KINDS];
+      for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(this.rb() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
+      if (bag[0] === this.bonusLast) bag.push(bag.shift());
+      this.bonusBag = bag;
+    }
+    return (this.bonusLast = this.bonusBag.shift());
   }
 
   shift(d) {
@@ -490,9 +504,9 @@ export class Track {
       const rb = this.rb;
       if (!hidden && (mode === 'normal' || mode === 'split')) {
         const ds = [-1, 1].filter((d) => road[goal + d]), off = rb() < 0.45 && ds.length ? ds[Math.floor(rb() * ds.length)] : 0;
-        const x = rb() * 8.5;
+        const kind = this.nextBonus();
         if (!this.noBonus) {   // (the tests can ask for a track without bonuses: the road itself is the same)
-          bonus = { lane: goal + off, kind: x < 3 ? 'magnet' : x < 6 ? 'shield' : 'fly' };
+          bonus = { lane: goal + off, kind };
           star[bonus.lane] = 0;
         }
       } else this.bonusCool = 0;   // no room here: after the next piece

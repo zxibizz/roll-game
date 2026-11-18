@@ -1,0 +1,21 @@
+// English: the reference dictionary and the fallback for every other language.
+export default {
+  "app.name": "Roll",
+  "app.desc": "Roll a ball down an endless track: no ads, works offline",
+  "lang.name": "English",
+  "lang.title": "Language",
+  "lang.auto": "Device language",
+  "a11y.pause": "Pause",
+  "a11y.settings": "Settings",
+  "a11y.play": "Play",
+  "a11y.prevBall": "Previous ball",
+  "a11y.nextBall": "Next ball",
+  "a11y.resume": "Resume",
+  "a11y.home": "Home",
+  "a11y.startOver": "Start over",
+  "a11y.playAgain": "Play again",
+  "a11y.volume": "Volume",
+  "a11y.music": "Music",
+  "a11y.vibration": "Vibration",
+  "a11y.done": "Done",
+};

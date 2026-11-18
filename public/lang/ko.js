@@ -1,0 +1,21 @@
+// Korean.
+export default {
+  "app.name": "데굴데굴",
+  "app.desc": "끝없는 길에서 공을 굴려요: 광고 없이, 오프라인에서도 즐길 수 있어요",
+  "lang.name": "한국어",
+  "lang.title": "언어",
+  "lang.auto": "기기 언어",
+  "a11y.pause": "일시정지",
+  "a11y.settings": "설정",
+  "a11y.play": "플레이",
+  "a11y.prevBall": "이전 공",
+  "a11y.nextBall": "다음 공",
+  "a11y.resume": "계속하기",
+  "a11y.home": "홈",
+  "a11y.startOver": "처음부터",
+  "a11y.playAgain": "다시 하기",
+  "a11y.volume": "음량",
+  "a11y.music": "음악",
+  "a11y.vibration": "진동",
+  "a11y.done": "완료",
+};

@@ -1,0 +1,21 @@
+// Portuguese (Brazil).
+export default {
+  "app.name": "Bolinha",
+  "app.desc": "Role uma bolinha por uma pista sem fim: sem anúncios, funciona offline",
+  "lang.name": "Português",
+  "lang.title": "Idioma",
+  "lang.auto": "Idioma do dispositivo",
+  "a11y.pause": "Pausar",
+  "a11y.settings": "Configurações",
+  "a11y.play": "Jogar",
+  "a11y.prevBall": "Bolinha anterior",
+  "a11y.nextBall": "Próxima bolinha",
+  "a11y.resume": "Continuar",
+  "a11y.home": "Início",
+  "a11y.startOver": "Recomeçar",
+  "a11y.playAgain": "Jogar de novo",
+  "a11y.volume": "Volume",
+  "a11y.music": "Música",
+  "a11y.vibration": "Vibração",
+  "a11y.done": "Pronto",
+};

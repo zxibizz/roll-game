@@ -2,7 +2,7 @@
 // When any file in public/ changes, bump VERSION here and in core.js — otherwise devices stay on the old version.
 // A new version installs in the background and takes over at once; the page reloads itself when it is safe to.
 // Music is not part of a version: tracks go into their own cache when first played and stay there across versions.
-const VERSION = '0.18.1';
+const VERSION = '0.19.0';
 const CACHE = `roll-v${VERSION}`;
 const MUSIC_CACHE = 'roll-music-1';   // bump only if a track file changes
 const ASSETS = [
@@ -11,7 +11,34 @@ const ASSETS = [
   'client.js',
   'audio.js',
   'core.js',
+  'i18n.js',
+  'lang/en.js',
+  'lang/de.js',
+  'lang/es.js',
+  'lang/fr.js',
+  'lang/it.js',
+  'lang/ja.js',
+  'lang/ko.js',
+  'lang/nl.js',
+  'lang/pl.js',
+  'lang/pt.js',
+  'lang/ru.js',
+  'lang/tr.js',
+  'lang/zh.js',
   'manifest.webmanifest',
+  'manifest.de.webmanifest',
+  'manifest.es.webmanifest',
+  'manifest.fr.webmanifest',
+  'manifest.it.webmanifest',
+  'manifest.ja.webmanifest',
+  'manifest.ko.webmanifest',
+  'manifest.nl.webmanifest',
+  'manifest.pl.webmanifest',
+  'manifest.pt.webmanifest',
+  'manifest.ru.webmanifest',
+  'manifest.tr.webmanifest',
+  'manifest.zh.webmanifest',
+  'icons/favicon-64.png',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/apple-touch-icon.png',

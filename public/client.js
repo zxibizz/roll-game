@@ -1,6 +1,8 @@
 // The page: draws the world from core.js in a hand-rolled perspective, reads the finger / mouse / keys and runs the
 // screens around the game: home, pause, results, settings. The road is grass and earth; the sky goes from day to
-// night to space with the distance. There are no words in the interface, only numbers and icons.
+// night to space with the distance. There are no words in the interface, only numbers and icons — the name on the
+// home screen aside, which with the labels for screen readers comes from i18n.js in the device's language.
+import { LANGS, LANG_ORDER, lang, pinned, deviceLang, setLang } from './i18n.js';   // first: it puts the words in
 import { World, VERSION, LANES, HALF, BIOME_SECS, secOf, secStart, secPos, R, INSET, BOX_H, RAMP_H, LOW_H, LOW_Z0, LOW_Z1, MAGNET_T, SHIELD_T, FLY_T, FLY_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
 import { initAudio, applyVolume, setHum, sfx, haptic, canHaptic, muffleMusic } from './audio.js';
 
@@ -2993,6 +2995,25 @@ for (const [el, key] of [[$vol, 'vol'], [$music, 'music']]) {
 }
 on('hapticSw', () => { save.haptic = !save.haptic; $haptic.setAttribute('aria-checked', String(save.haptic)); persist(); haptic('land'); });
 
+// The language: the device's by default, the globe on the home screen picks another one (choosing reloads the page)
+const $langs = $('langs');
+on('btnLang', () => {
+  const opt = (code, label, on, cls = '') =>
+    `<button class="${cls}${on ? ' on' : ''}" data-lang="${code}"${code ? ` lang="${code}"` : ''}>${label}</button>`;
+  $('langList').innerHTML = opt('', `<svg><use href="#i-globe"/></svg>${LANGS[deviceLang]['lang.name']}`, !pinned, 'auto') +
+    LANG_ORDER.map((c) => opt(c, LANGS[c]['lang.name'], pinned && c === lang)).join('');
+  $langs.hidden = false;
+});
+$('langList').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-lang]');
+  if (!b) return;
+  const code = b.dataset.lang || null;
+  if (code === (pinned ? lang : null)) { $langs.hidden = true; return; }
+  persist(); setLang(code);
+});
+on('btnLangDone', () => { $langs.hidden = true; });
+$langs.addEventListener('click', (e) => { if (e.target === $langs) $langs.hidden = true; });
+
 const KEYS = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1 };
 const KEYS_Y = { ArrowUp: -1, KeyW: -1, ArrowDown: 1, KeyS: 1 };
 addEventListener('keydown', (e) => {
@@ -3003,12 +3024,14 @@ addEventListener('keydown', (e) => {
     act(0, KEYS_Y[e.code]);
   } else if (e.code === 'Space' || e.code === 'Enter') {
     if (e.target.closest('button')) return;   // the focused button gets its click
-    if (!$set.hidden) $set.hidden = true;
+    if (!$langs.hidden) $langs.hidden = true;
+    else if (!$set.hidden) $set.hidden = true;
     else if (steerable()) { if (e.code === 'Space') act(0, -1); }
     else if (mode === 'home' || (mode === 'over' && !$('overActs').classList.contains('wait'))) startGame();
     else if (mode === 'pause') resume();
   } else if (e.code === 'Escape' || e.code === 'KeyP') {
-    if (!$set.hidden) $set.hidden = true;
+    if (!$langs.hidden) $langs.hidden = true;
+    else if (!$set.hidden) $set.hidden = true;
     else if (mode === 'pause') resume(); else pause();
   }
 });

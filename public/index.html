@@ -11,7 +11,8 @@
 <meta name="apple-mobile-web-app-title" content="Roll">
 <title>Roll</title>
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/favicon-64.png" sizes="64x64">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <style>
   :root { --ink: #1d2433; --glass: rgba(255, 255, 255, .78); --cta: #ffd23f; --cta-ink: #3a2a00;
@@ -59,11 +60,9 @@
   .ib.solid { background: var(--glass); box-shadow: 0 2px 10px rgba(0, 0, 0, .12); color: var(--ink); }
   .cup { color: #e09b00; }
 
-  #home h1 { margin: 5vh 0 0; font-size: clamp(64px, 22vw, 120px); line-height: 1; font-weight: 800; letter-spacing: -.03em;
+  #home h1 { margin: 5vh 0 0; font-size: clamp(40px, min(22vw, 92vw / var(--n, 4) * 1.55), 120px); white-space: nowrap; line-height: 1; font-weight: 800; letter-spacing: -.03em;
     color: #fff; text-shadow: 0 3px 0 rgba(0, 0, 0, .12), 0 10px 30px rgba(20, 60, 120, .35); }
   #home h1 span { display: inline-block; animation: bob 2.4s ease-in-out infinite; }
-  #home h1 span:nth-child(2) { animation-delay: .15s; } #home h1 span:nth-child(3) { animation-delay: .3s; }
-  #home h1 span:nth-child(4) { animation-delay: .45s; }
   @keyframes bob { 50% { transform: translateY(-7px); } }
   #homeBest { margin-top: 14px; }
   .cta { width: 104px; height: 104px; border-radius: 50%; background: var(--cta); color: var(--cta-ink); font-size: 60px;
@@ -82,6 +81,15 @@
   #dots i { width: 9px; height: 9px; border-radius: 50%; background: rgba(255, 255, 255, .5); box-shadow: 0 1px 3px rgba(0, 0, 0, .2); }
   #dots i.on { background: #fff; transform: scale(1.35); }
   #dots i.locked { background: rgba(0, 0, 0, .25); }
+  .tools { display: flex; gap: 10px; }
+  /* the language sheet: native names in two columns, the device's language across the top */
+  .langs { align-self: stretch; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+    max-height: calc(100dvh - var(--top) - var(--bottom) - 140px); overflow-y: auto; }
+  .langs button { min-height: 40px; padding: 6px 10px; border-radius: 14px; background: rgba(29, 36, 51, .08);
+    font-size: 16px; font-weight: 600; color: var(--ink); }
+  .langs button.on { background: #2b6fd6; color: #fff; }
+  .langs button.auto { grid-column: 1 / -1; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .langs button:active { transform: scale(.96); }
   .ver { position: fixed; bottom: calc(6px + var(--bottom)); right: calc(10px + var(--right)); font-size: 11px; opacity: .45; }
 
   /* pause, results, settings: a glass card */
@@ -125,7 +133,7 @@
      bank, the play button to the right of the ball; the cards get compact, the cup sits in the results card's corner */
   @media (orientation: landscape) and (max-height: 540px) {
     #home h1 { position: absolute; top: calc(var(--top) + 10px); left: 50%; transform: translateX(-50%); margin: 0;
-      font-size: clamp(44px, 16vh, 84px); }
+      font-size: clamp(36px, min(16vh, 44vw / var(--n, 4) * 1.55), 84px); }
     #homeBest { position: absolute; top: calc(var(--top) + 62px); left: calc(var(--left) + 16px); margin: 0; }
     #home .cta { top: 52%; left: 75%; width: 96px; height: 96px; font-size: 54px; margin: -48px 0 0 -48px; }
     .screen { padding-top: calc(var(--top) + 8px); padding-bottom: calc(var(--bottom) + 8px); }
@@ -133,6 +141,9 @@
     .big { font-size: 54px; }
     .card .cta { width: 76px; height: 76px; font-size: 44px; margin: 2px 0; }
     #newBest { position: absolute; top: 14px; left: 18px; font-size: 32px; }
+    #langs .card { width: min(580px, 100%); }
+    .langs { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: calc(100dvh - var(--top) - var(--bottom) - 104px); }
+    .langs button { min-height: 34px; padding: 4px 8px; font-size: 15px; }
   }
   @media (prefers-reduced-motion: reduce) { #home h1 span, #home .cta { animation: none; } }
 </style>
@@ -153,12 +164,13 @@
   <symbol id="i-left" viewBox="0 0 24 24"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></symbol>
   <symbol id="i-right" viewBox="0 0 24 24"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></symbol>
   <symbol id="i-hand" viewBox="0 0 24 24"><path d="M9 11.24V7.5a2.5 2.5 0 0 1 5 0v3.74a4.5 4.5 0 0 0 2-3.74 4.5 4.5 0 0 0-9 0c0 1.56.8 2.93 2 3.74zm9.84 4.63-4.54-2.26a1.5 1.5 0 0 0-.54-.11H13v-6a1.5 1.5 0 0 0-3 0v10.74l-3.43-.72a1.2 1.2 0 0 0-.22-.02c-.31 0-.59.13-.79.33l-.79.8 4.94 4.94c.27.27.65.44 1.06.44h6.79c.75 0 1.33-.55 1.44-1.28l.75-5.27a1.5 1.5 0 0 0-.84-1.59z"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.93 6h-2.95a15.7 15.7 0 0 0-1.38-3.56A8.03 8.03 0 0 1 18.93 8zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14a8.2 8.2 0 0 1 0-4h3.38a16.5 16.5 0 0 0 0 4H4.26zm.81 2h2.95c.32 1.25.78 2.45 1.38 3.56A7.99 7.99 0 0 1 5.07 16zm2.95-8H5.07a7.99 7.99 0 0 1 4.33-3.56A15.7 15.7 0 0 0 8.02 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96zM14.34 14H9.66a14.7 14.7 0 0 1 0-4h4.68a14.7 14.7 0 0 1 0 4zm.26 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95a8.03 8.03 0 0 1-4.33 3.56zM16.36 14a16.5 16.5 0 0 0 0-4h3.38a8.2 8.2 0 0 1 0 4h-3.38z"/></symbol>
   <symbol id="i-done" viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></symbol>
 </defs></svg>
 <canvas id="c"></canvas>
 
 <div id="hud" hidden>
-  <button class="ib" id="btnPause" aria-label="Pause"><svg><use href="#i-pause"/></svg></button>
+  <button class="ib" id="btnPause" aria-label="Pause" data-t-aria="a11y.pause"><svg><use href="#i-pause"/></svg></button>
   <span id="score" class="num">0</span>
   <span class="stars num" id="hudStars"><svg><use href="#i-star"/></svg><span id="starN">0</span></span>
 </div>
@@ -167,14 +179,17 @@
 <main id="home" class="screen" hidden>
   <div class="bar">
     <span class="pill stars num"><svg><use href="#i-star"/></svg><span id="bank">0</span></span>
-    <button class="ib solid" id="btnSet" aria-label="Settings"><svg><use href="#i-gear"/></svg></button>
+    <span class="tools">
+      <button class="ib solid" id="btnLang" aria-label="Language" data-t-aria="lang.title"><svg><use href="#i-globe"/></svg></button>
+      <button class="ib solid" id="btnSet" aria-label="Settings" data-t-aria="a11y.settings"><svg><use href="#i-gear"/></svg></button>
+    </span>
   </div>
-  <h1 aria-label="Roll"><span>R</span><span>o</span><span>l</span><span>l</span></h1>
+  <h1 aria-label="Roll" data-t-name><span>R</span><span>o</span><span>l</span><span>l</span></h1>
   <span class="pill num" id="homeBest"><svg class="cup"><use href="#i-cup"/></svg><span id="bestN">0</span></span>
-  <button class="cta" id="btnPlay" aria-label="Play"><svg><use href="#i-play"/></svg></button>
+  <button class="cta" id="btnPlay" aria-label="Play" data-t-aria="a11y.play"><svg><use href="#i-play"/></svg></button>
   <div id="picker">
-    <button class="ib solid" id="skPrev" aria-label="Previous ball"><svg><use href="#i-left"/></svg></button>
-    <button class="ib solid" id="skNext" aria-label="Next ball"><svg><use href="#i-right"/></svg></button>
+    <button class="ib solid" id="skPrev" aria-label="Previous ball" data-t-aria="a11y.prevBall"><svg><use href="#i-left"/></svg></button>
+    <button class="ib solid" id="skNext" aria-label="Next ball" data-t-aria="a11y.nextBall"><svg><use href="#i-right"/></svg></button>
     <span class="pill stars num" id="lock"><svg style="color:inherit"><use href="#i-lock"/></svg><span id="lockN"></span><svg><use href="#i-star"/></svg></span>
     <div id="dots"></div>
   </div>
@@ -184,11 +199,11 @@
 <section id="pause" class="screen tint" hidden>
   <div class="card" role="dialog" aria-modal="true">
     <div class="row"><span class="chip num" id="pauseScore"></span><span class="chip stars num"><svg><use href="#i-star"/></svg><span id="pauseStars"></span></span></div>
-    <button class="cta" id="btnResume" aria-label="Resume"><svg><use href="#i-play"/></svg></button>
+    <button class="cta" id="btnResume" aria-label="Resume" data-t-aria="a11y.resume"><svg><use href="#i-play"/></svg></button>
     <div class="acts">
-      <button class="ob" id="btnPauseHome" aria-label="Home"><svg><use href="#i-home"/></svg></button>
-      <button class="ob" id="btnPauseAgain" aria-label="Start over"><svg><use href="#i-again"/></svg></button>
-      <button class="ob" id="btnPauseSet" aria-label="Settings"><svg><use href="#i-gear"/></svg></button>
+      <button class="ob" id="btnPauseHome" aria-label="Home" data-t-aria="a11y.home"><svg><use href="#i-home"/></svg></button>
+      <button class="ob" id="btnPauseAgain" aria-label="Start over" data-t-aria="a11y.startOver"><svg><use href="#i-again"/></svg></button>
+      <button class="ob" id="btnPauseSet" aria-label="Settings" data-t-aria="a11y.settings"><svg><use href="#i-gear"/></svg></button>
     </div>
   </div>
 </section>
@@ -203,8 +218,8 @@
     </div>
     <div class="row" id="unlock" hidden></div>
     <div class="acts" id="overActs">
-      <button class="ob" id="btnOverHome" aria-label="Home"><svg><use href="#i-home"/></svg></button>
-      <button class="cta" id="btnAgain" aria-label="Play again"><svg><use href="#i-play"/></svg></button>
+      <button class="ob" id="btnOverHome" aria-label="Home" data-t-aria="a11y.home"><svg><use href="#i-home"/></svg></button>
+      <button class="cta" id="btnAgain" aria-label="Play again" data-t-aria="a11y.playAgain"><svg><use href="#i-play"/></svg></button>
       <span style="width:56px"></span>
     </div>
   </div>
@@ -212,10 +227,16 @@
 
 <section id="set" class="screen tint" hidden>
   <div class="card" role="dialog" aria-modal="true">
-    <label class="sl"><svg><use href="#i-vol"/></svg><input type="range" id="volRange" min="0" max="100" step="5" aria-label="Volume"></label>
-    <label class="sl"><svg><use href="#i-music"/></svg><input type="range" id="musicRange" min="0" max="100" step="5" aria-label="Music"></label>
-    <div class="sl" id="hapticRow"><svg><use href="#i-vibe"/></svg><span class="gap"></span><button class="sw" id="hapticSw" role="switch" aria-label="Vibration"></button></div>
-    <button class="ob" id="btnSetDone" aria-label="Done"><svg><use href="#i-done"/></svg></button>
+    <label class="sl"><svg><use href="#i-vol"/></svg><input type="range" id="volRange" min="0" max="100" step="5" aria-label="Volume" data-t-aria="a11y.volume"></label>
+    <label class="sl"><svg><use href="#i-music"/></svg><input type="range" id="musicRange" min="0" max="100" step="5" aria-label="Music" data-t-aria="a11y.music"></label>
+    <div class="sl" id="hapticRow"><svg><use href="#i-vibe"/></svg><span class="gap"></span><button class="sw" id="hapticSw" role="switch" aria-label="Vibration" data-t-aria="a11y.vibration"></button></div>
+    <button class="ob" id="btnSetDone" aria-label="Done" data-t-aria="a11y.done"><svg><use href="#i-done"/></svg></button>
+  </div>
+</section>
+<section id="langs" class="screen tint" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-label="Language" data-t-aria="lang.title">
+    <div class="langs" id="langList"></div>
+    <button class="ob" id="btnLangDone" aria-label="Done" data-t-aria="a11y.done"><svg><use href="#i-done"/></svg></button>
   </div>
 </section>
 <script type="module" src="client.js"></script>

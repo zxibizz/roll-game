@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { World as GameWorld, Track, secStart, secOf, secPos, BIOME_SECS, SEC_T, LANES, MID, VERSION, HOP_VY, HOP_G, HOP_WIN, hopRows, slowOf, SPEED_TOL, BOX_H, R, CROSS_ROWS, FLY_T, FLY_H, MAGNET_T, SHIELD_T, laneX, speedOf, fastOf, mulberry, starStep, STAR_RATE } from '../public/core.js';
+import { World as GameWorld, Track, secStart, secOf, secPos, BIOME_SECS, SEC_T, LANES, MID, VERSION, HOP_VY, HOP_G, HOP_WIN, hopRows, slowOf, SPEED_TOL, BOX_H, R, CROSS_ROWS, FLY_T, FLY_H, MAGNET_T, SHIELD_T, laneX, speedOf, fastOf, mulberry, starStep, STAR_RATE, BONUS_KINDS } from '../public/core.js';
 
 // Most tests look at the road and the ball alone: their world has no bonuses lying on it (the road is the same).
 class World extends GameWorld {
@@ -1047,4 +1047,14 @@ test('a flight taken in an outer lane of a wide road comes into its three lanes,
   w.drop();
   assert.equal(w.move(1), false);
   assert.ok(!w.events.slice(-1).includes('bump'), 'no bump while it comes down');
+});
+
+test('bonuses never repeat back to back, and each kind comes once in every three', () => {
+  for (let seed = 1; seed <= 40; seed++) {
+    const t = new Track(seed), kinds = [];
+    for (let i = 0; i < 6000; i++) { const b = t.get(i).bonus; if (b) kinds.push(b.kind); }
+    assert.ok(kinds.length > 20, `seed ${seed}: ${kinds.length} bonuses`);
+    for (let k = 1; k < kinds.length; k++) assert.notEqual(kinds[k], kinds[k - 1], `seed ${seed}: ${kinds[k]} twice in a row at ${k}`);
+    for (let k = 0; k + 3 <= kinds.length; k += 3) assert.deepEqual([...kinds.slice(k, k + 3)].sort(), [...BONUS_KINDS].sort());
+  }
 });

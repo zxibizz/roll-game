@@ -1,0 +1,21 @@
+// German.
+export default {
+  "app.name": "Kugel",
+  "app.desc": "Roll eine Kugel über eine endlose Strecke: ohne Werbung, funktioniert offline",
+  "lang.name": "Deutsch",
+  "lang.title": "Sprache",
+  "lang.auto": "Gerätesprache",
+  "a11y.pause": "Pause",
+  "a11y.settings": "Einstellungen",
+  "a11y.play": "Spielen",
+  "a11y.prevBall": "Vorherige Kugel",
+  "a11y.nextBall": "Nächste Kugel",
+  "a11y.resume": "Weiter",
+  "a11y.home": "Startseite",
+  "a11y.startOver": "Neu starten",
+  "a11y.playAgain": "Nochmal spielen",
+  "a11y.volume": "Lautstärke",
+  "a11y.music": "Musik",
+  "a11y.vibration": "Vibration",
+  "a11y.done": "Fertig",
+};

@@ -1,0 +1,21 @@
+// Dutch.
+export default {
+  "app.name": "Balletje",
+  "app.desc": "Rol een balletje over een eindeloze baan: zonder reclame, werkt offline",
+  "lang.name": "Nederlands",
+  "lang.title": "Taal",
+  "lang.auto": "Taal van het apparaat",
+  "a11y.pause": "Pauze",
+  "a11y.settings": "Instellingen",
+  "a11y.play": "Spelen",
+  "a11y.prevBall": "Vorig balletje",
+  "a11y.nextBall": "Volgend balletje",
+  "a11y.resume": "Doorgaan",
+  "a11y.home": "Start",
+  "a11y.startOver": "Opnieuw beginnen",
+  "a11y.playAgain": "Nog een keer",
+  "a11y.volume": "Volume",
+  "a11y.music": "Muziek",
+  "a11y.vibration": "Trillen",
+  "a11y.done": "Klaar",
+};

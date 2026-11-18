@@ -1,0 +1,21 @@
+// Spanish.
+export default {
+  "app.name": "Bolita",
+  "app.desc": "Haz rodar una bolita por un camino sin fin: sin anuncios, funciona sin conexión",
+  "lang.name": "Español",
+  "lang.title": "Idioma",
+  "lang.auto": "Idioma del dispositivo",
+  "a11y.pause": "Pausa",
+  "a11y.settings": "Ajustes",
+  "a11y.play": "Jugar",
+  "a11y.prevBall": "Bolita anterior",
+  "a11y.nextBall": "Bolita siguiente",
+  "a11y.resume": "Continuar",
+  "a11y.home": "Inicio",
+  "a11y.startOver": "Empezar de nuevo",
+  "a11y.playAgain": "Jugar otra vez",
+  "a11y.volume": "Volumen",
+  "a11y.music": "Música",
+  "a11y.vibration": "Vibración",
+  "a11y.done": "Listo",
+};

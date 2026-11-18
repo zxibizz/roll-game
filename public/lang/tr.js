@@ -1,0 +1,21 @@
+// Turkish.
+export default {
+  "app.name": "Yuvarlan",
+  "app.desc": "Bir topu sonsuz bir yolda yuvarla: reklamsız, internetsiz çalışır",
+  "lang.name": "Türkçe",
+  "lang.title": "Dil",
+  "lang.auto": "Cihaz dili",
+  "a11y.pause": "Duraklat",
+  "a11y.settings": "Ayarlar",
+  "a11y.play": "Oyna",
+  "a11y.prevBall": "Önceki top",
+  "a11y.nextBall": "Sonraki top",
+  "a11y.resume": "Devam et",
+  "a11y.home": "Ana ekran",
+  "a11y.startOver": "Baştan başla",
+  "a11y.playAgain": "Tekrar oyna",
+  "a11y.volume": "Ses",
+  "a11y.music": "Müzik",
+  "a11y.vibration": "Titreşim",
+  "a11y.done": "Tamam",
+};

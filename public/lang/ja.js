@@ -1,0 +1,21 @@
+// Japanese.
+export default {
+  "app.name": "コロコロ",
+  "app.desc": "終わりのない道でボールを転がそう：広告なし、オフラインで遊べます",
+  "lang.name": "日本語",
+  "lang.title": "言語",
+  "lang.auto": "端末の言語",
+  "a11y.pause": "一時停止",
+  "a11y.settings": "設定",
+  "a11y.play": "プレイ",
+  "a11y.prevBall": "前のボール",
+  "a11y.nextBall": "次のボール",
+  "a11y.resume": "再開",
+  "a11y.home": "ホーム",
+  "a11y.startOver": "最初から",
+  "a11y.playAgain": "もう一度",
+  "a11y.volume": "音量",
+  "a11y.music": "音楽",
+  "a11y.vibration": "バイブレーション",
+  "a11y.done": "完了",
+};

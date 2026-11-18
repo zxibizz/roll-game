@@ -1,0 +1,21 @@
+// Italian.
+export default {
+  "app.name": "Pallina",
+  "app.desc": "Fai rotolare una pallina su una strada infinita: senza pubblicità, funziona offline",
+  "lang.name": "Italiano",
+  "lang.title": "Lingua",
+  "lang.auto": "Lingua del dispositivo",
+  "a11y.pause": "Pausa",
+  "a11y.settings": "Impostazioni",
+  "a11y.play": "Gioca",
+  "a11y.prevBall": "Pallina precedente",
+  "a11y.nextBall": "Pallina successiva",
+  "a11y.resume": "Riprendi",
+  "a11y.home": "Home",
+  "a11y.startOver": "Ricomincia",
+  "a11y.playAgain": "Gioca ancora",
+  "a11y.volume": "Volume",
+  "a11y.music": "Musica",
+  "a11y.vibration": "Vibrazione",
+  "a11y.done": "Fatto",
+};

@@ -1,0 +1,21 @@
+// Polish.
+export default {
+  "app.name": "Kulka",
+  "app.desc": "Tocz kulkę po niekończącej się trasie: bez reklam, działa offline",
+  "lang.name": "Polski",
+  "lang.title": "Język",
+  "lang.auto": "Język urządzenia",
+  "a11y.pause": "Pauza",
+  "a11y.settings": "Ustawienia",
+  "a11y.play": "Graj",
+  "a11y.prevBall": "Poprzednia kulka",
+  "a11y.nextBall": "Następna kulka",
+  "a11y.resume": "Wznów",
+  "a11y.home": "Ekran główny",
+  "a11y.startOver": "Zacznij od nowa",
+  "a11y.playAgain": "Zagraj jeszcze raz",
+  "a11y.volume": "Głośność",
+  "a11y.music": "Muzyka",
+  "a11y.vibration": "Wibracje",
+  "a11y.done": "Gotowe",
+};

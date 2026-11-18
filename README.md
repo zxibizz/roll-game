@@ -74,9 +74,14 @@ Site: `https://roll.games.bubas.cc`.
   enough, never two in a hurry. Lanes that end get the same warning, with no waves around.
 - Waves stay sparse all the way: the speed alone makes later sections harder. Rows hidden behind a crest have no
   obstacles.
-- There are no words in the game, only numbers and icons, so there is nothing to translate.
+- There are no words in the game, only numbers and icons — the name aside. The name, the install description and the
+  labels screen readers read for the buttons come in 13 languages (`public/i18n.js`, `public/lang/*.js`, a manifest
+  per language): the device's language by default, the globe on the home screen picks another one (`roll.lang`,
+  `?lang=xx`, `?lang=auto`). Each language has a name of its own for the game: Roll, Kugel, Bolita, Boule, Pallina,
+  Balletje, Kulka, Bolinha, Yuvarlan, a Russian one, コロコロ, 데굴데굴, 滚滚球. The title's size follows its length.
 - Bonuses: a bubble with an icon lies on the track about every 100–150 rows, on the path or one lane off it, in a
-  free stretch with time to come back. What is at work shows as icons in rings under the pause button.
+  free stretch with time to come back. Never the same kind twice in a row: they come out of a shuffled bag of all
+  three (`Track.nextBonus`). What is at work shows as icons in rings under the pause button.
   - Magnet: for 8 s stars come to the ball from every lane of the road, the lines off the path included.
   - Shield: a bubble round the ball for four sections (20 s), the ring under the pause button runs down and the
     bubble blinks in its last two seconds. The first thing the ball hits meanwhile flies apart instead, the bubble
@@ -104,7 +109,7 @@ Site: `https://roll.games.bubas.cc`.
 
 ## Screens
 
-- **Home**: the title, the star bank, the best score, a big play button. The ball in the scene is the colour or pet on show:
+- **Home**: the title, the star bank, the best score, the language (a globe) and the settings, a big play button. The ball in the scene is the colour or pet on show:
   arrows beside it (or ← →) turn through them, a locked one shows `have/need` stars over it.
 - **In the game**: pause, the score (it turns gold once the record is beaten), stars taken. The first three runs a
   hand shows the swipe.
@@ -159,3 +164,10 @@ jump — only when something is 0.75 s ahead, and one never steers round anythin
 1. Change something, bump `VERSION` in `public/core.js` and `public/sw.js` (a test checks they match), run the tests.
 2. Push a `vX.Y.Z` tag: GitHub Actions runs the tests and publishes `ghcr.io/zxibizz/roll-game:X.Y.Z`;
    Flux in the home cluster picks up `0.x` tags by itself.
+
+## Icons
+
+`public/icons/`: the coral ball on a green road winding up through the sky to the horizon, three stars ahead of it, a
+rainbow and the sun (`icon-512`, `icon-192` — maskable, everything that matters inside the middle 80 %;
+`apple-touch-icon` 180 px; `favicon-64` — the ball alone, large, for a browser tab). They are drawn on a canvas by a
+script outside the repository; to change them, redraw all four at once.

@@ -1,0 +1,21 @@
+// French.
+export default {
+  "app.name": "Boule",
+  "app.desc": "Fais rouler une boule sur une route sans fin : sans pub, fonctionne hors ligne",
+  "lang.name": "Français",
+  "lang.title": "Langue",
+  "lang.auto": "Langue de l’appareil",
+  "a11y.pause": "Pause",
+  "a11y.settings": "Réglages",
+  "a11y.play": "Jouer",
+  "a11y.prevBall": "Boule précédente",
+  "a11y.nextBall": "Boule suivante",
+  "a11y.resume": "Reprendre",
+  "a11y.home": "Accueil",
+  "a11y.startOver": "Recommencer",
+  "a11y.playAgain": "Rejouer",
+  "a11y.volume": "Volume",
+  "a11y.music": "Musique",
+  "a11y.vibration": "Vibration",
+  "a11y.done": "Terminé",
+};

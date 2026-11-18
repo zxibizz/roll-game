@@ -1,0 +1,21 @@
+// Chinese (Simplified).
+export default {
+  "app.name": "滚滚球",
+  "app.desc": "让小球在无尽的路上滚动：无广告，可离线游玩",
+  "lang.name": "中文",
+  "lang.title": "语言",
+  "lang.auto": "跟随设备",
+  "a11y.pause": "暂停",
+  "a11y.settings": "设置",
+  "a11y.play": "开始",
+  "a11y.prevBall": "上一个球",
+  "a11y.nextBall": "下一个球",
+  "a11y.resume": "继续",
+  "a11y.home": "主页",
+  "a11y.startOver": "重新开始",
+  "a11y.playAgain": "再玩一次",
+  "a11y.volume": "音量",
+  "a11y.music": "音乐",
+  "a11y.vibration": "振动",
+  "a11y.done": "完成",
+};
