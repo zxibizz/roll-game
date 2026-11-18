@@ -112,7 +112,7 @@ const grad = (y0, y1, stops) => {
 // end of the world, where it all comes apart: a ground of its own in restless colours, things from every biome on it
 // and a road that curls up (see glitchHue, the broken geometry). PAL holds the key
 // frames; between two biomes everything is blended (colours given as [hue, saturation, lightness] turn the short
-// way round the colour wheel, see paletteAt). What stands and moves there is picked row by row (drawRowAs).
+// way round the colour wheel, see paletteAt). What stands and moves there is picked row by row (drawRow).
 // Sky layers a frame leaves out are off there: snow (falling flakes), aurora (northern lights), sea (water instead
 // of air: light from above and bubbles), volcano (on the horizon, smoking), glitch (the sky in shards, each one a
 // piece of another biome's sky).
