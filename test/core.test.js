@@ -21,7 +21,7 @@ test('a bot on the guaranteed path survives up to the top speed on 30 tracks', (
     jumps += w.stats.jumps;
     vMin = Math.min(vMin, w.stats.vRatioMin); vMax = Math.max(vMax, w.stats.vRatioMax);
   }
-  assert.ok(jumps >= 100, `only ${jumps} jumps on 30 tracks`);
+  assert.ok(jumps >= 80, `only ${jumps} jumps on 30 tracks`);
   // hills really change the speed
   assert.ok(vMin < 0.85 && vMax > 1.15, `speed ratio ${vMin.toFixed(2)}..${vMax.toFixed(2)}`);
 });
@@ -324,7 +324,7 @@ test('a slow frame is split into equal steps: the run goes the same at 20 frames
 test('landing after a jump is reported with its strength', () => {
   const w = new World(3);
   let lands = 0;
-  while (w.state === 'run' && w.ball.z < SEC_ROWS * 8) {
+  while (w.state === 'run' && w.ball.z < SEC_ROWS * 20) {
     w.auto(); w.step(DT);
     if (w.events.includes('land')) { lands++; assert.ok(w.impact > 0 && w.impact <= 1); }
     w.events.length = 0;
@@ -464,7 +464,7 @@ test('a ramp is never more than one lane away', () => {
       r.road.forEach((on, l) => { if (on) assert.ok(r.ramp[l] || r.ramp[l - 1] || r.ramp[l + 1], `seed ${seed} row ${i} lane ${l}`); });
     }
   }
-  assert.ok(pieces > 60);
+  assert.ok(pieces > 40);
 });
 
 // A player who never plans: it stays in its lane until something is 0.75 s ahead, and then makes one move —
@@ -631,27 +631,32 @@ test('someone walks across the road now and then: it ends in a lane off the path
 });
 
 test('the road narrows to three lanes and zigzags: one lane at a time, with time for a swipe before every step', () => {
-  let zigs = 0, steps = 0;
+  let zigs = 0, steps = 0, logs = 0;
   for (let seed = 1; seed <= 20; seed++) {
     const t = new Track(seed);
-    let last = -100, prev = null;
+    let last = -100, lastLog = -100, prev = null;
     for (let i = 0; i < SEC_ROWS * 20; i++) {
       const r = t.get(i), lanes = r.road.flatMap((on, l) => (on ? [l] : []));
       const narrow = lanes.length === 3 && lanes[2] - lanes[0] === 2;
       if (narrow) {
-        assert.ok(!busy(r), `seed ${seed} row ${i}: an obstacle on the zigzag`);
+        if (busy(r)) {   // nothing but a log right across, well away from the steps on both sides
+          assert.ok(lanes.every((l) => r.low[l]) && !r.block.some(Boolean) && !r.mover, `seed ${seed} row ${i}: an obstacle on the zigzag`);
+          assert.ok((i - last) / fastOf(r.sec) >= 0.6, `seed ${seed} row ${i}: a log ${i - last} rows after a step`);
+          logs++; lastLog = i;
+        }
         if (!prev) { zigs++; last = i; }
         else if (prev[0] !== lanes[0]) {
           steps++;
           assert.equal(Math.abs(prev[0] - lanes[0]), 1, `seed ${seed} row ${i}`);
           assert.ok((i - last) / fastOf(r.sec) >= 0.6, `seed ${seed} row ${i}: only ${i - last} rows after the last step`);
+          assert.ok((i - lastLog) / fastOf(r.sec) >= 0.6, `seed ${seed} row ${i}: a step ${i - lastLog} rows after a log`);
           last = i;
         }
       }
       prev = narrow ? lanes : null;
     }
   }
-  assert.ok(zigs >= 20 && steps >= zigs * 2, `${zigs} zigzags, ${steps} steps`);
+  assert.ok(zigs >= 20 && steps >= zigs * 2 && logs >= 10, `${zigs} zigzags, ${steps} steps, ${logs} logs`);
 });
 
 test('the ball has weight in a lane change: it speeds up, is fastest about half-way and slows down into its lane', () => {
@@ -659,7 +664,17 @@ test('the ball has weight in a lane change: it speeds up, is fastest about half-
   w.move(1);
   for (let n = 0; n < 60; n++) { w.tick(1 / 240); xs.push(w.ball.x); }
   const v = xs.map((x, n) => (n ? x - xs[n - 1] : x) * 240), peak = v.indexOf(Math.max(...v)), xPeak = xs[peak];
-  assert.ok(v[2] < Math.max(...v) * 0.3, 'it does not jump off at full speed');
+  assert.ok(v[2] < Math.max(...v) * 0.5, 'it does not jump off at full speed');
   assert.ok(xPeak > 0.2 && xPeak < 0.8, `fastest at ${xPeak.toFixed(2)} of the way`);
   assert.ok(v[59] < Math.max(...v) * 0.15 && xs[59] > 0.95, `after a quarter of a second: at ${xs[59].toFixed(3)}, speed ${v[59].toFixed(2)}`);
+});
+
+test('there are no pits on the track: every road cell has ground', () => {
+  for (let seed = 1; seed <= 20; seed++) {
+    const t = new Track(seed);
+    for (let i = 0; i < SEC_ROWS * 22; i++) {
+      const r = t.get(i);
+      assert.ok(r.road.every((on, l) => !on || r.floor[l]), `seed ${seed} row ${i}`);
+    }
+  }
 });

@@ -44,8 +44,7 @@ let skinView = skinAt;                                                          
 // hook at the end); the world has its own state inside a game
 let mode = 'home', world = new World(1), parts = [], rings = [], flash = null;
 let camZ = 0, camX = 0, camL = 0, camY = 0;   // camL: the camera across the road
-const ROLL = 0.009;   // how far the view rolls in a lane change, radians
-let lean = 0, roll = 0, wasOff = 0;   // weight: how far the ball leans in a lane change, the camera's roll, last distance to its lane
+let lean = 0, wasOff = 0;   // weight: how far the ball leans in a lane change, its last distance to its lane
 let nudge = null;   // a refused lane change: the ball leans towards the edge and comes back
 let shake = 0, squash = 0, hitStop = 0, count = 0, beatBest = false, overAnim = null, hintUntil = 0, hintRow = -1;
 
@@ -229,7 +228,7 @@ function setMode(m) {
 
 function resetView() {
   banked = null;
-  parts = []; rings = []; flash = null; nudge = null; lean = 0; roll = 0; wasOff = 0; shake = 0; squash = 0; hitStop = 0; beatBest = false;
+  parts = []; rings = []; flash = null; nudge = null; lean = 0; wasOff = 0; shake = 0; squash = 0; hitStop = 0; beatBest = false;
   $score.textContent = world.score; $score.style.color = ''; $starN.textContent = world.stars;
   follow();
 }
@@ -290,7 +289,7 @@ function bankRun() {
 }
 
 function gameOver() {
-  lean = 0; roll = 0;
+  lean = 0;
   const { s, isBest, stars, fresh } = bankRun();
   $('overCard').classList.toggle('best', isBest); $('newBest').hidden = !isBest;
   $('overBest').textContent = save.best; $('overStars').textContent = '+' + stars;
@@ -387,16 +386,15 @@ function update(dt) {
   if (hitStop > 0) { hitStop -= dt; return; }   // the world holds its breath for a moment on impact
   const b = world.ball;
   world.step(dt);
-  // weight: the ball leans back as it sets off sideways and the view rolls a little with it; rolling into its lane
-  // it lands there with a thud
+  // some weight: the ball leans back a little as it sets off sideways; rolling into its lane it lands there with a
+  // soft thud (the view itself stays level: rolling it made the sky swing)
   const side = world.state === 'run' ? clamp(b.vx / 9, -1, 1) : 0, offNow = Math.abs(b.tx - b.x);
   lean += (side - lean) * Math.min(1, dt * 22);
-  roll += (side * ROLL - roll) * Math.min(1, dt * 10);
   if (wasOff > 0.05 && offNow <= 0.05 && world.state === 'run' && !b.air) {   // in the air there is nothing to land on
     sfx.settle(); haptic('tick');
-    squash = Math.max(squash, 0.13);
+    squash = Math.max(squash, 0.07);
     const dir = Math.sign(lean) || 1, dust = pal('soil', 18);
-    spray(4, { x: b.x + dir * R * 0.8, y: b.y - R, z: b.z }, () => ({ vx: dir * rnd(0.8, 2.4), vy: rnd(0.3, 1.2), vz: world.v * 0.7 + rnd(-1, 1), g: 3, life: rnd(0.25, 0.45), size: rnd(0.06, 0.12), color: dust, grow: 1.5 }));
+    spray(3, { x: b.x + dir * R * 0.8, y: b.y - R, z: b.z }, () => ({ vx: dir * rnd(0.8, 2.4), vy: rnd(0.3, 1.2), vz: world.v * 0.7 + rnd(-1, 1), g: 3, life: rnd(0.25, 0.45), size: rnd(0.06, 0.12), color: dust, grow: 1.5 }));
   }
   wasOff = offNow;
   const events = world.events.splice(0);
@@ -1351,6 +1349,75 @@ function dish(o, s, fog) {
   ctx.fillStyle = hsl(0, 90, 60, fog * 0.4); ell(x + a * w * 0.9, cy - w * 0.1, w * 0.1, w * 0.1);
 }
 
+function well(o, s, fog) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * 1.35, w = o.hw * 0.8, x = o.x, by = o.bottom;
+  ctx.fillStyle = pal('woodDark', 0, fog); ctx.fillRect(x - w * 0.85, by - H * 0.85, w * 0.14, H * 0.6); ctx.fillRect(x + w * 0.71, by - H * 0.85, w * 0.14, H * 0.6);
+  ctx.fillStyle = pal('rock', -8, fog); ctx.fillRect(x - w, by - H * 0.36, w * 2, H * 0.36); ell(x, by, w, w * 0.22);
+  ctx.fillStyle = pal('rock', 6, fog); ell(x, by - H * 0.36, w, w * 0.24);
+  ctx.fillStyle = hsl(210, 60, 30, fog); ell(x, by - H * 0.36, w * 0.72, w * 0.15);
+  ctx.strokeStyle = pal('rock', -18, fog); ctx.lineWidth = Math.max(1, w * 0.04); ctx.beginPath();
+  for (let k = 0; k < 4; k++) { ctx.moveTo(x - w * 0.75 + k * w * 0.5, by - H * 0.3); ctx.lineTo(x - w * 0.75 + k * w * 0.5, by - H * 0.16); ctx.moveTo(x - w * 0.5 + k * w * 0.5, by - H * 0.16); ctx.lineTo(x - w * 0.5 + k * w * 0.5, by - H * 0.03); }
+  ctx.moveTo(x - w, by - H * 0.16); ctx.lineTo(x + w, by - H * 0.16); ctx.stroke();
+  ctx.fillStyle = hsl(s < 0.5 ? 6 : 28, 62, 46, fog); ctx.beginPath(); ctx.moveTo(x - w * 1.2, by - H * 0.82); ctx.lineTo(x, by - H * 1.12); ctx.lineTo(x + w * 1.2, by - H * 0.82); ctx.fill();
+  ctx.strokeStyle = pal('woodDark', -10, fog); ctx.beginPath(); ctx.moveTo(x, by - H * 0.82); ctx.lineTo(x, by - H * 0.6); ctx.stroke();
+  ctx.fillStyle = pal('wood', 0, fog); ctx.fillRect(x - w * 0.16, by - H * 0.62, w * 0.32, H * 0.14);
+}
+function leafPile(o, s, fog, rz, l) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * 0.75, w = o.hw, x = o.x, by = o.bottom;
+  ctx.fillStyle = hsl(24, 70, 40, fog); ctx.beginPath(); ctx.moveTo(x - w, by); ctx.bezierCurveTo(x - w * 0.8, by - H * 1.2, x + w * 0.8, by - H * 1.3, x + w, by); ctx.fill();
+  for (let k = 0; k < 16; k++) {
+    const c = LEAVES[k % 4], a = hash(rz, l, 70 + k), b = hash(rz, l, 90 + k);
+    ctx.fillStyle = hsl(c[0], c[1], c[2] + 6, fog); ell(x + (a - 0.5) * w * 1.6, by - b * H * 0.85 * (1 - Math.abs(a - 0.5) * 1.5), w * 0.17, w * 0.08, a * 9);
+  }
+}
+function cauldron(o, s, fog) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * 0.95, w = o.hw * 0.9, x = o.x, by = o.bottom, t = now();
+  halo(x, by - H * 0.9, w * 2.2, 'rgba(110,255,90,1)', 0.35 * (1 - fog));
+  ctx.fillStyle = hsl(260, 15, 12, fog * 0.6); ell(x, by - H * 0.45, w, H * 0.5); ctx.fillRect(x - w * 0.7, by - H * 0.08, w * 0.25, H * 0.08); ctx.fillRect(x + w * 0.45, by - H * 0.08, w * 0.25, H * 0.08);
+  ell(x, by - H * 0.85, w * 0.95, w * 0.24);
+  ctx.fillStyle = hsl(110, 90, 55, fog * 0.4); ell(x, by - H * 0.87, w * 0.8, w * 0.17);
+  for (let k = 0; k < 4; k++) {   // bubbles
+    const a = (t * 0.7 + k / 4 + s) % 1;
+    ctx.fillStyle = `rgba(150,255,120,${0.8 * (1 - a) * (1 - fog)})`; ell(x + (k - 1.5) * w * 0.35, by - H * (0.9 + a * 0.7), w * (0.07 + a * 0.06), w * (0.07 + a * 0.06));
+  }
+}
+function cupcake(o, s, fog) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * 1.15, w = o.hw * 0.9, x = o.x, by = o.bottom, hue = [335, 190, 275, 45][Math.floor(s * 4)];
+  ctx.fillStyle = hsl(hue + 30, 60, 62, fog); ctx.beginPath(); ctx.moveTo(x - w * 0.62, by); ctx.lineTo(x - w * 0.85, by - H * 0.42); ctx.lineTo(x + w * 0.85, by - H * 0.42); ctx.lineTo(x + w * 0.62, by); ctx.fill();
+  ctx.strokeStyle = hsl(hue + 30, 60, 46, fog); ctx.lineWidth = Math.max(1, w * 0.05); ctx.beginPath();
+  for (let k = -2; k <= 2; k++) { ctx.moveTo(x + k * w * 0.3, by - H * 0.42); ctx.lineTo(x + k * w * 0.24, by); }
+  ctx.stroke();
+  ctx.fillStyle = hsl(hue, 85, 80, fog); ell(x, by - H * 0.5, w * 0.95, H * 0.17); ell(x, by - H * 0.68, w * 0.7, H * 0.15); ell(x, by - H * 0.84, w * 0.42, H * 0.12);
+  ctx.fillStyle = hsl(0, 85, 52, fog); ell(x, by - H * 0.98, w * 0.17, w * 0.17);
+  ctx.fillStyle = `rgba(255,255,255,${0.8 * (1 - fog)})`; ell(x - w * 0.4, by - H * 0.55, w * 0.06, w * 0.06); ell(x + w * 0.3, by - H * 0.7, w * 0.06, w * 0.06); ell(x + w * 0.5, by - H * 0.5, w * 0.06, w * 0.06);
+}
+function cone(o, s, fog) {
+  shadowUnder(o, fog, 0.8);
+  const H = (o.bottom - o.top) * 1.1, w = o.hw * 0.8, x = o.x, by = o.bottom, on = Math.sin(now() * 6 + s * 9) > 0;
+  ctx.fillStyle = hsl(215, 20, 28, fog); ctx.fillRect(x - w, by - H * 0.1, w * 2, H * 0.1);
+  ctx.fillStyle = hsl(28, 95, 55, fog); ctx.beginPath(); ctx.moveTo(x - w * 0.7, by - H * 0.1); ctx.lineTo(x - w * 0.14, by - H * 0.92); ctx.lineTo(x + w * 0.14, by - H * 0.92); ctx.lineTo(x + w * 0.7, by - H * 0.1); ctx.fill();
+  ctx.fillStyle = hsl(40, 20, 96, fog);
+  for (const [a, b] of [[0.3, 0.44], [0.58, 0.7]]) { const wa = 0.7 - (a - 0.1) * 0.68, wb = 0.7 - (b - 0.1) * 0.68; ctx.beginPath(); ctx.moveTo(x - w * wa, by - H * a); ctx.lineTo(x - w * wb, by - H * b); ctx.lineTo(x + w * wb, by - H * b); ctx.lineTo(x + w * wa, by - H * a); ctx.fill(); }
+  halo(x, by - H * 0.98, w * 1.6, 'rgba(255,190,60,1)', (on ? 0.8 : 0.12) * (1 - fog));
+  ctx.fillStyle = hsl(42, 100, on ? 66 : 40, fog * 0.4); ell(x, by - H * 0.98, w * 0.2, w * 0.2);
+}
+function meteor(o, s, fog, rz, l) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * 0.95, w = o.hw * 0.95, x = o.x, cy = o.bottom - H * 0.5, pulse = 0.6 + 0.4 * Math.sin(now() * 2 + s * 20), pts = [];
+  halo(x, cy, w * 2.3, 'rgba(255,120,40,1)', 0.35 * pulse * (1 - fog));
+  for (let k = 0; k < 9; k++) { const a = k / 9 * 6.283, j = 0.8 + hash(rz, l, 70 + k) * 0.35; pts.push([x + Math.cos(a) * w * j, Math.min(o.bottom, cy + Math.sin(a) * H * 0.52 * j)]); }
+  const g = ctx.createRadialGradient(x - w * 0.3, cy - H * 0.3, 0, x, cy, w * 1.2);
+  g.addColorStop(0, hsl(20, 15, 38, fog)); g.addColorStop(1, hsl(280, 20, 12, fog));
+  ctx.fillStyle = g; blob(pts); ctx.fill();
+  ctx.strokeStyle = `rgba(255,${Math.round(140 + 60 * pulse)},50,${(0.6 + 0.4 * pulse) * (1 - fog)})`; ctx.lineWidth = Math.max(1, w * 0.07); ctx.lineCap = 'round'; ctx.beginPath();
+  for (let k = 0; k < 3; k++) { const a = hash(rz, l, 80 + k) * 6.283; ctx.moveTo(x + Math.cos(a) * w * 0.15, cy + Math.sin(a) * H * 0.1); ctx.lineTo(x + Math.cos(a + 0.5) * w * 0.5, cy + Math.sin(a + 0.5) * H * 0.3); ctx.lineTo(x + Math.cos(a + 0.2) * w * 0.75, cy + Math.sin(a + 0.2) * H * 0.38); }
+  ctx.stroke(); ctx.lineCap = 'butt';
+}
+
 const MOVERS = { farm: cow, autumn: fox, spooky: ghost, magic: unicorn, tech: rover, alien: saucer };
 
 // ---- buildings for the islands ----
@@ -1607,12 +1674,12 @@ function drawFlyers(rz, fog, th) {
 }
 
 const OBSTACLES = {
-  farm: [rock, bush, tree, pine, haystack, tree, sunflower, scarecrow],
-  autumn: [tree, pumpkin, haystack, toadstool, rock, tree, scarecrow],
-  spooky: [pumpkin, grave, deadTree, skeleton, zombie],
-  magic: [tree, lollipop, mushroom, crystal, lollipop],
-  tech: [robot, antenna, battery, robot],
-  alien: [crystal, mushroom],
+  farm: [rock, bush, tree, pine, haystack, tree, sunflower, scarecrow, well],
+  autumn: [tree, pumpkin, haystack, toadstool, rock, tree, scarecrow, leafPile],
+  spooky: [pumpkin, grave, deadTree, skeleton, zombie, cauldron],
+  magic: [tree, lollipop, mushroom, crystal, lollipop, cupcake],
+  tech: [robot, antenna, battery, robot, cone],
+  alien: [crystal, mushroom, meteor],
 };
 
 function drawBall() {
@@ -1623,14 +1690,14 @@ function drawBall() {
   if (g !== null) {   // the shadow shows where a jump lands
     const s = proj(bx, g, b.z), up = b.y - R - g, c = theme.shadow;
     ctx.fillStyle = `rgba(${c},${0.38 * clamp(1 - up / 3, 0.25, 1)})`;
-    ctx.beginPath(); ctx.ellipse(s[0], s[1], R * (1.15 + Math.abs(lean) * 0.25) * s[2], R * 0.45 * s[2], 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(s[0], s[1], R * (1.15 + Math.abs(lean) * 0.12) * s[2], R * 0.45 * s[2], 0, 0, 7); ctx.fill();
   }
   const [px, py0, sc] = proj(bx, b.y, b.z), r = R * sc;
   if (!(sc > 0) || !Number.isFinite(px + py0 + r)) return;   // behind the camera: nothing to draw
   // a landing squashes the ball for a moment: wider, lower, still touching the ground;
   // and a lane change makes it lean: its top lags behind, it stretches a little along the way
   const py = py0, yb = py + r, al = Math.abs(lean);   // squashed and stretched about the point it stands on
-  ctx.save(); ctx.translate(px, yb); ctx.transform(1, 0, lean * 0.2, 1, 0, 0); ctx.scale((1 + squash * 0.5) * (1 + al * 0.07), (1 - squash) * (1 - al * 0.05)); ctx.translate(-px, -yb);
+  ctx.save(); ctx.translate(px, yb); ctx.transform(1, 0, lean * 0.12, 1, 0, 0); ctx.scale((1 + squash * 0.5) * (1 + al * 0.04), (1 - squash) * (1 - al * 0.03)); ctx.translate(-px, -yb);
   if (T.glow && P.glow > 0.01) {
     const gl = ctx.createRadialGradient(px, py, r * 0.8, px, py, r * 2.6);
     gl.addColorStop(0, `rgba(${T.glow},${0.55 * P.glow})`); gl.addColorStop(1, `rgba(${T.glow},0)`);
@@ -1676,11 +1743,6 @@ function drawStreaks() {
 function draw() {
   const hue = secHue(Math.floor(Math.max(0, camZ + CAM_BACK) / SEC_ROWS));
   setPhase(camZ + CAM_BACK);
-  ctx.save();
-  if (Math.abs(roll) > 1e-4) {   // the whole view rolls a little into a lane change, pivoting on the ball
-    const zoom = 1 + Math.abs(roll) * Math.max(1.7 * H / W, 2.7 * W / H);   // just enough to keep the corners covered, upright or wide
-    ctx.translate(W / 2, H * 0.8); ctx.rotate(roll); ctx.scale(zoom, zoom); ctx.translate(-W / 2, -H * 0.8);
-  }
   theme.sky(hue, horY);
   ctx.save();
   if (shake > 0.01) { const k = shake * shake * 14 * dpr; ctx.translate((Math.random() - 0.5) * k, (Math.random() - 0.5) * k); }
@@ -1714,7 +1776,6 @@ function draw() {
     ctx.beginPath(); ctx.arc(px, py, (0.2 + 1.3 * k) * sc, 0, 7); ctx.stroke();
   }
   ctx.globalAlpha = 1;
-  ctx.restore();
   ctx.restore();
   drawStreaks();
   if (rings.length && rings[0].t < 0.12) { ctx.fillStyle = `rgba(255,255,255,${0.35 * (1 - rings[0].t / 0.12)})`; ctx.fillRect(0, 0, W, H); }

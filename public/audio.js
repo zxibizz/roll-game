@@ -171,12 +171,12 @@ export const sfx = {
     note(f * 2, { vol: 0.07, dur: 0.3, delay: 0.015 });
   },
   move() {   // a lane change: something heavy starts rolling sideways
-    burst({ type: 'bandpass', f0: 260, f1: 620, q: 0.9, vol: 0.3, a: 0.03, dur: 0.16 });
-    note(95, { vol: 0.12, dur: 0.14, to: 130 });
+    burst({ type: 'bandpass', f0: 340, f1: 760, q: 0.9, vol: 0.22, a: 0.025, dur: 0.13 });
+    note(110, { vol: 0.07, dur: 0.12, to: 150 });
   },
   settle() {   // and drops into its lane
-    note(105, { vol: 0.3, dur: 0.12, to: 58 });
-    burst({ f0: 380, f1: 110, vol: 0.28, dur: 0.09 });
+    note(120, { vol: 0.16, dur: 0.1, to: 70 });
+    burst({ f0: 380, f1: 130, vol: 0.14, dur: 0.07 });
   },
   bump() { note(150, { vol: 0.25, dur: 0.1, to: 90 }); },                                          // no lane there
   drop() { burst({ type: 'bandpass', f0: 1000, f1: 300, q: 1, vol: 0.3, a: 0.01, dur: 0.12 }); },   // thrown down out of the air

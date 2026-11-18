@@ -7,9 +7,9 @@ Site: `https://roll.games.bubas.cc`.
 
 - The ball rolls forward by itself along the middle of a lane. One touch is one swipe, and one swipe is one move,
   however long it is:
-  - left / right (← → / A D) — the next lane, also in the air. A lane change takes about 0.2 s at any speed;
+  - left / right (← → / A D) — the next lane, also in the air. A lane change takes about 0.17 s at any speed;
   - up (↑ / W / Space) — a jump: about 0.65 of a lane high, 0.5 s long, the same up and down a slope. A log is
-    cleared by a jump started anywhere from 0.37 to 0.1 s before it. It clears a log and a short pit, not a rock or a bush. Asked for up to 0.15 s before landing, it happens on landing;
+    cleared by a jump started anywhere from 0.37 to 0.1 s before it. It clears a log, not a rock or a bush. Asked for up to 0.15 s before landing, it happens on landing;
   - down (↓ / S) — out of the air straight to the ground, also off a ramp.
   A swipe counts as soon as the finger has gone 6 % of the screen width (18 px at least), without waiting for it
   to lift.
@@ -18,22 +18,21 @@ Site: `https://roll.games.bubas.cc`.
 - The track is usually 5 lanes wide and comes in sections of 48 rows. Every section has its own colour and is 6 % faster
   (9 → 24 rows per second, the top speed from section 18). The first 8 rows of a section are free of obstacles; the first sections are sparse.
 - Hills: downhill speeds the ball up, uphill slows it down; on flat ground it settles back to the section's speed.
-- Ramps: a light tile with chevrons. Behind it a block wall or a gap spans the whole width — the only way over is to jump.
+- Ramps: a light tile with chevrons. Behind it a wall of obstacles spans the whole width — the only way over is to jump.
   In the first two sections every lane has a ramp, later every lane has one or has one right next to it. The ball
   can change lanes in the air; its shadow shows where it lands.
 - Logs: a low barrier across a lane, sometimes across the whole road. The only way past is to jump (from section 1).
   During the first five runs a hand shows the swipe up before a log in the ball's lane.
-- Falling into a pit or hitting an obstacle ends the run. The hit boxes are smaller than the drawn obstacles, with
-  rounded corners, and a pit holds the ball until its centre is 0.2 of a lane past the rim, so changing lanes right
-  past an obstacle is fine. The score is the number of rows covered;
+- Hitting an obstacle or rolling off where a lane ends finishes the run. There are no pits on the track (the world
+  and the page still know how to handle and draw one, for tracks built by hand). The hit boxes are smaller than the
+  drawn obstacles, with rounded corners, so changing lanes right past an obstacle is fine. The score is the number of rows covered;
   the best score is kept on the device.
 - The road is a strip of grass with wavy edges; it bends like a snake now and then (just the look: the ball keeps
   to the road on its own). Its shape changes in two ways. It widens from 5 to 7 lanes and splits: the centre lane
   becomes a gap between two 3-lane roads. Or it narrows to 3 lanes and zigzags, stepping one lane sideways every
-  0.6 s or more (at the fastest downhill speed) — a row of stars shows the way, and there are no obstacles on the
-  zigzag. Ramps are wooden.
-- Pits: a hole with a rim of trodden earth, turf hanging over the edge, walls of earth with layers, stones and
-  roots that go down into the dark, and the shadow of the near edge inside.
+  0.6 s or more (at the fastest downhill speed) — a row of stars shows the way. The only obstacle on a zigzag is a
+  log right across it here and there, in the middle of a stretch twice as long. The road changes shape often:
+  every 60–120 rows, a little more often into a zigzag than into a split. Ramps are wooden.
 - Six biomes follow one another with the distance, three sections (144 rows) each: a biome stays as it is for most
   of that and turns into the next one over the last three quarters of a section (`PAL`, `BIOME_LEN`, `BIOME_BLEND`,
   `THEMES` in `client.js`). Space is reached at 720 rows. Each has its own colours and sky, things on
@@ -81,10 +80,9 @@ Site: `https://roll.games.bubas.cc`.
 
 ## Feel
 
-- The ball has weight. In a lane change it takes a moment to get going, is fastest about half-way and slows down
-  into its lane; meanwhile it leans (its top lags behind), stretches a little along the way, and the whole view
-  rolls half a degree with it. Arriving in the lane it lands with a thud: a small squash, dust on the far side, a
-  low sound, a tick of vibration. Turning back mid-way it stops first.
+- The ball has some weight. In a lane change it takes a moment to get going and slows down into its lane; meanwhile
+  it leans a little (its top lags behind). Arriving in the lane it lands with a soft thud: a slight squash, a puff
+  of dust, a low sound, a tick of vibration. Turning back mid-way it stops first. The view itself stays level.
 - Landing squashes the ball, raises dust and shakes the camera a little; a crash stops the world for a moment, then
   the ball bursts into shards with a ring and a flash; a star gives a few sparks and a pop of the counter.
 - The camera follows 60 % of the ball's sideways move, more on a narrow screen, so the ball never leaves the screen
@@ -102,9 +100,9 @@ Site: `https://roll.games.bubas.cc`.
 
 `public/core.js`, no DOM. After every wave or jump the generator leaves K free rows (the time for one swipe at the
 fastest downhill speed) plus a few more, then lays the next wave: lanes are shut at random, any shut lane without a
-free neighbour is opened again, and the shut ones become rocks, pits or logs. A guaranteed path (`row.goal`) runs
+free neighbour is opened again, and the shut ones become things to go round (one row deep, or a grove of two to four rows) or logs. A guaranteed path (`row.goal`) runs
 through every row and moves by at most one lane, right after a wave; stars lie along it. Jumps are set pieces placed
-on flat ground after at least 6 flat rows: where the wall or the gap goes is computed from the ramp's physics with a
+on flat ground after at least 6 flat rows: where the wall goes is computed from the ramp's physics with a
 ±25 % margin on the section's speed. The road widens and narrows over at least K rows with no waves.
 The tests drive two bots on 30–40 tracks up to the top speed and expect no deaths: one keeps to the path
 (`World.auto`), the other stays in whatever lane it is in and makes a single move — a swipe to the next lane or a
