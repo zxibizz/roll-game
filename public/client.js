@@ -1,7 +1,7 @@
 // The page: draws the world from core.js in a hand-rolled perspective, reads the finger / mouse / keys and runs the
 // screens around the game: home, pause, results, settings. The road is grass and earth; the sky goes from day to
 // night to space with the distance. There are no words in the interface, only numbers and icons.
-import { World, VERSION, LANES, HALF, SEC_ROWS, R, INSET, BOX_H, RAMP_H, LOW_H, LOW_Z0, LOW_Z1, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
+import { World, VERSION, LANES, HALF, SEC_ROWS, R, INSET, BOX_H, RAMP_H, LOW_H, LOW_Z0, LOW_Z1, MAGNET_T, FLY_T, FLY_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
 import { initAudio, applyVolume, setHum, sfx, haptic, canHaptic } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -44,6 +44,7 @@ let skinView = skinAt;                                                          
 // hook at the end); the world has its own state inside a game
 let mode = 'home', world = new World(1), parts = [], rings = [], flash = null;
 let camZ = 0, camX = 0, camL = 0, camY = 0;   // camL: the camera across the road
+let flyLift = 0, flyShow = 0, flyT = 0;   // a flight: how far the camera has risen, how much of the show in the sky is on (0..1), its clock
 let lean = 0, wasOff = 0;   // weight: how far the ball leans in a lane change, its last distance to its lane
 let nudge = null;   // a refused lane change: the ball leans towards the edge and comes back
 let shake = 0, squash = 0, hitStop = 0, count = 0, beatBest = false, overAnim = null, hintUntil = 0, hintRow = -1;
@@ -228,7 +229,7 @@ function setMode(m) {
 
 function resetView() {
   banked = null;
-  parts = []; rings = []; flash = null; nudge = null; lean = 0; wasOff = 0; shake = 0; squash = 0; hitStop = 0; beatBest = false;
+  parts = []; rings = []; flash = null; nudge = null; lean = 0; wasOff = 0; flyLift = world.ball.fly ? 1.85 : 0; flyShow = world.ball.fly ? 1 : 0; shake = 0; squash = 0; hitStop = 0; beatBest = false;
   $score.textContent = world.score; $score.style.color = ''; $starN.textContent = world.stars;
   follow();
 }
@@ -342,7 +343,20 @@ function onEvent(e) {
     $starN.textContent = world.stars;
     $hudStars.classList.remove('pop'); void $hudStars.offsetWidth; $hudStars.classList.add('pop');
     spray(5, b, () => ({ vx: rnd(-1.6, 1.6), vy: rnd(1.5, 4), vz: world.v + rnd(-1, 1), g: 7, life: rnd(0.25, 0.45), size: rnd(0.02, 0.04), color: '#fff3b0' }));
-  } else if (e === 'jump') sfx.jump();
+  } else if (e === 'bonus') {
+    sfx.bonus(); haptic('land');
+    const c = BONUS_C[world.got];
+    spray(14, b, () => ({ vx: rnd(-3, 3), vy: rnd(1, 5), vz: world.v + rnd(-2, 2), g: 6, life: rnd(0.3, 0.6), size: rnd(0.012, 0.028), color: `rgb(${c})` }));
+  } else if (e === 'pop') {   // the shield took a hit: the thing flies apart, the bubble bursts
+    const at = { x: world.popAt.x, y: world.hAt(world.popAt.z) + 0.35, z: world.popAt.z };
+    sfx.pop(); haptic('crash'); shake = Math.max(shake, 0.5); rings.push({ x: b.x, y: b.y, z: b.z + R, t: 0.12 });
+    spray(22, at, (k) => ({ vx: rnd(-5, 5), vy: rnd(2, 7), vz: world.v * 0.8 + rnd(-2, 5), g: 16, life: rnd(0.5, 0.9), size: rnd(0.04, 0.09), color: k % 3 ? pal('rock', 0) : pal('wood', 0) }));
+    spray(12, b, () => ({ vx: rnd(-4, 4), vy: rnd(-1, 4), vz: world.v + rnd(-2, 2), g: 3, life: rnd(0.3, 0.5), size: rnd(0.012, 0.025), color: 'rgb(170,225,255)' }));
+  } else if (e === 'fly') {
+    sfx.fly(); haptic('best'); flyT = 0; rings.push({ x: b.x, y: b.y, z: b.z + R, t: 0 });
+    spray(30, b, () => ({ vx: rnd(-4, 4), vy: rnd(-1, 6), vz: world.v + rnd(-3, 3), g: 4, life: rnd(0.5, 1), size: rnd(0.012, 0.028), color: '#fff3b0' }));
+  } else if (e === 'flyend') sfx.flyEnd();
+  else if (e === 'jump') sfx.jump();
   else if (e === 'drop') sfx.drop();
   else if (e === 'move') sfx.move();
   else if (e === 'bump') { sfx.bump(); haptic('land'); nudge = { dir: world.side, t: 0 }; }
@@ -397,6 +411,12 @@ function update(dt) {
     spray(3, { x: b.x + dir * R * 0.8, y: b.y - R, z: b.z }, () => ({ vx: dir * rnd(0.8, 2.4), vy: rnd(0.3, 1.2), vz: world.v * 0.7 + rnd(-1, 1), g: 3, life: rnd(0.25, 0.45), size: rnd(0.06, 0.12), color: dust, grow: 1.5 }));
   }
   wasOff = offNow;
+  flyLift += ((b.fly ? 1.85 : 0) - flyLift) * Math.min(1, dt * 3);   // the camera goes up almost as far as the ball: the road is seen from above
+  flyShow = clamp(flyShow + (b.fly ? dt / 0.6 : -dt / 0.8), 0, 1);
+  if (b.fly) {   // a trail of sparks behind the wings
+    flyT += dt;
+    if (parts.length < 120) spray(1, { x: b.x + rnd(-0.25, 0.25), y: b.y + rnd(-0.1, 0.1), z: b.z - 0.1 }, () => ({ vx: rnd(-0.4, 0.4), vy: rnd(-0.6, 0.2), vz: world.v * 0.25, g: 0.5, life: rnd(0.4, 0.8), size: rnd(0.01, 0.02), color: Math.random() < 0.5 ? '#fff3b0' : '#ffffff' }));
+  }
   const events = world.events.splice(0);
   for (const e of events) onEvent(e);
   follow();
@@ -422,7 +442,7 @@ function follow() {
     camZ = b.z - CAM_BACK;
     // never below the road under the ball (the generator counts on that to know what can be seen);
     // a little higher when the road ahead climbs, to look over the crest
-    camY = world.hAt(b.z) + Math.max(0, world.hAt(b.z + 6) - world.hAt(b.z)) * 0.3;
+    camY = world.hAt(b.z) + Math.max(0, world.hAt(b.z + 6) - world.hAt(b.z)) * 0.3 + flyLift;   // up with a flight
   }
   // Sideways the camera moves rigidly with the ball, part of the way: a lagging camera made the ball run past the
   // finger on screen and drift back once the camera caught up. On a narrow screen it repeats more of the move, so
@@ -604,7 +624,12 @@ function drawRow(rz, part = 'all') {
     if (o.hw > 0 && o.bottom > o.top) MOVERS[theme](o, hash(rz, 3, 8), fog, rz, 0, Math.sign(row.mover.lane - row.mover.from), mx * 9);
   }
   if (rz + LOW_Z0 > camZ + 0.5) for (const l of order) if (row.low[l]) drawLog(l, rz, row, fog, px);
-  if (rz + 0.5 > camZ + 0.9) for (const l of order) if (row.star[l]) drawStar(l, rz, row.star[l], fog);
+  if (rz + 0.5 > camZ + 0.9) {
+    for (const l of order) if (row.star[l]) drawStar(l, rz, row.star[l], fog);
+    if (row.bonus) drawBonus(row.bonus, rz, fog);
+    for (const s of world.sky) if (s.z === rz && !s.got) drawStar(s.l, rz, 1 + FLY_H, fog);   // the trail of a flight
+    if (flyShow > 0.01) drawFlightRow(rz, fog, theme);
+  }
   drawFlyers(rz, fog, theme);
 }
 
@@ -614,8 +639,13 @@ const STAR_PTS = Array.from({ length: 10 }, (_, k) => {
   return [Math.cos(a) * r, Math.sin(a) * r];
 });
 function drawStar(l, rz, s, fog) {
-  const zc = rz + 0.5, t = now(), y = world.hAt(zc) + R + s - 1 + Math.sin(t * 3 + rz) * 0.04;
-  const [x, py, sc] = proj(laneX(l), y, zc), r = 0.19 * sc;
+  const zc = rz + 0.5, t = now(), b = world.ball;
+  let wx = laneX(l), y = world.hAt(zc) + R + s - 1 + Math.sin(t * 3 + rz) * 0.04;
+  if (world.fx.magnet > 0 && !b.fly && s < FLY_H && zc - b.z < 3.5 && Math.abs(wx - b.x) <= 2.4) {   // a magnet draws it in
+    const k = clamp(1 - (zc - b.z) / 3.5, 0, 1) ** 2;
+    wx += (b.x - wx) * k; y += (b.y - y) * k;
+  }
+  const [x, py, sc] = proj(wx, y, zc), r = 0.19 * sc;
   if (!(sc > 0)) return;
   const a = 1 - fog * 0.85;
   if (r < 2.5) { ctx.globalAlpha = a; ctx.fillStyle = '#ffd84a'; ctx.beginPath(); ctx.arc(x, py, Math.max(1, r), 0, 7); ctx.fill(); ctx.globalAlpha = 1; return; }
@@ -1703,6 +1733,12 @@ function drawBall() {
     gl.addColorStop(0, `rgba(${T.glow},${0.55 * P.glow})`); gl.addColorStop(1, `rgba(${T.glow},0)`);
     ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(px, py, r * 2.6, 0, 7); ctx.fill();
   }
+  if (flyShow > 0.05) {   // wings, and a golden glow
+    halo(px, py, r * 3, 'rgba(255,225,130,1)', 0.45 * flyShow);
+    const flap = Math.sin(now() * 14) * 0.5;
+    for (const e of [-1, 1]) wing(px + e * r * 0.75, py - r * 0.15, r * 1.6 * flyShow, e, flap);
+  }
+  if (world.fx.safe > 0 && world.state === 'run' && !b.fly) ctx.globalAlpha = 0.6 + 0.3 * Math.sin(now() * 30);   // nothing can hit it: it flickers
   const gr = ctx.createRadialGradient(px - r * 0.35, py - r * 0.4, r * 0.1, px, py, r);
   gr.addColorStop(0, T.c[0]); gr.addColorStop(0.7, T.c[1]); gr.addColorStop(1, T.c[2]);
   ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.fill();
@@ -1723,12 +1759,157 @@ function drawBall() {
       ctx.quadraticCurveTo(sx, sy, sx - q, sy); ctx.quadraticCurveTo(sx, sy, sx, sy - q); ctx.fill();
     }
   }
+  ctx.globalAlpha = 1;
+  if (world.fx.shield) {   // a bubble round the ball
+    const t = now(), rb = r * 1.42, g = ctx.createRadialGradient(px, py, rb * 0.55, px, py, rb);
+    g.addColorStop(0, 'rgba(120,210,255,0)'); g.addColorStop(0.85, 'rgba(120,210,255,.28)'); g.addColorStop(1, 'rgba(200,240,255,.75)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(px, py, rb, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = Math.max(1, r * 0.07); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(px, py, rb * 0.82, t * 1.5, t * 1.5 + 0.9); ctx.stroke();
+    ctx.beginPath(); ctx.arc(px, py, rb * 0.82, t * 1.5 + 3.3, t * 1.5 + 3.7); ctx.stroke(); ctx.lineCap = 'butt';
+  }
+  if (world.fx.magnet > 0 && !b.fly) {   // a magnet at work: rings closing in on the ball
+    for (let k = 0; k < 2; k++) {
+      const ph = (now() * 1.4 + k / 2) % 1;
+      ctx.strokeStyle = `rgba(255,110,130,${0.55 * ph})`; ctx.lineWidth = Math.max(1, r * 0.06);
+      ctx.beginPath(); ctx.arc(px, py, r * (2.6 - 1.5 * ph), 0, 7); ctx.stroke();
+    }
+  }
   ctx.restore();
+}
+
+// ---- bonuses: what they look like on the track and in the corner of the screen ----
+const BONUS_C = { magnet: [255, 90, 115], shield: [80, 190, 255], fly: [255, 210, 80] };
+// one wing: e — which side (-1 left, 1 right), flap -0.5..0.5
+function wing(x, y, r, e, flap = 0) {
+  if (!(r > 0.5)) return;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(-e * (0.25 + flap * 0.7)); ctx.scale(e, 1);
+  ctx.fillStyle = '#ffffff'; ctx.strokeStyle = 'rgba(120,160,215,.9)'; ctx.lineWidth = Math.max(1, r * 0.05); ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(0, r * 0.12);
+  ctx.quadraticCurveTo(r * 0.35, -r * 0.75, r, -r * 0.62);
+  ctx.quadraticCurveTo(r * 0.98, -r * 0.3, r * 0.74, -r * 0.2); ctx.quadraticCurveTo(r * 0.8, r * 0.02, r * 0.5, r * 0.04);
+  ctx.quadraticCurveTo(r * 0.52, r * 0.24, r * 0.24, r * 0.2); ctx.quadraticCurveTo(r * 0.12, r * 0.3, 0, r * 0.12);
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+function bonusIcon(kind, x, y, r) {
+  if (kind === 'magnet') {
+    ctx.strokeStyle = '#e5383b'; ctx.lineWidth = r * 0.42; ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.moveTo(x - r * 0.48, y + r * 0.55); ctx.lineTo(x - r * 0.48, y - r * 0.05); ctx.arc(x, y - r * 0.05, r * 0.48, Math.PI, 0); ctx.lineTo(x + r * 0.48, y + r * 0.55); ctx.stroke();
+    ctx.fillStyle = '#f4f4f8'; ctx.fillRect(x - r * 0.69, y + r * 0.32, r * 0.42, r * 0.25); ctx.fillRect(x + r * 0.27, y + r * 0.32, r * 0.42, r * 0.25);
+  } else if (kind === 'shield') {
+    const sh = () => { ctx.beginPath(); ctx.moveTo(x, y - r * 0.72); ctx.lineTo(x + r * 0.6, y - r * 0.48); ctx.lineTo(x + r * 0.6, y); ctx.quadraticCurveTo(x + r * 0.55, y + r * 0.5, x, y + r * 0.78); ctx.quadraticCurveTo(x - r * 0.55, y + r * 0.5, x - r * 0.6, y); ctx.lineTo(x - r * 0.6, y - r * 0.48); ctx.closePath(); };
+    ctx.fillStyle = '#2f8cf0'; sh(); ctx.fill();
+    ctx.save(); sh(); ctx.clip(); ctx.fillStyle = '#7cc4ff'; ctx.fillRect(x, y - r, r, 2 * r); ctx.restore();
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(1, r * 0.1); ctx.lineJoin = 'round'; sh(); ctx.stroke();
+  } else {
+    for (const e of [-1, 1]) wing(x + e * r * 0.08, y + r * 0.22, r * 0.9, e, 0.1);
+  }
+}
+function drawBonus(bo, rz, fog) {
+  const zc = rz + 0.5, t = now(), [x, y, sc] = proj(laneX(bo.lane), world.hAt(zc) + R + 0.28 + Math.sin(t * 2.6 + rz) * 0.07, zc);
+  if (!(sc > 0)) return;
+  const r = 0.33 * sc * (1 + 0.06 * Math.sin(t * 5 + rz)), c = BONUS_C[bo.kind], a = 1 - fog * 0.85;
+  if (r < 3) { ctx.globalAlpha = a; ctx.fillStyle = `rgb(${c})`; ctx.beginPath(); ctx.arc(x, y, Math.max(1.5, r), 0, 7); ctx.fill(); ctx.globalAlpha = 1; return; }
+  halo(x, y, r * 2.6, `rgba(${c},1)`, 0.55 * a);
+  ctx.globalAlpha = a;
+  const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r);
+  g.addColorStop(0, 'rgba(255,255,255,.85)'); g.addColorStop(0.6, `rgba(${c},.35)`); g.addColorStop(1, `rgba(${c},.6)`);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = Math.max(1, r * 0.08); ctx.stroke();
+  bonusIcon(bo.kind, x, y, r * 0.78);
+  ctx.fillStyle = '#fff';
+  for (let k = 0; k < 3; k++) { const an = t * 2.2 + k * 2.094; ctx.beginPath(); ctx.arc(x + Math.cos(an) * r * 1.3, y + Math.sin(an) * r * 1.3 * 0.8, Math.max(1, r * 0.07), 0, 7); ctx.fill(); }
+  ctx.globalAlpha = 1;
+}
+// what is at work now, under the pause button: an icon in a ring that runs down
+function drawEffects() {
+  const fx = world.fx, on = [];
+  if (world.ball.fly) on.push(['fly', fx.fly / FLY_T]);
+  if (fx.magnet > 0) on.push(['magnet', fx.magnet / MAGNET_T]);
+  if (fx.shield) on.push(['shield', 1]);
+  on.forEach(([kind, left], i) => {
+    const r = 21 * dpr, x = 36 * dpr + i * 52 * dpr, y = 112 * dpr, c = BONUS_C[kind];
+    ctx.fillStyle = 'rgba(20,30,60,.35)'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+    ctx.strokeStyle = `rgb(${c})`; ctx.lineWidth = 3.5 * dpr; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * clamp(left, 0.001, 1)); ctx.stroke(); ctx.lineCap = 'butt';
+    bonusIcon(kind, x, y, r * 0.72);
+  });
+}
+
+// ---- the show in the sky during a flight ----
+// behind the road: rings of light opening from the horizon like a tunnel, and shooting stars
+function drawFlightSky(hue) {
+  const k = flyShow, t = flyT, cx = W / 2, cy0 = horY - H * 0.06, R0 = Math.hypot(W, H) * 0.75;
+  ctx.save(); ctx.lineCap = 'round';
+  for (let n = 0; n < 7; n++) {
+    const ph = (t * 0.45 + n / 7) % 1, r = R0 * ph * ph, a = k * 0.5 * Math.sin(ph * Math.PI);
+    ctx.strokeStyle = hsl((hue + n * 50 + t * 40) % 360, 90, 72); ctx.globalAlpha = a; ctx.lineWidth = (2 + 16 * ph) * dpr;
+    ctx.beginPath(); ctx.arc(cx, cy0, r, 0, 7); ctx.stroke();
+  }
+  for (let n = 0; n < 5; n++) {   // shooting stars
+    const ph = (t * 0.7 + hash(n, 3, 410)) % 1, sx = W * (0.1 + hash(n, 5, 411) * 0.9) - ph * W * 0.5, sy = horY * (0.05 + hash(n, 7, 412) * 0.6) + ph * H * 0.18, len = W * 0.16;
+    const g = ctx.createLinearGradient(sx, sy, sx + len, sy - len * 0.36);
+    g.addColorStop(0, `rgba(255,255,255,${0.9 * k * Math.sin(ph * Math.PI)})`); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.globalAlpha = 1; ctx.strokeStyle = g; ctx.lineWidth = 2.5 * dpr; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + len, sy - len * 0.36); ctx.stroke();
+  }
+  ctx.restore();
+}
+// level with the ball: clouds (or star dust where there are none) rushing past, and a flock that flies along
+function drawFlightRow(rz, fog, th) {
+  const b = world.ball, a = flyShow * (1 - fog), zc = rz + 0.5;
+  if (rz > b.z + 1 && hash(rz, 7, 400) < 0.45) {
+    const side = hash(rz, 7, 401) < 0.5 ? -1 : 1, p = proj(world.ball.x * 0.3 + side * (1.7 + hash(rz, 7, 402) * 3.2), world.hAt(zc) + R + FLY_H + (hash(rz, 7, 403) - 0.5) * 1.6, zc), u = p[2] * (0.7 + hash(rz, 7, 404) * 0.8);
+    if (u > 0) {
+      if (P.clouds > 0.4) {
+        ctx.globalAlpha = 0.8 * a; ctx.fillStyle = css(P.cloudC);
+        for (let k = 0; k < 4; k++) ell(p[0] + (k - 1.5) * u * 0.42, p[1] - (k % 2) * u * 0.16, u * 0.42, u * 0.26);
+        ctx.globalAlpha = 1;
+      } else {
+        for (let k = 0; k < 5; k++) halo(p[0] + (hash(rz, k, 405) - 0.5) * u * 1.6, p[1] + (hash(rz, k, 406) - 0.5) * u * 0.8, u * 0.22, hsl(190 + hash(rz, k, 407) * 140, 90, 80), 0.8 * a);
+      }
+    }
+  }
+  if (rz !== Math.floor(b.z) + 2) return;   // the flock: three on each side, a little ahead of the ball
+  const t = now(), come = 1 - flyShow;
+  for (let k = 0; k < 6; k++) {
+    const side = k % 2 ? 1 : -1, n = k >> 1;
+    const p = proj(b.x + side * (0.85 + n * 0.5 + come * 5), b.y + 0.1 + n * 0.2 + Math.sin(t * 2.2 + k) * 0.1, b.z + 5.5 - n * 1.1), u = p[2] * 0.24;
+    if (!(u > 0)) continue;
+    const x = p[0], y = p[1], flap = Math.sin(t * 10 + k * 1.7);
+    ctx.globalAlpha = flyShow;
+    if (th === 'spooky') {   // bats
+      ctx.fillStyle = hsl(275, 30, 12);
+      ctx.beginPath(); ctx.moveTo(x, y - u * 0.2);
+      for (const e of [1, -1]) { ctx.lineTo(x + e * u * 0.5, y - u * (0.5 + flap * 0.5)); ctx.lineTo(x + e * u, y - u * flap * 0.35); ctx.lineTo(x + e * u * 0.6, y + u * 0.1); ctx.lineTo(x + e * u * 0.3, y - u * 0.05); ctx.lineTo(x, y + u * 0.25); }
+      ctx.fill();
+    } else if (th === 'magic') {   // fairies
+      const col = hsl([320, 50, 185, 275, 140, 20][k], 95, 78);
+      ctx.globalAlpha = 1; halo(x, y, u * 1.6, col, 0.6 * flyShow); ctx.globalAlpha = flyShow;
+      ctx.fillStyle = 'rgba(255,255,255,.85)'; ell(x - u * 0.3 * Math.abs(flap), y - u * 0.15, u * 0.3 * Math.abs(flap) + 0.3, u * 0.18, 0.5); ell(x + u * 0.3 * Math.abs(flap), y - u * 0.15, u * 0.3 * Math.abs(flap) + 0.3, u * 0.18, -0.5);
+      ctx.fillStyle = col; ell(x, y, u * 0.16, u * 0.16);
+    } else if (th === 'tech') {   // drones
+      ctx.strokeStyle = hsl(210, 15, 60); ctx.lineWidth = Math.max(1, u * 0.1); ctx.beginPath(); ctx.moveTo(x - u * 0.9, y - u * 0.15); ctx.lineTo(x + u * 0.9, y - u * 0.15); ctx.stroke();
+      ctx.fillStyle = 'rgba(200,240,255,.5)'; for (const e of [-1, 1]) ell(x + e * u * 0.9, y - u * 0.25, u * 0.5 * (0.6 + 0.4 * Math.abs(flap)), u * 0.09);
+      ctx.fillStyle = hsl(215, 20, 34); ell(x, y, u * 0.5, u * 0.28);
+      ctx.fillStyle = flap > 0 ? 'rgb(255,80,80)' : 'rgb(90,255,130)'; ell(x, y + u * 0.3, u * 0.12, u * 0.12);
+    } else if (th === 'alien') {   // little comets
+      const g = ctx.createLinearGradient(x, y, x - side * u * 0.4, y + u * 1.6);
+      g.addColorStop(0, 'rgba(200,240,255,.9)'); g.addColorStop(1, 'rgba(200,240,255,0)');
+      ctx.strokeStyle = g; ctx.lineWidth = Math.max(1, u * 0.22); ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - side * u * 0.4, y + u * 1.6); ctx.stroke(); ctx.lineCap = 'butt';
+      ctx.globalAlpha = 1; halo(x, y, u * 0.7, 'rgba(255,255,255,1)', flyShow);
+    } else {   // birds
+      ctx.strokeStyle = th === 'autumn' ? hsl(25, 30, 22) : hsl(220, 30, 26); ctx.lineWidth = Math.max(1, u * 0.14); ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x - u, y - u * flap * 0.6); ctx.quadraticCurveTo(x - u * 0.5, y - u * (0.35 + flap * 0.2), x, y);
+      ctx.quadraticCurveTo(x + u * 0.5, y - u * (0.35 + flap * 0.2), x + u, y - u * flap * 0.6); ctx.stroke(); ctx.lineCap = 'butt';
+    }
+    ctx.globalAlpha = 1;
+  }
 }
 
 // speed lines at the screen edges once the ball is fast
 function drawStreaks() {
-  const k = clamp((world.v - 13) / 11, 0, 1);
+  const k = Math.max(clamp((world.v - 13) / 11, 0, 1), flyShow * 0.8);   // and all through a flight
   if (k <= 0 || world.state !== 'run') return;
   const c = theme.streak, cx = W / 2, R0 = Math.hypot(W, H) * 0.42, rr = mulberry((performance.now() / 50) | 0);
   ctx.lineWidth = Math.max(1, 1.5 * dpr);
@@ -1744,6 +1925,7 @@ function draw() {
   const hue = secHue(Math.floor(Math.max(0, camZ + CAM_BACK) / SEC_ROWS));
   setPhase(camZ + CAM_BACK);
   theme.sky(hue, horY);
+  if (flyShow > 0.01) drawFlightSky(hue);
   ctx.save();
   if (shake > 0.01) { const k = shake * shake * 14 * dpr; ctx.translate((Math.random() - 0.5) * k, (Math.random() - 0.5) * k); }
   const near = Math.max(0, Math.floor(camZ + 0.4)), far = Math.floor(camZ) + VIEW;
@@ -1778,6 +1960,7 @@ function draw() {
   ctx.globalAlpha = 1;
   ctx.restore();
   drawStreaks();
+  if (mode === 'play' || mode === 'count' || mode === 'pause') drawEffects();
   if (rings.length && rings[0].t < 0.12) { ctx.fillStyle = `rgba(255,255,255,${0.35 * (1 - rings[0].t / 0.12)})`; ctx.fillRect(0, 0, W, H); }
   if (mode === 'count') {   // 3-2-1, each digit shrinks into place
     const n = Math.ceil(count / COUNT_T), k = 1 - (count / COUNT_T - (n - 1));

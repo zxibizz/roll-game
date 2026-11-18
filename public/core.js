@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.11.0';
+export const VERSION = '0.12.0';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -31,9 +31,16 @@ const JUMP_VY = 7;               // vertical speed a ramp gives
 // before it. It clears a low barrier, not a block. A swipe down in the air throws the ball to the ground.
 export const HOP_VY = 5.5, HOP_G = 22, DROP_VY = 16;
 const HOP_BUFFER = 0.15;         // a jump asked for this long before landing happens on landing
+// Bonuses lie on the track now and then (row.bonus), on the path or one lane off it:
+//   'magnet' — for MAGNET_T seconds stars come to the ball from two lanes away;
+//   'shield' — the next hit breaks the obstacle instead of the ball, and nothing can hit it for SHIELD_SAFE after;
+//   'fly'    — for FLY_T seconds the ball flies FLY_H above the road, over everything, along a trail of stars in
+//              the air; a swipe down lands it early. Nothing can hit it for FLY_SAFE after it starts down.
+export const MAGNET_T = 8, FLY_T = 7, FLY_H = 2.2, SHIELD_SAFE = 0.7, FLY_SAFE = 1.6;
+const LAND_AHEAD = 1.3;          // seconds of road a flight wants ahead in its lane: the way down and time to react
 const REACT = 0.6;               // seconds a player gets for one swipe, on top of the lane change itself
 const MAX_DT = 1 / 60;           // the world advances in steps no longer than this, however slow the frame
-export const SAVE_V = 1;         // format of a saved run (World.toSave); bump when it changes
+export const SAVE_V = 2;         // format of a saved run (World.toSave); bump when it changes
 // Stars: runs of them lie along the guaranteed path, an arc of them hangs over most jumps, and now and then a lone
 // one sits off the path. A star is taken when the ball's centre is this close to it (sideways / along / up).
 const STAR_X = 0.5, STAR_Z = 0.55, STAR_Y = 0.75;
@@ -119,6 +126,8 @@ export class Track {
   constructor(seed) {
     this.r = mulberry(seed);
     this.rs = mulberry((seed ^ 0x5bd1e995) >>> 0);   // stars draw from their own stream: the track stays the same
+    this.rb = mulberry((seed ^ 0x2545f491) >>> 0);   // and so do bonuses
+    this.bonusCool = 30; this.bonusIn = 0;           // rows until a bonus is due; rows until it is laid
     this.starRun = 0; this.starCool = 4; this.starSkip = 0;
     this.rows = [];
     this.path = MID;
@@ -178,6 +187,12 @@ export class Track {
       if (ds.length) this.shift(ds[Math.floor(r() * ds.length)]);
     }
     if (mode === 'normal' && r() < 0.3) this.wantJump = true;
+    // a bonus is due: it goes some way after this piece, and the free stretch is longer by as much, so there is
+    // time both to get to the lane next to the path and to come back
+    if (this.bonusCool <= 0 && (mode === 'normal' || mode === 'split')) {
+      this.bonusIn = Math.max(3, Math.ceil(K * 0.6));   // far enough past the piece to get over to it
+      this.gap += this.bonusIn; this.bonusCool = 60 + Math.floor(this.rb() * 60);
+    }
   }
 
   shift(d) {
@@ -383,7 +398,20 @@ export class Track {
         if (road[l] && floor[l] && !block[l] && !low[l] && l !== goal && !hidden && !mover) star[l] = 1;
       }
     }
-    this.rows.push({ road, floor, block, ramp, low, mover, star, h, off, sec, goal });
+    let bonus = null;
+    this.bonusCool--;
+    if (!piece && this.bonusIn > 0 && --this.bonusIn === 0) {
+      const rb = this.rb;
+      if (!hidden && (mode === 'normal' || mode === 'split')) {
+        const ds = [-1, 1].filter((d) => road[goal + d]), off = rb() < 0.45 && ds.length ? ds[Math.floor(rb() * ds.length)] : 0;
+        const x = rb() * 8.5;
+        if (!this.noBonus) {   // (the tests can ask for a track without bonuses: the road itself is the same)
+          bonus = { lane: goal + off, kind: x < 3 ? 'magnet' : x < 6 ? 'shield' : 'fly' };
+          star[bonus.lane] = 0;
+        }
+      } else this.bonusCool = 0;   // no room here: after the next piece
+    }
+    this.rows.push({ road, floor, block, ramp, low, mover, star, bonus, h, off, sec, goal });
   }
 
   // Can the camera see the start of row i (height h) while the ball is still `ahead` rows before it?
@@ -405,19 +433,27 @@ export class Track {
 // state: 'run' → 'fall' (off the track or into a hole) or 'crash' (into a block) → 'over'.
 // The ball: `air` — off the ground; `fromRamp` — the flight was meant (a ramp or the ball's own jump), not a hop
 // off a crest; `hop` — its own jump, which follows the ground below; `hopQ` — a jump waiting for the landing.
-// events: 'section', 'jump', 'drop', 'land' (how hard — in `impact`, 0..1), 'star', 'move' and 'bump' (a lane change made
+// `fly` — carried through the air by a bonus.
+// events: 'bonus' (which — in `got`), 'pop' (a shield broke something at `popAt`), 'fly', 'flyend',
+// 'section', 'jump', 'drop', 'land' (how hard — in `impact`, 0..1), 'star', 'move' and 'bump' (a lane change made
 // or refused; which way it was refused — in `side`), 'fall', 'crash', 'over' — the page drains them for effects.
 export class World {
   constructor(seed) {
     this.seed = seed;
     this.track = new Track(seed);
-    this.ball = { x: 0, vx: 0, y: R, vy: 0, z: 2, tx: 0, roll: 0, fallRow: 0, air: false, airT: 0, fromRamp: false, hop: false, hopQ: 0 };
+    this.ball = { x: 0, vx: 0, y: R, vy: 0, z: 2, tx: 0, roll: 0, fallRow: 0, air: false, airT: 0, fromRamp: false, hop: false, hopQ: 0, fly: false };
     this.v = speedOf(0);
     this.state = 'run';
     this.sec = 0;
     this.tOver = 0;
     this.events = [];
     this.stars = 0;      // stars taken in this run
+    // bonuses at work: seconds of magnet and of flight left, a shield in hand, seconds during which nothing can hit
+    this.fx = { magnet: 0, fly: 0, shield: false, safe: 0 };
+    this.sky = [];       // stars in the air along a flight: { l, z, got }
+    this.flyFrom = 0; this.flyLane = MID;   // the row and the lane a flight started at
+    this.got = '';       // the bonus just taken ('bonus' event); popAt — where a shield broke something ('pop')
+    this.popAt = null;
     this.impact = 0;     // strength of the last landing
     this.side = 0;       // which way the last refused lane change went: -1 left, 1 right
     this.stats = { jumps: 0, hops: 0, vRatioMin: Infinity, vRatioMax: 0 };
@@ -464,6 +500,7 @@ export class World {
     return laneX(m.from) + (laneX(m.lane) - laneX(m.from)) * t;
   }
 
+  // what the ball is touching: { rz, l, kind: 'block' | 'low' | 'mover', x } or null
   hit() {
     const b = this.ball;
     for (let rz = Math.floor(b.z - R); rz <= Math.floor(b.z + R); rz++) {
@@ -474,18 +511,18 @@ export class World {
         const w = 0.5 - INSET - CORNER, cx = clamp(b.x, xc - w, xc + w), cz = clamp(b.z, rz + INSET + CORNER, rz + 1 - INSET - CORNER);
         return (cx - b.x) ** 2 + (cz - b.z) ** 2 < (R + CORNER) ** 2 && b.y - R < this.hAt(cz) + BOX_H;
       };
-      if (row.mover && box(this.moverX(rz))) return true;
+      if (row.mover && box(this.moverX(rz))) return { rz, l: -1, kind: 'mover', x: this.moverX(rz) };
       for (let l = Math.floor(b.x + HALF - R); l <= Math.floor(b.x + HALF + R); l++) {
-        if (l >= 0 && l < LANES && row.block[l] && box(laneX(l))) return true;
+        if (l >= 0 && l < LANES && row.block[l] && box(laneX(l))) return { rz, l, kind: 'block', x: laneX(l) };
       }
       for (let l = Math.floor(b.x + HALF - R); l <= Math.floor(b.x + HALF + R); l++) {
         if (l < 0 || l >= LANES || !row.low[l]) continue;
         // a low barrier: a bar across the whole lane
         const cx = clamp(b.x, l - HALF, l - HALF + 1), cz = clamp(b.z, rz + LOW_Z0, rz + LOW_Z1);
-        if ((cx - b.x) ** 2 + (cz - b.z) ** 2 < R * R && b.y - R < this.hAt(cz) + LOW_H) return true;
+        if ((cx - b.x) ** 2 + (cz - b.z) ** 2 < R * R && b.y - R < this.hAt(cz) + LOW_H) return { rz, l, kind: 'low', x: laneX(l) };
       }
     }
-    return false;
+    return null;
   }
 
   // A bot (and the tests): keep to the guaranteed path and jump the low barriers in the way.
@@ -525,6 +562,7 @@ export class World {
   jump() {
     if (this.state !== 'run') return false;
     const b = this.ball, lane = Math.floor(b.x + HALF);
+    if (b.fly) return false;
     if (b.air) { b.hopQ = HOP_BUFFER; return false; }
     if (this.track.get(Math.max(0, Math.floor(b.z))).ramp[lane]) return false;   // on a ramp: it throws the ball itself
     this.hop();
@@ -541,6 +579,11 @@ export class World {
   drop() {
     const b = this.ball;
     if (this.state !== 'run' || !b.air) return false;
+    if (b.fly) {   // out of a flight: only where there is road to land on
+      if (!this.canLand()) return false;
+      this.land(true);
+      return true;
+    }
     b.vy = Math.min(b.vy, -DROP_VY); b.hopQ = 0;
     this.events.push('drop');
     return true;
@@ -552,32 +595,106 @@ export class World {
     this.events.push('fall');
   }
 
+  // ---- bonuses ----
+  take(kind) {
+    this.got = kind; this.events.push('bonus');
+    if (kind === 'magnet') this.fx.magnet = MAGNET_T;
+    else if (kind === 'shield') this.fx.shield = true;
+    else if (kind === 'fly' && !this.ball.fly) {
+      const b = this.ball;
+      b.fly = true; b.air = true; b.hop = false; b.hopQ = 0; b.vy = 0; b.airT = 0; b.fromRamp = true;
+      this.fx.fly = FLY_T;
+      this.flyFrom = Math.floor(b.z); this.flyLane = this.lane; this.sky = this.skyStars(this.flyFrom, this.flyLane);
+      this.events.push('fly');
+    }
+  }
+
+  // The trail of stars along a flight: every other row, a few in a lane, then over to the next one; always above
+  // the road. The same for the same track and starting row.
+  skyStars(from, lane) {
+    const r = mulberry((this.seed * 31 + from) >>> 0), t = this.track, out = [], n = Math.ceil(FLY_T * (this.v + 2));
+    let l = lane, run = 0;
+    for (let z = from + 5; z < from + n; z += 2) {
+      const road = t.get(z).road;
+      if (--run <= 0 || !road[l]) {
+        const ds = [-1, 1, 0].filter((d) => road[l + d]);
+        if (ds.length) l += !road[l] ? ds[0] : ds[Math.floor(r() * ds.length)]; else l = t.get(z).goal;
+        run = 3 + Math.floor(r() * 3);
+      }
+      out.push({ l, z, got: false });
+    }
+    return out;
+  }
+
+  // is there road under the ball from here to where it would touch down, and on for long enough to react after
+  canLand() {
+    const b = this.ball, at = Math.floor(b.x + HALF), to = this.lane;
+    for (let r = Math.floor(b.z); r <= Math.floor(b.z + this.v * LAND_AHEAD); r++) {
+      const row = this.track.get(r);
+      if (!row.road[at] || !row.floor[at] || !row.road[to] || !row.floor[to]) return false;
+    }
+    return true;
+  }
+
+  land(fast) {
+    const b = this.ball;
+    b.fly = false; b.hop = false; b.vy = fast ? -DROP_VY : 0;
+    this.fx.fly = 0; this.fx.safe = FLY_SAFE; this.sky = [];
+    this.events.push('flyend');
+  }
+
+  flight(dt) {
+    const b = this.ball, t = this.track;
+    this.fx.fly -= dt; b.airT += dt;
+    // the flight keeps over the road: where the lane ends ahead it moves over towards the path by itself
+    const ahead = t.get(Math.floor(b.z + this.v * LAND_AHEAD)), ln = this.lane;
+    if (!ahead.road[ln] && ahead.goal !== ln) b.tx = laneX(ln + Math.sign(ahead.goal - ln));
+    b.y += (this.hAt(b.z) + R + FLY_H - b.y) * Math.min(1, dt * 5); b.vy = 0;
+    for (const s of this.sky) {
+      if (s.got || Math.abs(s.z + 0.5 - b.z) > 0.65 || Math.abs(laneX(s.l) - b.x) > 0.6) continue;
+      s.got = true; this.stars++; this.events.push('star');
+    }
+    if (this.fx.fly <= 0 && this.canLand()) this.land(false);   // time is up: down at the first place with road below
+  }
+
   // The ball takes the stars it touches. They hang where a resting or a jumping ball's centre passes.
   takeStars() {
-    const b = this.ball, lane = Math.floor(b.x + HALF), rz = Math.floor(b.z);
+    const b = this.ball, lane = Math.floor(b.x + HALF), rz = Math.floor(b.z), mag = this.fx.magnet > 0 && !b.fly;
+    const wide = mag ? 2 : 1, reachX = mag ? 2.4 : STAR_X, reachZ = mag ? 0.9 : STAR_Z;
     for (let r = Math.max(0, rz - 1); r <= rz + 1; r++) {
       const row = this.track.get(r);
-      for (let l = Math.max(0, lane - 1); l <= Math.min(LANES - 1, lane + 1); l++) {
+      for (let l = Math.max(0, lane - wide); l <= Math.min(LANES - 1, lane + wide); l++) {
         const s = row.star[l];
-        if (!s || Math.abs(b.x - laneX(l)) > STAR_X || Math.abs(b.z - r - 0.5) > STAR_Z) continue;
-        if (Math.abs(b.y - (this.hAt(r + 0.5) + R + s - 1)) > STAR_Y) continue;
+        if (!s || Math.abs(b.x - laneX(l)) > reachX || Math.abs(b.z - r - 0.5) > reachZ) continue;
+        if (!mag && Math.abs(b.y - (this.hAt(r + 0.5) + R + s - 1)) > STAR_Y) continue;   // a magnet reaches up and down too
         row.star[l] = 0; this.stars++; this.events.push('star');
+      }
+      const bo = row.bonus;
+      if (bo && Math.abs(b.x - laneX(bo.lane)) <= STAR_X && Math.abs(b.z - r - 0.5) <= STAR_Z && Math.abs(b.y - (this.hAt(r + 0.5) + R)) <= STAR_Y) {
+        row.bonus = null; this.take(bo.kind);
       }
     }
   }
 
   // A run in progress as plain data, and back. The track is rebuilt from the seed, so only the ball is stored.
   toSave() {
-    return { v: SAVE_V, seed: this.seed, ball: { ...this.ball }, speed: this.v, sec: this.sec, stars: this.stars };
+    return { v: SAVE_V, seed: this.seed, ball: { ...this.ball }, speed: this.v, sec: this.sec, stars: this.stars, fx: { ...this.fx }, flyFrom: this.flyFrom, flyLane: this.flyLane };
   }
 
   static fromSave(o) {
     if (!o || o.v !== SAVE_V || !Number.isFinite(o.seed) || !o.ball || !(o.ball.z >= 0 && o.ball.z < 2e5) || !(o.speed > 0 && o.speed < 100)) return null;
-    const w = new World(o.seed), b = w.ball;
+    const w = new this(o.seed), b = w.ball;
     for (const k in b) if (typeof o.ball[k] === typeof b[k] && (typeof b[k] !== 'number' || Number.isFinite(o.ball[k]))) b[k] = o.ball[k];
     w.v = o.speed; w.sec = Math.floor(b.z / SEC_ROWS); w.stars = Math.max(0, Math.floor(o.stars) || 0);
     // what is behind was taken or missed; so was the next row's star if the ball already reached it
-    for (let r = 0; r <= Math.floor(b.z + 0.05); r++) w.track.get(r).star.fill(0);
+    for (let r = 0; r <= Math.floor(b.z + 0.05); r++) { const row = w.track.get(r); row.star.fill(0); row.bonus = null; }
+    const fx = o.fx || {}, sec = (x, max) => (x > 0 && x <= max ? x : 0);
+    w.fx = { magnet: sec(fx.magnet, MAGNET_T), fly: b.fly ? sec(fx.fly, FLY_T) : 0, shield: fx.shield === true, safe: sec(fx.safe, FLY_SAFE) };
+    if (b.fly) {   // in the middle of a flight: the same trail of stars, less what is behind
+      w.flyFrom = clamp(Math.floor(o.flyFrom) || 0, 0, Math.floor(b.z));
+      w.flyLane = clamp(Math.floor(o.flyLane) || 0, 0, LANES - 1);
+      w.sky = w.skyStars(w.flyFrom, w.flyLane).filter((s) => s.z + 0.5 > b.z + 0.65);   // what was in reach is taken
+    }
     return w;
   }
 
@@ -596,18 +713,24 @@ export class World {
       if (!b.air) {
         const s = t.get(rowPrev + 1).h - t.get(rowPrev).h;
         this.v = Math.max(2.5, this.v + (DRIVE * (target - this.v) - GS * s) * dt);
-      }
+      } else if (b.fly) this.v += DRIVE * (target - this.v) * dt;   // a flight settles at the section's speed
       const hPrev = this.hAt(b.z);
       b.z += this.v * dt; b.roll += this.v * dt / R;
       steer(b, latOf(this.v), dt);
       if (b.hopQ > 0) b.hopQ = Math.max(0, b.hopQ - dt);
+      if (this.fx.magnet > 0 && !b.fly) this.fx.magnet = Math.max(0, this.fx.magnet - dt);   // it waits out a flight
+      if (this.fx.safe > 0) {
+        this.fx.safe = Math.max(0, this.fx.safe - dt);
+        if (this.fx.safe === 0 && !b.fly && this.hit()) this.fx.safe = 0.05;   // not while the ball is inside something
+      }
       if (sec !== this.sec) { this.sec = sec; this.events.push('section'); }
       const lane = Math.floor(b.x + HALF), rz = Math.floor(b.z);
       const g = this.groundAt(b.x, b.z);
       // a ramp throws the ball the same way whether it rolled onto it or came down on it in a jump of its own
-      const offRamp = rz !== rowPrev && lane >= 0 && lane < LANES && t.get(rowPrev).ramp[lane]
+      const offRamp = !b.fly && rz !== rowPrev && lane >= 0 && lane < LANES && t.get(rowPrev).ramp[lane]
         && (!b.air || (b.hop && b.y - R < hPrev + RAMP_H + 0.45));
-      if (!b.air || offRamp) {
+      if (b.fly) this.flight(dt);
+      else if (!b.air || offRamp) {
         if (offRamp) {
           // left the ramp: launch as if exactly from its top edge
           const over = (b.z - rz) / this.v;
@@ -637,7 +760,13 @@ export class World {
         } else if (g === null && b.y < this.hAt(b.z) + R - 0.3) this.fall();
       }
       if (this.state === 'run') this.takeStars();
-      if (this.state === 'run' && this.hit()) { this.state = 'crash'; this.tOver = 0.9; this.events.push('crash'); }
+      const hit = this.state === 'run' && this.fx.safe <= 0 && !b.fly ? this.hit() : null;
+      if (hit && this.fx.shield) {   // the shield takes it: the thing is gone, the ball rolls on
+        const row = t.get(hit.rz);
+        if (hit.kind === 'mover') row.mover = null; else row[hit.kind === 'low' ? 'low' : 'block'][hit.l] = false;
+        this.fx.shield = false; this.fx.safe = SHIELD_SAFE;
+        this.popAt = { x: hit.x, z: hit.rz + 0.5 }; this.events.push('pop');
+      } else if (hit) { this.state = 'crash'; this.tOver = 0.9; this.events.push('crash'); }
       if (this.state === 'run' && b.z > START_OPEN) {
         const ratio = this.v / target;
         this.stats.vRatioMin = Math.min(this.stats.vRatioMin, ratio);

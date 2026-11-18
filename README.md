@@ -60,6 +60,19 @@ Site: `https://roll.games.bubas.cc`.
 - Waves stay sparse all the way: the speed alone makes later sections harder. Rows hidden behind a crest have no
   obstacles.
 - There are no words in the game, only numbers and icons, so there is nothing to translate.
+- Bonuses: a bubble with an icon lies on the track about every 100–150 rows, on the path or one lane off it, in a
+  free stretch with time to come back. What is at work shows as icons in rings under the pause button.
+  - Magnet: for 8 s stars come to the ball from two lanes away on either side.
+  - Shield: a bubble round the ball; the next thing it hits flies apart instead, the bubble bursts, and nothing can
+    hit the ball for 0.7 s after. It does not save from rolling off where a lane ends.
+  - Flight: for 7 s the ball grows wings and flies 2.2 above the road, over everything, along a trail of stars in
+    the air (every other row, weaving from lane to lane over the road). The camera rises with it. Swipes left and
+    right work as usual; a swipe down lands at once, where there is road below. Where its lane ends ahead the
+    flight moves over towards the path by itself, and when the time is up it comes down at the first place with
+    road below; nothing can hit the ball for 1.6 s from then. The show while it lasts: rings of light opening from
+    the horizon, shooting stars, clouds (star dust where there are no clouds) rushing past, a flock flying along
+    (birds, bats, fairies, drones or comets by biome), sparks behind the wings, speed lines.
+  - Stars are not spent on bonuses. A run saved mid-flight goes on mid-flight.
 - Stars: runs of them lie along the safe path, an arc hangs over most jumps, and now and then a lone one sits off
   the path, and one hangs over most logs on the path (about 130 per 500 rows). They add up over all runs and open ball colours
   (`SKINS` in `client.js`: 50, 150, 300, 500, 800, 1200, 1800). The score stays the distance.

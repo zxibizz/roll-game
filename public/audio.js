@@ -180,6 +180,16 @@ export const sfx = {
   },
   bump() { note(150, { vol: 0.25, dur: 0.1, to: 90 }); },                                          // no lane there
   drop() { burst({ type: 'bandpass', f0: 1000, f1: 300, q: 1, vol: 0.3, a: 0.01, dur: 0.12 }); },   // thrown down out of the air
+  bonus() { [0, 4, 7].forEach((n, i) => note(semi(440, n), { type: 'triangle', vol: 0.2, dur: 0.16, delay: i * 0.06, lp: 2600 })); },
+  pop() {   // the shield bursts
+    burst({ type: 'bandpass', f0: 1800, f1: 500, q: 1.5, vol: 0.5, dur: 0.16 });
+    note(520, { type: 'triangle', vol: 0.22, dur: 0.18, to: 180, lp: 2000 });
+  },
+  fly() {   // off the ground
+    burst({ type: 'bandpass', f0: 250, f1: 1600, q: 0.8, vol: 0.5, a: 0.2, dur: 0.7 });
+    [0, 4, 7, 12, 16, 19].forEach((n, i) => note(semi(330, n), { type: 'triangle', vol: 0.18, dur: i === 5 ? 0.6 : 0.16, delay: i * 0.07, lp: 2800 }));
+  },
+  flyEnd() { burst({ type: 'bandpass', f0: 1300, f1: 280, q: 0.8, vol: 0.4, a: 0.05, dur: 0.5 }); },
   jump() {
     burst({ type: 'bandpass', f0: 300, f1: 1100, q: 1.2, vol: 0.5, a: 0.05, dur: 0.32 });
     note(190, { type: 'triangle', vol: 0.16, dur: 0.2, to: 330, lp: 1200 });
