@@ -756,18 +756,18 @@ test('a flight carries the ball over everything along a trail of stars and sets 
   for (let i = 30; i < 330; i += 7) for (let l = 1; l <= 5; l++) w.track.get(i).block[l] = true;   // walls all the way
   for (let n = 0; n < 60; n++) w.step(DT);
   w.take('fly');
-  assert.ok(w.ball.fly && w.sky.length > 20 && w.events.includes('fly'));
+  assert.ok(w.ball.fly && w.sky.length > 12 && w.events.includes('fly'));
   assert.equal(w.jump(), false);
-  let top = 0, t = 0, taken = 0;
+  const all = w.sky.length;
+  let top = 0, t = 0, swipes = 0;
   while (w.ball.fly && w.state === 'run' && t < 20) {
     const s = w.sky.find((x) => !x.got && x.z + 0.5 > w.ball.z + 0.5);   // steer along the trail
-    if (s && s.l !== w.lane) w.move(Math.sign(s.l - w.lane));
+    if (s && s.l !== w.lane && w.fx.fly > 0) { w.move(Math.sign(s.l - w.lane)); swipes++; }
     w.step(DT); t += DT; top = Math.max(top, w.ball.y - R);
   }
-  taken = w.stars;
   assert.equal(w.state, 'run');
   assert.ok(Math.abs(top - FLY_H) < 0.1 && t >= FLY_T && t < FLY_T + 1.5, `${top.toFixed(2)} high for ${t.toFixed(2)} s`);
-  assert.ok(taken >= 20, `${taken} stars from the trail`);
+  assert.ok(w.stars >= all - 1 && swipes <= 3, `${w.stars} of ${all} stars with ${swipes} swipes`);
   assert.ok(w.events.includes('flyend') && w.sky.length === 0);
   for (let n = 0; n < 20 && w.state === 'run'; n++) w.step(DT);
   for (let i = Math.floor(w.ball.z); i < 400; i++) w.track.get(i).block.fill(false);   // clear the rest of the road
@@ -775,23 +775,46 @@ test('a flight carries the ball over everything along a trail of stars and sets 
   assert.ok(w.state === 'run' && Math.abs(w.ball.y - R) < 0.01 && w.events.includes('land'), 'back on the ground');
 });
 
-test('a swipe down ends a flight at once, but only over the road', () => {
-  const w = flatWorld(300);
-  for (let n = 0; n < 60; n++) w.step(DT);
+test('the stars of a flight lie in four straight lines within three lanes, at any speed and from any lane', () => {
+  for (const [seed, z, lane] of [[1, 40, 1], [2, 300, 5], [3, 700, 3], [4, 900, 2], [5, 150, 4]]) {
+    const w = drive(seed, z);
+    assert.equal(w.state, 'run');
+    while (w.lane !== lane && w.move(Math.sign(lane - w.lane)));
+    w.take('fly');
+    const c = w.flyLane, lanes = w.sky.map((s) => s.l), turns = lanes.filter((l, i) => i && l !== lanes[i - 1]).length;
+    assert.ok(c >= 2 && c <= 4 && lanes.every((l) => Math.abs(l - c) <= 1), `seed ${seed}: lanes ${[...new Set(lanes)]} round ${c}`);
+    assert.equal(turns, 3, `seed ${seed}: ${turns} turns`);
+    assert.ok(lanes.every((l, i) => !i || Math.abs(l - lanes[i - 1]) <= 1));
+    assert.equal(lanes[0], clamp3(w.lane, c), 'the first line starts where the ball is');
+    // between two lines there is time for the swipe
+    w.sky.forEach((s, i) => { if (i && s.l !== w.sky[i - 1].l) assert.ok((s.z - w.sky[i - 1].z) / w.v >= 0.4, `seed ${seed}: ${s.z - w.sky[i - 1].z} rows between lines`); });
+    // and no swipe leaves the three lanes
+    while (w.move(1));
+    assert.equal(w.lane, c + 1);
+    while (w.move(-1));
+    assert.equal(w.lane, c - 1);
+  }
+});
+const clamp3 = (l, c) => Math.max(c - 1, Math.min(c + 1, l));
+
+test('a swipe down ends a flight: the ball goes over to the path and comes down fast, wherever it was', () => {
+  const w = new GameWorld(3);
+  while (w.ball.z < 120) { w.auto(); w.step(DT); }
   w.take('fly');
   for (let n = 0; n < 60; n++) w.step(DT);
-  const z = Math.floor(w.ball.z);
-  for (let i = z; i < z + 12; i++) w.track.get(i).road[MID] = w.track.get(i).floor[MID] = false;   // nothing below for a while
-  assert.equal(w.drop(), false);
-  assert.ok(w.ball.fly);
-  while (w.ball.z < z + 13) w.step(DT);
+  while (w.move(1));                         // as far from the middle as the air lets it
+  for (let n = 0; n < 30; n++) w.step(DT);
   assert.equal(w.drop(), true);
+  assert.equal(w.drop(), false);
+  assert.equal(w.move(-1), false);           // it is on its way down: no more steering
   let t = 0;
-  while (w.ball.air && w.state === 'run') { w.step(DT); t += DT; }
-  assert.ok(w.state === 'run' && t < 0.2, `${t.toFixed(2)} s to the ground`);
+  while (w.ball.air && w.state === 'run' && t < 3) { w.step(DT); t += DT; }
+  const row = w.track.get(Math.floor(w.ball.z));
+  assert.ok(w.state === 'run' && !w.ball.fly && t < 1.2, `${w.state} after ${t.toFixed(2)} s`);
+  assert.equal(w.lane, row.goal, 'down on the path');
 });
 
-test('a flight keeps over the road when its lane comes to an end', () => {
+test('a flight ends on the road even when nobody steers and the road below narrows and zigzags', () => {
   let tried = 0;
   for (let seed = 1; seed <= 30 && tried < 12; seed++) {
     const t = new Track(seed);
@@ -807,7 +830,7 @@ test('a flight keeps over the road when its lane comes to an end', () => {
       while (w.ball.fly && w.state === 'run') w.step(DT);            // nobody steers
       for (let n = 0; n < 30 && w.state === 'run'; n++) w.step(DT);   // and down
       assert.equal(w.state, 'run', `seed ${seed}: lane 1 ends at row ${i}, ${w.state} at ${w.ball.z.toFixed(1)}`);
-      assert.ok(t.get(Math.floor(w.ball.z)).road[w.lane]);
+      assert.ok(w.track.get(Math.floor(w.ball.z)).road[w.lane]);
       break;
     }
   }

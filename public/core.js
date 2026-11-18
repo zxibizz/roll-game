@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.12.0';
+export const VERSION = '0.12.1';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -34,8 +34,8 @@ const HOP_BUFFER = 0.15;         // a jump asked for this long before landing ha
 // Bonuses lie on the track now and then (row.bonus), on the path or one lane off it:
 //   'magnet' — for MAGNET_T seconds stars come to the ball from two lanes away;
 //   'shield' — the next hit breaks the obstacle instead of the ball, and nothing can hit it for SHIELD_SAFE after;
-//   'fly'    — for FLY_T seconds the ball flies FLY_H above the road, over everything, along a trail of stars in
-//              the air; a swipe down lands it early. Nothing can hit it for FLY_SAFE after it starts down.
+//   'fly'    — for FLY_T seconds the ball flies FLY_H above the road, over everything, in three lanes of its own,
+//              along a trail of stars in the air; a swipe down lands it early. It lands on the path by itself. Nothing can hit it for FLY_SAFE after it starts down.
 export const MAGNET_T = 8, FLY_T = 7, FLY_H = 2.2, SHIELD_SAFE = 0.7, FLY_SAFE = 1.6;
 const LAND_AHEAD = 1.3;          // seconds of road a flight wants ahead in its lane: the way down and time to react
 const REACT = 0.6;               // seconds a player gets for one swipe, on top of the lane change itself
@@ -451,7 +451,9 @@ export class World {
     // bonuses at work: seconds of magnet and of flight left, a shield in hand, seconds during which nothing can hit
     this.fx = { magnet: 0, fly: 0, shield: false, safe: 0 };
     this.sky = [];       // stars in the air along a flight: { l, z, got }
-    this.flyFrom = 0; this.flyLane = MID;   // the row and the lane a flight started at
+    // a flight: the row it started at, the middle one of its three lanes, the lane it started in, and whether it is
+    // coming down in a hurry (a swipe down)
+    this.flyFrom = 0; this.flyLane = MID; this.flyStart = MID; this.fastLand = false;
     this.got = '';       // the bonus just taken ('bonus' event); popAt — where a shield broke something ('pop')
     this.popAt = null;
     this.impact = 0;     // strength of the last landing
@@ -546,6 +548,12 @@ export class World {
   move(dir) {
     if (this.state !== 'run') return false;
     const b = this.ball, to = this.lane + dir;
+    if (b.fly) {   // in the air there are three lanes, whatever the road below is doing
+      const ok = this.fx.fly > 0 && Math.abs(to - this.flyLane) <= 1;
+      if (ok) b.tx = laneX(to); else this.side = dir;
+      this.events.push(ok ? 'move' : 'bump');
+      return ok;
+    }
     // The road must be there all the way the ball rolls while it crosses over: from the moment it leaves its own
     // lane (the first quarter of a change it is still well inside) until it has arrived, counting every lane still
     // to cross and the speed a downhill may add.
@@ -579,9 +587,10 @@ export class World {
   drop() {
     const b = this.ball;
     if (this.state !== 'run' || !b.air) return false;
-    if (b.fly) {   // out of a flight: only where there is road to land on
-      if (!this.canLand()) return false;
-      this.land(true);
+    if (b.fly) {   // out of a flight: it heads for the road and comes down fast
+      if (this.fx.fly <= 0) return false;
+      this.fx.fly = 0; this.fastLand = true;
+      this.events.push('drop');
       return true;
     }
     b.vy = Math.min(b.vy, -DROP_VY); b.hopQ = 0;
@@ -604,24 +613,25 @@ export class World {
       const b = this.ball;
       b.fly = true; b.air = true; b.hop = false; b.hopQ = 0; b.vy = 0; b.airT = 0; b.fromRamp = true;
       this.fx.fly = FLY_T;
-      this.flyFrom = Math.floor(b.z); this.flyLane = this.lane; this.sky = this.skyStars(this.flyFrom, this.flyLane);
+      this.flyFrom = Math.floor(b.z); this.flyLane = clamp(this.lane, 2, LANES - 3); this.flyStart = this.lane; this.fastLand = false;
+      this.sky = this.skyStars(this.flyFrom, this.flyStart);
       this.events.push('fly');
     }
   }
 
-  // The trail of stars along a flight: every other row, a few in a lane, then over to the next one; always above
-  // the road. The same for the same track and starting row.
+  // The trail of stars along a flight: four long straight lines, each one lane over from the one before and a short
+  // pause between them, so three swipes take them all. They keep to the three lanes of the air (flyLane and the two
+  // beside it). The same for the same track, starting row and lane.
   skyStars(from, lane) {
-    const r = mulberry((this.seed * 31 + from) >>> 0), t = this.track, out = [], n = Math.ceil(FLY_T * (this.v + 2));
-    let l = lane, run = 0;
-    for (let z = from + 5; z < from + n; z += 2) {
-      const road = t.get(z).road;
-      if (--run <= 0 || !road[l]) {
-        const ds = [-1, 1, 0].filter((d) => road[l + d]);
-        if (ds.length) l += !road[l] ? ds[0] : ds[Math.floor(r() * ds.length)]; else l = t.get(z).goal;
-        run = 3 + Math.floor(r() * 3);
-      }
-      out.push({ l, z, got: false });
+    const r = mulberry((this.seed * 31 + from) >>> 0), out = [], c = this.flyLane;
+    // (the lines end a little before the flight does, at whichever is slower: the speed now or the section's)
+    const n = Math.floor(FLY_T * Math.min(this.v, speedOf(Math.floor(from / SEC_ROWS)))) - 9, parts = 4, len = Math.floor(n / parts), rest = Math.ceil(this.v * 0.45);
+    const step = Math.max(1, Math.round(this.v / 9));   // about nine stars a second at any speed: a solid line
+    let l = clamp(lane, c - 1, c + 1);
+    for (let k = 0; k < parts; k++) {
+      const z0 = from + 6 + k * len;
+      for (let z = z0; z < z0 + len - (k < parts - 1 ? rest : 0); z += step) out.push({ l, z, got: false });
+      l = l === c ? c + (r() < 0.5 ? -1 : 1) : c;   // the next line is one lane over
     }
     return out;
   }
@@ -646,15 +656,15 @@ export class World {
   flight(dt) {
     const b = this.ball, t = this.track;
     this.fx.fly -= dt; b.airT += dt;
-    // the flight keeps over the road: where the lane ends ahead it moves over towards the path by itself
-    const ahead = t.get(Math.floor(b.z + this.v * LAND_AHEAD)), ln = this.lane;
-    if (!ahead.road[ln] && ahead.goal !== ln) b.tx = laneX(ln + Math.sign(ahead.goal - ln));
     b.y += (this.hAt(b.z) + R + FLY_H - b.y) * Math.min(1, dt * 5); b.vy = 0;
     for (const s of this.sky) {
       if (s.got || Math.abs(s.z + 0.5 - b.z) > 0.65 || Math.abs(laneX(s.l) - b.x) > 0.6) continue;
       s.got = true; this.stars++; this.events.push('star');
     }
-    if (this.fx.fly <= 0 && this.canLand()) this.land(false);   // time is up: down at the first place with road below
+    if (this.fx.fly > 0) return;
+    // time is up, or a swipe down: over to the path, wherever the flight has been, and down where the road goes on
+    b.tx = laneX(t.get(Math.floor(b.z + this.v * 0.5)).goal);
+    if (Math.abs(b.tx - b.x) < 0.1 && this.canLand()) this.land(this.fastLand);
   }
 
   // The ball takes the stars it touches. They hang where a resting or a jumping ball's centre passes.
@@ -678,7 +688,7 @@ export class World {
 
   // A run in progress as plain data, and back. The track is rebuilt from the seed, so only the ball is stored.
   toSave() {
-    return { v: SAVE_V, seed: this.seed, ball: { ...this.ball }, speed: this.v, sec: this.sec, stars: this.stars, fx: { ...this.fx }, flyFrom: this.flyFrom, flyLane: this.flyLane };
+    return { v: SAVE_V, seed: this.seed, ball: { ...this.ball }, speed: this.v, sec: this.sec, stars: this.stars, fx: { ...this.fx }, flyFrom: this.flyFrom, flyLane: this.flyLane, flyStart: this.flyStart, fastLand: this.fastLand };
   }
 
   static fromSave(o) {
@@ -692,8 +702,9 @@ export class World {
     w.fx = { magnet: sec(fx.magnet, MAGNET_T), fly: b.fly ? sec(fx.fly, FLY_T) : 0, shield: fx.shield === true, safe: sec(fx.safe, FLY_SAFE) };
     if (b.fly) {   // in the middle of a flight: the same trail of stars, less what is behind
       w.flyFrom = clamp(Math.floor(o.flyFrom) || 0, 0, Math.floor(b.z));
-      w.flyLane = clamp(Math.floor(o.flyLane) || 0, 0, LANES - 1);
-      w.sky = w.skyStars(w.flyFrom, w.flyLane).filter((s) => s.z + 0.5 > b.z + 0.65);   // what was in reach is taken
+      w.flyLane = clamp(Math.floor(o.flyLane) || 0, 2, LANES - 3); w.flyStart = clamp(Math.floor(o.flyStart) || 0, 0, LANES - 1);
+      w.fastLand = o.fastLand === true;
+      w.sky = w.skyStars(w.flyFrom, w.flyStart).filter((s) => s.z + 0.5 > b.z + 0.65);   // what was in reach is taken
     }
     return w;
   }

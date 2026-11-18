@@ -65,13 +65,15 @@ Site: `https://roll.games.bubas.cc`.
   - Magnet: for 8 s stars come to the ball from two lanes away on either side.
   - Shield: a bubble round the ball; the next thing it hits flies apart instead, the bubble bursts, and nothing can
     hit the ball for 0.7 s after. It does not save from rolling off where a lane ends.
-  - Flight: for 7 s the ball grows wings and flies 2.2 above the road, over everything, along a trail of stars in
-    the air (every other row, weaving from lane to lane over the road). The camera rises with it. Swipes left and
-    right work as usual; a swipe down lands at once, where there is road below. Where its lane ends ahead the
-    flight moves over towards the path by itself, and when the time is up it comes down at the first place with
-    road below; nothing can hit the ball for 1.6 s from then. The show while it lasts: rings of light opening from
-    the horizon, shooting stars, clouds (star dust where there are no clouds) rushing past, a flock flying along
-    (birds, bats, fairies, drones or comets by biome), sparks behind the wings, speed lines.
+  - Flight: a rest. For 7 s the ball grows wings and flies 2.2 above the road, over everything; the camera rises
+    with it. The air has three lanes of its own (the one the flight started in, or the nearest of lanes 2–4, and
+    the two beside it), whatever the road below is doing. The stars in the air lie in four long straight lines,
+    each one lane over from the one before, with a pause between them: three swipes take them all. The stars and
+    bonuses lying on the road are not shown meanwhile, and nothing else flies about. A swipe down, or the time
+    running out, ends it: the ball goes over to the path by itself and comes down where the road goes on; nothing
+    can hit it for 1.6 s from then. The show while it lasts: rings of light opening from the horizon, shooting
+    stars, clouds (star dust where there are no clouds) rushing past well to the sides, sparks behind the wings,
+    speed lines.
   - Stars are not spent on bonuses. A run saved mid-flight goes on mid-flight.
 - Stars: runs of them lie along the safe path, an arc hangs over most jumps, and now and then a lone one sits off
   the path, and one hangs over most logs on the path (about 130 per 500 rows). They add up over all runs and open ball colours

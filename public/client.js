@@ -625,10 +625,12 @@ function drawRow(rz, part = 'all') {
   }
   if (rz + LOW_Z0 > camZ + 0.5) for (const l of order) if (row.low[l]) drawLog(l, rz, row, fog, px);
   if (rz + 0.5 > camZ + 0.9) {
-    for (const l of order) if (row.star[l]) drawStar(l, rz, row.star[l], fog);
-    if (row.bonus) drawBonus(row.bonus, rz, fog);
+    if (!world.ball.fly) {   // in a flight the things lying on the road are not shown: only the trail in the air
+      for (const l of order) if (row.star[l]) drawStar(l, rz, row.star[l], fog);
+      if (row.bonus) drawBonus(row.bonus, rz, fog);
+    }
     for (const s of world.sky) if (s.z === rz && !s.got) drawStar(s.l, rz, 1 + FLY_H, fog);   // the trail of a flight
-    if (flyShow > 0.01) drawFlightRow(rz, fog, theme);
+    if (flyShow > 0.01) drawFlightRow(rz, fog);
   }
   drawFlyers(rz, fog, theme);
 }
@@ -1698,7 +1700,7 @@ const FLY = {
   alien: [comet, rocketFly, comet],
 };
 function drawFlyers(rz, fog, th) {
-  if (hash(rz, 5, 300) > 0.09 || rz + 0.5 < camZ + 2) return;
+  if (hash(rz, 5, 300) > 0.09 || rz + 0.5 < camZ + 2 || world.ball.fly) return;   // nothing else in the air during a flight: it would be in the way
   const kinds = FLY[th], s = hash(rz, 5, 302);
   kinds[Math.floor(hash(rz, 5, 301) * kinds.length)](rz, rz + 0.5, world.hAt(rz + 0.5), s, hash(rz, 5, 303) < 0.5 ? -1 : 1, now(), fog);
 }
@@ -1855,11 +1857,12 @@ function drawFlightSky(hue) {
   }
   ctx.restore();
 }
-// level with the ball: clouds (or star dust where there are none) rushing past, and a flock that flies along
-function drawFlightRow(rz, fog, th) {
+// level with the ball: clouds (or star dust where there are none) rushing past, well to the sides of the three
+// lanes of the air
+function drawFlightRow(rz, fog) {
   const b = world.ball, a = flyShow * (1 - fog), zc = rz + 0.5;
   if (rz > b.z + 1 && hash(rz, 7, 400) < 0.45) {
-    const side = hash(rz, 7, 401) < 0.5 ? -1 : 1, p = proj(world.ball.x * 0.3 + side * (1.7 + hash(rz, 7, 402) * 3.2), world.hAt(zc) + R + FLY_H + (hash(rz, 7, 403) - 0.5) * 1.6, zc), u = p[2] * (0.7 + hash(rz, 7, 404) * 0.8);
+    const side = hash(rz, 7, 401) < 0.5 ? -1 : 1, p = proj(laneX(world.flyLane) + side * (3 + hash(rz, 7, 402) * 3), world.hAt(zc) + R + FLY_H + (hash(rz, 7, 403) - 0.5) * 1.6, zc), u = p[2] * (0.7 + hash(rz, 7, 404) * 0.8);
     if (u > 0) {
       if (P.clouds > 0.4) {
         ctx.globalAlpha = 0.8 * a; ctx.fillStyle = css(P.cloudC);
@@ -1869,41 +1872,6 @@ function drawFlightRow(rz, fog, th) {
         for (let k = 0; k < 5; k++) halo(p[0] + (hash(rz, k, 405) - 0.5) * u * 1.6, p[1] + (hash(rz, k, 406) - 0.5) * u * 0.8, u * 0.22, hsl(190 + hash(rz, k, 407) * 140, 90, 80), 0.8 * a);
       }
     }
-  }
-  if (rz !== Math.floor(b.z) + 2) return;   // the flock: three on each side, a little ahead of the ball
-  const t = now(), come = 1 - flyShow;
-  for (let k = 0; k < 6; k++) {
-    const side = k % 2 ? 1 : -1, n = k >> 1;
-    const p = proj(b.x + side * (0.85 + n * 0.5 + come * 5), b.y + 0.1 + n * 0.2 + Math.sin(t * 2.2 + k) * 0.1, b.z + 5.5 - n * 1.1), u = p[2] * 0.24;
-    if (!(u > 0)) continue;
-    const x = p[0], y = p[1], flap = Math.sin(t * 10 + k * 1.7);
-    ctx.globalAlpha = flyShow;
-    if (th === 'spooky') {   // bats
-      ctx.fillStyle = hsl(275, 30, 12);
-      ctx.beginPath(); ctx.moveTo(x, y - u * 0.2);
-      for (const e of [1, -1]) { ctx.lineTo(x + e * u * 0.5, y - u * (0.5 + flap * 0.5)); ctx.lineTo(x + e * u, y - u * flap * 0.35); ctx.lineTo(x + e * u * 0.6, y + u * 0.1); ctx.lineTo(x + e * u * 0.3, y - u * 0.05); ctx.lineTo(x, y + u * 0.25); }
-      ctx.fill();
-    } else if (th === 'magic') {   // fairies
-      const col = hsl([320, 50, 185, 275, 140, 20][k], 95, 78);
-      ctx.globalAlpha = 1; halo(x, y, u * 1.6, col, 0.6 * flyShow); ctx.globalAlpha = flyShow;
-      ctx.fillStyle = 'rgba(255,255,255,.85)'; ell(x - u * 0.3 * Math.abs(flap), y - u * 0.15, u * 0.3 * Math.abs(flap) + 0.3, u * 0.18, 0.5); ell(x + u * 0.3 * Math.abs(flap), y - u * 0.15, u * 0.3 * Math.abs(flap) + 0.3, u * 0.18, -0.5);
-      ctx.fillStyle = col; ell(x, y, u * 0.16, u * 0.16);
-    } else if (th === 'tech') {   // drones
-      ctx.strokeStyle = hsl(210, 15, 60); ctx.lineWidth = Math.max(1, u * 0.1); ctx.beginPath(); ctx.moveTo(x - u * 0.9, y - u * 0.15); ctx.lineTo(x + u * 0.9, y - u * 0.15); ctx.stroke();
-      ctx.fillStyle = 'rgba(200,240,255,.5)'; for (const e of [-1, 1]) ell(x + e * u * 0.9, y - u * 0.25, u * 0.5 * (0.6 + 0.4 * Math.abs(flap)), u * 0.09);
-      ctx.fillStyle = hsl(215, 20, 34); ell(x, y, u * 0.5, u * 0.28);
-      ctx.fillStyle = flap > 0 ? 'rgb(255,80,80)' : 'rgb(90,255,130)'; ell(x, y + u * 0.3, u * 0.12, u * 0.12);
-    } else if (th === 'alien') {   // little comets
-      const g = ctx.createLinearGradient(x, y, x - side * u * 0.4, y + u * 1.6);
-      g.addColorStop(0, 'rgba(200,240,255,.9)'); g.addColorStop(1, 'rgba(200,240,255,0)');
-      ctx.strokeStyle = g; ctx.lineWidth = Math.max(1, u * 0.22); ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - side * u * 0.4, y + u * 1.6); ctx.stroke(); ctx.lineCap = 'butt';
-      ctx.globalAlpha = 1; halo(x, y, u * 0.7, 'rgba(255,255,255,1)', flyShow);
-    } else {   // birds
-      ctx.strokeStyle = th === 'autumn' ? hsl(25, 30, 22) : hsl(220, 30, 26); ctx.lineWidth = Math.max(1, u * 0.14); ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(x - u, y - u * flap * 0.6); ctx.quadraticCurveTo(x - u * 0.5, y - u * (0.35 + flap * 0.2), x, y);
-      ctx.quadraticCurveTo(x + u * 0.5, y - u * (0.35 + flap * 0.2), x + u, y - u * flap * 0.6); ctx.stroke(); ctx.lineCap = 'butt';
-    }
-    ctx.globalAlpha = 1;
   }
 }
 
