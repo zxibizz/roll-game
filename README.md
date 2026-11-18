@@ -73,12 +73,17 @@ Site: `https://roll.games.bubas.cc`.
   (and wear its colours). Its ground is its own: violet tiles whose colour wanders along and across the road
   (`glitchHue`; always about as light, so nothing flickers at speed), bright cracks and stray pixels on them. Its sky
   is in shards, each a piece of another biome's sky, with a sun, a moon, a rainbow, northern
-  lights, a volcano and a city all at once. And its geometry is broken: the road ahead tips up into the sky and curls
-  into rings, a corkscrew, a spiral, a twisted ribbon or tall waves (`bendAt`, another figure every 56 rows; a
-  stretch turned over shows bare earth). That is for the eye only (`buildWarp`, `proj`): the world in `core.js`
-  knows nothing of it, the first 18 rows ahead of the ball are never bent, so every obstacle is seen flat and on
-  time, and the figure unrolls under the ball as it comes. 20 more rows are drawn there. Shots of it:
-  `~/scripts/roll-endgame/shots.py <url> <outdir> [z,...] [WxH]`, the cost of a frame: `perf.py`.
+  lights, a volcano and a city all at once. And its road is a roller coaster in the sky, as on a rainbow track:
+  between straight stretches it rises into a loop, rolls over in a slow barrel roll or swings into a banked turn
+  (`nextFig`, `growCurve`: one fixed shape for the whole road, built once). The camera keeps to the ball's own up and
+  forward, so the road under the ball looks level, the shape ahead comes closer as it is, and the world turns round
+  it: the horizon tilts and rolls over (`skyBegin`). A stretch seen from below shows bare earth. That is for the eye
+  only (`buildWarp`, `proj`): the world in `core.js` knows nothing of it. Nothing ahead is hidden: a loop is seen from
+  inside, the road never bends down over a crest, a roll turns slowly. Every figure closes exactly, so the road is
+  level again after it. 20 more rows are drawn there. Shots of it:
+  `~/scripts/roll-endgame/shots.py <url> <outdir> [z,...] [WxH]`, where the figures are: `figs.py <url> [from] [to]`,
+  that the curve has no crest, is level before every figure and does not drift: `curve.py <url> [from] [to]`,
+  the cost of a frame: `perf.py`.
   Each of the nine has its own colours and sky, things on
   the road, someone who walks across it, islands beside the road and things in the air:
 

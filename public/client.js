@@ -12,7 +12,7 @@ const $hud = $('hud'), $score = $('score'), $starN = $('starN'), $hudStars = $('
 const $home = $('home'), $pause = $('pause'), $over = $('over'), $set = $('set');
 
 const SLAB = 0.35, VIEW = 46;       // track thickness, rows drawn ahead
-const VIEW_FAR = 20;                // and this many more in the last biome, where the road ahead curls up into rings
+const VIEW_FAR = 20;                // and this many more in the last biome, where the road ahead loops and rolls
 const PITCH = 0.5;
 const CAM_FOLLOW = 0.6;             // how much of the ball's sideways move the camera repeats
 const COUNT_T = 0.55;               // seconds per digit of the 3-2-1 before a paused run goes on
@@ -693,75 +693,184 @@ function proj(x, y, z) {
   }
   let zc = dz * CP - dy * SP;
   const yc = dy * CP + dz * SP, p = PROJ[projI = (projI + 1) & (PROJ_N - 1)];
-  if (bent && zc < 0.5) zc = 0.5;   // a bent road never comes round behind the eye
+  if (bent && zc < 0.5) zc = 0.5;   // (a point of a bent road that comes round behind the eye stays in front of it)
   p[0] = W / 2 + f * dx / zc; p[1] = cy - f * yc / zc; p[2] = f / zc;
   return p;
 }
 
 // ---- Broken geometry ----
-// In the last biome the road ahead does not lie flat: it climbs and curls into a ring, winds off in a spiral, twists
-// like a ribbon, runs in tall waves. Only for the eye: the world (core.js) knows nothing of it. The bends belong to
-// the track (bendAt: every BEND_ROWS rows another figure), but a row is bent only as far as it is from the ball:
-// not at all up to WARP_D0 rows ahead — every obstacle is seen flat, on time, where it is — and fully from WARP_D1
-// on. So the figure hangs ahead and unrolls under the ball as it comes.
-// buildWarp lays the centre line out row by row from the camera: for each row boundary where the road centre is
-// (3 numbers), which way is across it (3) and which way is up from it (3), in the camera's space before its pitch;
-// proj places a point from these. A row turned so far that the eye sees it from below is drawn as bare earth.
-const WARP_D0 = 18, WARP_D1 = 32, BEND_ROWS = 56;
-const LIFT = 0.4;   // and over those rows the road tips up by this much (radians), towards the eye: what lies beyond is seen from above, not edge on
+// In the last biome the road is a roller coaster in the sky: now and then it rises into a loop, rolls over in a
+// barrel roll, or swings into a banked turn, with straight stretches between. Only for the eye: the world (core.js)
+// knows nothing of it. The road has one fixed shape (the curve, CUR) and the ball rides it: the camera keeps to the
+// ball's own up and forward, so the road under the ball always looks level and ahead it climbs, turns and twists
+// as a whole, coming closer as it is. What turns is the world round it: the horizon tilts, rolls over, goes under.
+// The figures need no warning: a loop is seen from inside, a turn hides nothing ahead, the road never bends down over
+// a crest, and a roll turns slowly enough that what lies on it faces the eye for over a second and a half even at
+// top speed. Each figure closes exactly: a loop turns about the road's own across (and is moved sideways, not turned,
+// to clear itself), a roll about its own forward, a turn about its own up, with the lean of a banked turn laid on top
+// (`lean`) and gone at its end. So between figures the road is level again.
+// CUR: for every row boundary, where the road centre is (3 numbers), which way is across (3), up (3) and forward (3),
+// in a space of its own. It depends on the row only, never on the run: built as far as needed, the part well behind
+// the eye let go (curBase), built again from row 0 for a run that starts further back. A figure starts only where the
+// last biome is fully there. Between figures the road rights itself a hair a row (`righting`): only rounding.
+// buildWarp puts the rows round the eye: the same 9 numbers a row (centre, across, up) in the camera's space before
+// its pitch, for proj. A row turned so far that the eye sees it from below is drawn as bare earth.
 const WARP_N = VIEW + VIEW_FAR + 4, WF = new Float64Array(WARP_N * 9), UNDER = new Uint8Array(WARP_N);
 let warpOn = false, warpBase = 0, warpFrom = Infinity, view = VIEW;
-const BEND = [0, 0, 0];   // radians a row: nose up, turn right, roll
-function bendAt(rz) {
-  const k = Math.floor(rz / BEND_ROWS), t = (rz + 0.5 - k * BEND_ROWS) / BEND_ROWS, e = clamp(Math.min(t, 1 - t) / 0.2, 0, 1), win = e * e * (3 - 2 * e);
-  const kind = hash(k, 1, 910), a = hash(k, 2, 911), side = hash(k, 3, 912) < 0.5 ? -1 : 1;
-  let p = 0, y = 0, r = 0;
-  if (kind < 0.25) { p = 0.2 + a * 0.08; y = side * (0.05 + 0.03 * hash(k, 4, 913)); }    // up and over in rings; a little sideways, so a coil clears the last one
-  else if (kind < 0.45) { p = 0.14 + a * 0.05; r = side * p * (0.7 + 0.3 * hash(k, 4, 913)); }   // a corkscrew: coils round a line running off ahead
-  else if (kind < 0.65) { y = side * (0.22 + a * 0.08); p = 0.02; }                       // a spiral climbing to one side
-  else if (kind < 0.85) r = side * (0.1 + a * 0.07);                                      // a twisted ribbon
-  else p = 0.26 * Math.sin((rz + 0.5) * Math.PI / 8);                                     // tall waves
-  BEND[0] = p * win; BEND[1] = y * win; BEND[2] = r * win;
+const SKYU = [0, 1, 0];   // which way the world's up is, seen from the ball (across, up, forward)
+const CUR = [];           // 12 numbers a row boundary, from row curBase on
+let curBase = 0;
+const FIG = { end: 0, n: 1, a: 0, kind: 'flat', i: 0, turn: 0, bank: 0, side: 1 };
+const RIGHTING = 0.002;   // radians a row the road turns back upright between figures (only rounding is left to fix)
+function nextFig(row) {
+  const F = FIG, k = F.i++, h = hash(k, 5, 950), side = hash(k, 6, 951) < 0.5 ? -1 : 1;
+  F.a = row; F.side = side; F.turn = 0; F.bank = 0;
+  if (glitchAt(row) < 1 || k % 2 === 0) { F.kind = 'flat'; F.n = 30 + Math.floor(h * 40); }   // a straight stretch between two figures
+  else {
+    const x = hash(k, 7, 952);
+    if (x < 0.35) { F.kind = 'loop'; F.n = 200 + Math.floor(h * 40); F.turn = side * (7 + 3 * h); }          // up and over, moved sideways (rows) to clear itself
+    else if (x < 0.65) { F.kind = 'roll'; F.n = 300 + Math.floor(h * 40); }                                  // a full roll over, slow
+    else { F.kind = 'bank'; F.n = 110 + Math.floor(h * 40); F.turn = side * (1 + 0.7 * h); F.bank = 0.45 + 0.2 * h; }   // a banked turn
+  }
+  F.end = row + F.n;
 }
+// turn the frame's two vectors a and b (each 3 numbers at offsets in v) by angle c: a towards b
+function turnPair(v, a, b, ang) {
+  if (!ang) return;
+  const c = Math.cos(ang), s = Math.sin(ang);
+  for (let k = 0; k < 3; k++) { const x = v[a + k], y = v[b + k]; v[a + k] = x * c + y * s; v[b + k] = y * c - x * s; }
+}
+const FR = new Float64Array(12);   // the frame being laid, without the lean of a banked turn: centre, across, up, forward
+function resetCurve() {
+  CUR.length = 0; curBase = 0;
+  FR.set([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  Object.assign(FIG, { end: 0, n: 1, a: 0, kind: 'flat', i: 0, turn: 0, bank: 0, side: 1 });
+}
+resetCurve();
+// the curve from row `from` to row `to` at least, in CUR from (row − curBase) · 12
+function curveRows(from, to) {
+  if (from < curBase) resetCurve();
+  growCurve(to);
+  if (from - curBase > 4096) { const n = from - 64 - curBase; CUR.splice(0, n * 12); curBase += n; }
+}
+function growCurve(upTo) {
+  for (let row = curBase + CUR.length / 12; row <= upTo; row++) {
+    if (row >= FIG.end) nextFig(row);
+    // as stored: leaning into a banked turn (a roll of the stored frame only, by an angle that is 0 at both its ends)
+    const lean = FIG.kind === 'bank' ? -Math.sign(FIG.turn) * FIG.bank * Math.sin(Math.PI * (row - FIG.a) / FIG.n) : 0;
+    const at = CUR.length;
+    for (let k = 0; k < 12; k++) CUR.push(FR[k]);
+    if (lean) { turnPair(CUR, at + 3, at + 6, lean); }
+    const t = (row + 0.5 - FIG.a) / FIG.n, w = (1 - Math.cos(2 * Math.PI * t)) / FIG.n;   // over the figure, w adds up to 1
+    if (FIG.kind === 'loop') {
+      turnPair(FR, 9, 6, 2 * Math.PI * w);                                      // nose up, about its own across
+      FR[0] += FR[3] * FIG.turn * w; FR[1] += FR[4] * FIG.turn * w; FR[2] += FR[5] * FIG.turn * w;
+    } else if (FIG.kind === 'roll') turnPair(FR, 3, 6, FIG.side * 2 * Math.PI * w);   // across towards up: about its own forward
+    else if (FIG.kind === 'bank') turnPair(FR, 9, 3, FIG.turn * w);                // about its own up
+    else righting();
+    // keep the frame square: forward, across at right angles to it, up from both
+    let n = Math.hypot(FR[9], FR[10], FR[11]); FR[9] /= n; FR[10] /= n; FR[11] /= n;
+    const d = FR[3] * FR[9] + FR[4] * FR[10] + FR[5] * FR[11];
+    FR[3] -= d * FR[9]; FR[4] -= d * FR[10]; FR[5] -= d * FR[11];
+    n = Math.hypot(FR[3], FR[4], FR[5]); FR[3] /= n; FR[4] /= n; FR[5] /= n;
+    FR[6] = FR[10] * FR[5] - FR[11] * FR[4]; FR[7] = FR[11] * FR[3] - FR[9] * FR[5]; FR[8] = FR[9] * FR[4] - FR[10] * FR[3];
+    FR[0] += FR[9]; FR[1] += FR[10]; FR[2] += FR[11];
+  }
+}
+// between figures: turn the frame a little towards upright (its up towards the world's up), about whatever axis does it
+function righting() {
+  const ux = FR[6], uy = FR[7], uz = FR[8];
+  let ax = -uz, ay = 0, az = ux;   // up × (0, 1, 0): the axis that turns up towards the world's up
+  let s = Math.hypot(ax, az);
+  const ang = Math.atan2(s, uy);
+  if (ang < 1e-5) return;
+  if (s < 1e-6) { ax = FR[9]; ay = FR[10]; az = FR[11]; s = 1; }   // upside down exactly: over the forward axis
+  ax /= s; ay /= s; az /= s;
+  const step = Math.min(ang, RIGHTING), c = Math.cos(step), sn = Math.sin(step);
+  for (const o of [3, 6, 9]) {   // Rodrigues: v cos + (a × v) sin + a (a · v)(1 − cos)
+    const vx = FR[o], vy = FR[o + 1], vz = FR[o + 2], dot = ax * vx + ay * vy + az * vz;
+    FR[o] = vx * c + (ay * vz - az * vy) * sn + ax * dot * (1 - c);
+    FR[o + 1] = vy * c + (az * vx - ax * vz) * sn + ay * dot * (1 - c);
+    FR[o + 2] = vz * c + (ax * vy - ay * vx) * sn + az * dot * (1 - c);
+  }
+}
+const BF = new Float64Array(12);   // the frame at the ball
 function buildWarp() {
   const b = world.ball;
   view = VIEW + Math.round(VIEW_FAR * glitchAt(b.z + VIEW));
-  warpOn = false; warpFrom = Infinity;
-  if (glitchAt(b.z + view) <= 0) return;
-  warpBase = Math.floor(camZ);
-  let ax = -camX, ay = -CAM_H, az = warpBase - camZ, rx = 1, ry = 0, rz = 0, ux = 0, uy = 1, uz = 0, fx = 0, fy = 0, fz = 1;
-  for (let i = 0; i < WARP_N; i++) {
-    const o = i * 9, row = warpBase + i;
-    WF[o] = ax; WF[o + 1] = ay; WF[o + 2] = az; WF[o + 3] = rx; WF[o + 4] = ry; WF[o + 5] = rz; WF[o + 6] = ux; WF[o + 7] = uy; WF[o + 8] = uz;
-    const d = clamp((row + 0.5 - b.z - WARP_D0) / (WARP_D1 - WARP_D0), 0, 1), g = glitchAt(row), w = d * d * (3 - 2 * d) * g;
-    if (w > 0) {
-      if (warpFrom === Infinity) warpFrom = row;
-      bendAt(row);
-      const up = BEND[0] * w + LIFT * g * 6 * d * (1 - d) / (WARP_D1 - WARP_D0);   // (the slope of the same smooth step: LIFT in all)
-      let c = Math.cos(up), s = Math.sin(up), tx = fx, ty = fy, tz = fz;   // nose up: forward towards up
-      fx = tx * c + ux * s; fy = ty * c + uy * s; fz = tz * c + uz * s; ux = ux * c - tx * s; uy = uy * c - ty * s; uz = uz * c - tz * s;
-      c = Math.cos(BEND[1] * w); s = Math.sin(BEND[1] * w); tx = fx; ty = fy; tz = fz;       // turn: forward towards right
-      fx = tx * c + rx * s; fy = ty * c + ry * s; fz = tz * c + rz * s; rx = rx * c - tx * s; ry = ry * c - ty * s; rz = rz * c - tz * s;
-      c = Math.cos(BEND[2] * w); s = Math.sin(BEND[2] * w); tx = rx; ty = ry; tz = rz;       // roll: right towards up
-      rx = tx * c + ux * s; ry = ty * c + uy * s; rz = tz * c + uz * s; ux = ux * c - tx * s; uy = uy * c - ty * s; uz = uz * c - tz * s;
-    }
-    ax += fx; ay += fy; az += fz;
+  warpOn = false; warpFrom = Infinity; SKYU[0] = 0; SKYU[1] = 1; SKYU[2] = 0;
+  if (glitchAt(b.z + view) <= 0 || !(b.z >= 0)) return;
+  warpBase = Math.max(0, Math.floor(camZ));
+  const i = Math.floor(b.z), t = b.z - i;
+  curveRows(Math.min(warpBase, i), warpBase + WARP_N + 1);
+  // the frame at the ball: between the two row boundaries round it, squared up again
+  const bi = (i - curBase) * 12;
+  for (let k = 0; k < 12; k++) BF[k] = CUR[bi + k] * (1 - t) + CUR[bi + 12 + k] * t;
+  let n = Math.hypot(BF[9], BF[10], BF[11]); BF[9] /= n; BF[10] /= n; BF[11] /= n;
+  const d = BF[3] * BF[9] + BF[4] * BF[10] + BF[5] * BF[11];
+  BF[3] -= d * BF[9]; BF[4] -= d * BF[10]; BF[5] -= d * BF[11];
+  n = Math.hypot(BF[3], BF[4], BF[5]); BF[3] /= n; BF[4] /= n; BF[5] /= n;
+  BF[6] = BF[10] * BF[5] - BF[11] * BF[4]; BF[7] = BF[11] * BF[3] - BF[9] * BF[5]; BF[8] = BF[9] * BF[4] - BF[10] * BF[3];
+  SKYU[0] = BF[4]; SKYU[1] = BF[7]; SKYU[2] = BF[10];
+  // every row round the eye in the ball's own axes; the eye sits where it would on a flat road
+  const cx = -camX, cyy = -CAM_H, cz = b.z - camZ, dot = (o, x, y, z) => BF[o] * x + BF[o + 1] * y + BF[o + 2] * z;
+  warpFrom = Infinity;
+  for (let j = 0; j < WARP_N; j++) {
+    const o = j * 9, c = (warpBase + j - curBase) * 12, px = CUR[c] - BF[0], py = CUR[c + 1] - BF[1], pz = CUR[c + 2] - BF[2];
+    WF[o] = dot(3, px, py, pz) + cx; WF[o + 1] = dot(6, px, py, pz) + cyy; WF[o + 2] = dot(9, px, py, pz) + cz;
+    WF[o + 3] = dot(3, CUR[c + 3], CUR[c + 4], CUR[c + 5]); WF[o + 4] = dot(6, CUR[c + 3], CUR[c + 4], CUR[c + 5]); WF[o + 5] = dot(9, CUR[c + 3], CUR[c + 4], CUR[c + 5]);
+    WF[o + 6] = dot(3, CUR[c + 6], CUR[c + 7], CUR[c + 8]); WF[o + 7] = dot(6, CUR[c + 6], CUR[c + 7], CUR[c + 8]); WF[o + 8] = dot(9, CUR[c + 6], CUR[c + 7], CUR[c + 8]);
+    // rows that lie as on a flat road (the same axes as the ball's) are drawn the flat way, from the first one that does not on
+    if (warpFrom === Infinity && (Math.abs(WF[o + 3] - 1) + Math.abs(WF[o + 4]) + Math.abs(WF[o + 5]) + Math.abs(WF[o + 6]) + Math.abs(WF[o + 7] - 1) + Math.abs(WF[o + 8]) > 1e-4)) warpFrom = Math.max(warpBase, warpBase + j - 1);
   }
-  if (warpFrom === Infinity) return;
+  const level = Math.abs(SKYU[0]) + Math.abs(SKYU[2]) < 1e-4 && SKYU[1] > 0;
+  if (warpFrom === Infinity && level) return;   // all of it as flat: nothing to bend
+  if (warpFrom === Infinity) warpFrom = warpBase;
   warpOn = true;
-  for (let i = 0; i < WARP_N - 1; i++) {   // seen from below: the eye (at 0, 0, 0) is under the middle of the row
-    const o = i * 9;
-    UNDER[i] = (WF[o] + WF[o + 9]) * (WF[o + 6] + WF[o + 15]) + (WF[o + 1] + WF[o + 10]) * (WF[o + 7] + WF[o + 16]) + (WF[o + 2] + WF[o + 11]) * (WF[o + 8] + WF[o + 17]) > 0 ? 1 : 0;
+  for (let k = 0; k < WARP_N - 1; k++) {   // seen from below: the eye (at 0, 0, 0) is under the middle of the row
+    const o = k * 9;
+    UNDER[k] = (WF[o] + WF[o + 9]) * (WF[o + 6] + WF[o + 15]) + (WF[o + 1] + WF[o + 10]) * (WF[o + 7] + WF[o + 16]) + (WF[o + 2] + WF[o + 11]) * (WF[o + 8] + WF[o + 17]) > 0 ? 1 : 0;
   }
 }
+// The sky turns with the world: its horizon is where the world's level plane meets the screen, a line at any angle
+// (or off the screen: all sky or all ground). The sky is drawn as usual in a square big enough to cover the screen
+// however it is turned: the screen-sized sky as usual (things in it keep their size), turned and moved so its
+// horizon falls on that line, and round it its colours and stars carried on by skyPad.
+let skyPad = 0, skyP = null;
+const skyBox = [0, 0, 0, 0];   // the screen's box in the turned sky (skyBegin), while skyPad > 0
+function skyBegin() {
+  const ux = SKYU[0], uy = SKYU[1], uz = SKYU[2];
+  if (!warpOn || (Math.abs(ux) < 1e-4 && Math.abs(uz) < 1e-4 && uy > 0)) return false;
+  const vy = uy * CP + uz * SP, vz = uz * CP - uy * SP, n = Math.hypot(ux, vy), rc = Math.hypot(W, H);
+  const a = Math.atan2(ux, vy), t = clamp(n > 1e-6 ? -vz / n * f : (vz < 0 ? 1 : -1) * 2 * rc, -1.5 * rc, 1.5 * rc);
+  ctx.save(); ctx.translate(W / 2, cy); ctx.rotate(a); ctx.translate(-W / 2, -t - horY);
+  // the screen's corners in the turned sky's own coordinates: what is drawn round the usual sky covers just that
+  const c = Math.cos(a), sn = Math.sin(a);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [px, py] of [[0, 0], [W, 0], [0, H], [W, H]]) {
+    const dx = px - W / 2, dy = py - cy, sx = dx * c + dy * sn + W / 2, sy = -dx * sn + dy * c + t + horY;
+    x0 = Math.min(x0, sx); y0 = Math.min(y0, sy); x1 = Math.max(x1, sx); y1 = Math.max(y1, sy);
+  }
+  skyBox[0] = x0 - 2; skyBox[1] = y0 - 2; skyBox[2] = x1 + 2; skyBox[3] = y1 + 2;
+  skyPad = Math.max(-skyBox[0], -skyBox[1], skyBox[2] - W, skyBox[3] - H, 0);
+  // things that stand along the horizon end where the screen-wide sky ends: on a tilted horizon they fade out
+  // (and no northern lights in a turned sky: a frame of them turned costs a phone too much)
+  const k = clamp(1 - Math.abs(Math.sin(a)) * 10, 0, 1);
+  skyP = P; P = { ...P, city: P.city * k, volcano: P.volcano * k, rainbow: P.rainbow * k, clouds: P.clouds * k, aurora: 0, sunA: P.sunA * k, moon: P.moon * k };
+  const [bx0, by0, bx1, by1] = skyBox;
+  if (by0 < horY) { ctx.fillStyle = grad(0, horY, P.sky.map((q) => css(q))); ctx.fillRect(bx0, by0, bx1 - bx0, Math.min(horY, by1) - by0); }
+  if (by1 > horY) { ctx.fillStyle = css(P.fog); ctx.fillRect(bx0, Math.max(horY, by0), bx1 - bx0, by1 - Math.max(horY, by0)); }
+  return true;
+}
+function skyEnd() { skyPad = 0; if (skyP) { P = skyP; skyP = null; } ctx.restore(); }
 // a thing standing on a bent row leans with it: turn the canvas round its foot for as long as it is drawn
 function tilt(x, y, ang) { if (ang) { ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.translate(-x, -y); } }
 function untilt(ang) { if (ang) ctx.restore(); }
 // which way is up on the screen for something standing at (x, y, z); 0 where the road is not bent
 function upAngle(p, x, y, z) {
   if (!warpOn || z <= warpFrom) return 0;
-  const px = p[0], py = p[1], q = proj(x, y + 0.5, z);
-  return Math.atan2(q[0] - px, py - q[1]);
+  const px = p[0], py = p[1], q = proj(x, y + 0.5, z), a = Math.atan2(q[0] - px, py - q[1]);
+  return Math.abs(a) < 1e-3 ? 0 : a;
 }
 
 // The canvas has at most MAX_PX pixels: a tablet at its full density costs two to three times a phone's frame for a
@@ -824,10 +933,13 @@ function resize() {
   }
 }
 
-function drawStars(alpha, maxY = H) {
-  const sx = (-camX * 6 * dpr) % W;
-  ctx.save(); ctx.globalAlpha = alpha; ctx.beginPath(); ctx.rect(0, 0, W, maxY); ctx.clip();
-  ctx.drawImage(stars, sx, 0); ctx.drawImage(stars, sx + (sx > 0 ? -W : W), 0);
+function drawStars(alpha, maxY = H) {   // the star picture in tiles: a turned sky (skyBegin) is bigger than the screen
+  const tw = stars.width, th = stars.height, sx = wrap(-camX * 6 * dpr, tw), turned = skyPad > 0;
+  const bx0 = turned ? skyBox[0] : 0, by0 = turned ? skyBox[1] : 0, bx1 = turned ? skyBox[2] : W, by1 = Math.min(maxY, turned ? skyBox[3] : H);
+  if (by1 <= by0) return;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.beginPath(); ctx.rect(bx0, by0, bx1 - bx0, by1 - by0); ctx.clip();
+  const xs = sx + tw * Math.floor((bx0 - sx) / tw), ys = th * Math.floor(by0 / th);
+  for (let y = ys; y < by1; y += th) for (let x = xs; x < bx1; x += tw) ctx.drawImage(stars, x, y);
   ctx.restore();
 }
 
@@ -925,7 +1037,7 @@ const SHARD_SKY = [...Array(PLAIN).keys()].sort((a, b) => hash(a, 1, 920) - hash
 let shardG = [], shardH = 0;
 function shards(a) {
   if (shardH !== H) { shardH = H; shardG = SHARD_SKY.map((i) => grad(0, H, PAL[i].sky.map((c) => css(c)))); }
-  const t = now(), n = PLAIN + 2, cx = W * 0.5, cy0 = horY - H * 0.05, far = Math.hypot(W, H);
+  const t = now(), n = PLAIN + 2, cx = W * 0.5, cy0 = horY - H * 0.05, far = Math.hypot(W, H) + 2 * skyPad;
   const at = (k) => (k + (hash(k % n, 2, 921) - 0.5) * 0.7) / n * Math.PI * 2 + 0.035 * Math.sin(t * 0.17 + k * 1.9);
   for (let k = 0; k < n; k++) {
     const a0 = at(k), a1 = k === n - 1 ? at(0) + Math.PI * 2 : at(k + 1);   // the last one closes the circle
@@ -1405,10 +1517,15 @@ const obstacleFrame = (l, rz) => frameAt(laneX(l), rz);
 function frameAt(xc, rz) {
   const zc = rz + 0.5, base = world.hAt(zc), z0 = rz + INSET + 0.1;
   const pf = proj(xc, base, z0);
-  if (warpOn && rz >= warpFrom) {   // on a bent row: the same box, measured along the row's own up and across (`ang`: how it leans)
-    const x = pf[0], y = pf[1], pu = proj(xc, base + BOX_H, z0), pr = proj(xc + 0.42, base, z0), pm = proj(xc, base, zc);
-    if ((pr[0] - x) * (pu[1] - y) - (pr[1] - y) * (pu[0] - x) >= 0) return { x, bottom: y, top: y, hw: 0, pc: pm, ang: 0 };   // seen from behind or edge on: nothing to draw
-    return { x, bottom: y, top: y - Math.hypot(pu[0] - x, pu[1] - y), hw: Math.hypot(pr[0] - x, pr[1] - y), pc: [x, y - Math.hypot(pm[0] - x, pm[1] - y), pm[2]], ang: Math.atan2(pu[0] - x, y - pu[1]) };
+  if (warpOn && rz >= warpFrom) {
+    // On a bent row: the same box along the row's own up and across. `ang`: how it leans on the screen; the sizes are
+    // measured in the box's own turned frame, so on a row that lies flat this gives exactly what the flat way does.
+    const x = pf[0], y = pf[1], pm = proj(xc, base, zc), pmx = pm[0], pmy = pm[1], pmz = pm[2], pu = proj(xc, base + BOX_H, zc), pr = proj(xc + 0.42, base, z0);
+    if ((pr[0] - x) * (pu[1] - pmy) - (pr[1] - y) * (pu[0] - pmx) >= 0) return { x, bottom: y, top: y, hw: 0, pc: [pmx, pmy, pmz], ang: 0 };   // seen from behind or edge on: nothing to draw
+    let ang = Math.atan2(pu[0] - pmx, pmy - pu[1]);
+    if (Math.abs(ang) < 1e-3) ang = 0;
+    const c = Math.cos(ang), s = Math.sin(ang), lx = (dx, dy) => dx * c + dy * s, ly = (dx, dy) => dy * c - dx * s;
+    return { x, bottom: y, top: y + ly(pu[0] - x, pu[1] - y), hw: lx(pr[0] - x, pr[1] - y), pc: [x + lx(pmx - x, pmy - y), y + ly(pmx - x, pmy - y), pmz], ang };
   }
   const pt = proj(xc, base + BOX_H, zc);
   const hw = proj(xc + 0.42, base, z0)[0] - pf[0];
@@ -3102,7 +3219,7 @@ function drawStreaks() {
 }
 
 // The rows from lo to far, the farthest first. Where the road is bent, the farthest is not the last in line any
-// more (a ring comes back towards the eye): those rows go by how far their middle really is.
+// more (a loop comes back over the eye): those rows go by how far their middle really is.
 const FAR_ROW = new Int32Array(WARP_N), FAR_Z = new Float64Array(WARP_N);
 function drawFar(lo, far) {
   const from = warpOn ? Math.max(lo, warpFrom) : far + 1;
@@ -3121,8 +3238,10 @@ function draw() {
   const hue = secHue(secOf(camZ + CAM_BACK));
   setPhase(camZ + CAM_BACK);
   buildWarp();
+  const turned = skyBegin();
   theme.sky(hue, horY);
   if (flyShow > 0.01) drawFlightSky(hue);
+  if (turned) skyEnd();
   ctx.save();
   // shake follows smooth waves rather than a new random spot every frame (that reads as a glitch, not a blow)
   if (shake > 0.01) { const k = shake * shake * 7 * dpr, t = now(); ctx.translate(k * (Math.sin(t * 61) + Math.sin(t * 37 + 2)) * 0.5, k * (Math.sin(t * 53 + 1) + Math.sin(t * 29 + 4)) * 0.5); }
@@ -3523,6 +3642,10 @@ window.__shot = (seed, z) => {
   $hud.hidden = false; $score.textContent = shownScore = world.score; $starN.textContent = world.stars; draw();
 };
 window.__world = () => world;
+// the last biome's road curve from row a to row b: 12 numbers a row (centre, across, up, forward)
+window.__curve = (a, b) => { resetCurve(); curveRows(a, b); return CUR.slice((a - curBase) * 12, (b - curBase + 1) * 12); };
+// the figures of the last biome's road from row a to row b
+window.__figs = (a, b) => { const out = []; resetCurve(); for (let r = a; r <= b; r++) { growCurve(r); const l = out[out.length - 1]; if (!l || l.a !== FIG.a) out.push({ a: FIG.a, n: FIG.n, kind: FIG.kind }); } return out; };
 window.__update = () => { swChecked = -1e9; checkUpdate(); };
 window.__res = () => ({ dpr, quality, ui, W, H, qDone });
 window.__watch = (gap, work) => { watchFrames(gap, work); if (qWant) { qWant = false; relayout(); } };
