@@ -7,7 +7,7 @@
 // Web Audio obeys the silent switch on the side. Chrome and other WKWebView browsers on iPhone stay silent until
 // the page has played a regular <audio>, so a silent clip is looped there (and sound then ignores the silent switch).
 let cfg = { vol: 0.5, music: 0.4, haptic: true };
-let actx = null, bus = null, stale = false, stuckAt = 0, resumeBusy = false, resumeTry = 0;
+let actx = null, bus = null, master = null, stale = false, stuckAt = 0, resumeBusy = false, resumeTry = 0;
 const UA = navigator.userAgent || '';
 const IOS = /iPhone|iPad|iPod/.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const IOS_WEBVIEW = /iPhone|iPad|iPod/.test(UA) && (/CriOS|FxiOS|EdgiOS|OPiOS|YaBrowser|GSA\//.test(UA) || !/Safari\//.test(UA));
@@ -23,16 +23,21 @@ function newAudio() {
     if (ctx.state === 'running') ran = true;
     else if (ran && ctx === actx && ctx.state !== 'closed') stale = true;
   };
+  try {   // a last guard for everything, the music too: whatever piles up never goes past full scale (that crackles)
+    master = actx.createDynamicsCompressor();
+    master.threshold.value = -3; master.knee.value = 0; master.ratio.value = 20; master.attack.value = 0.001; master.release.value = 0.1;
+    master.connect(actx.destination);
+  } catch { master = null; }
   try {   // a compressor: louder on a quiet phone speaker, and overlapping sounds don't distort
     const comp = actx.createDynamicsCompressor();
     comp.threshold.value = -18; comp.knee.value = 12; comp.ratio.value = 6; comp.attack.value = 0.003; comp.release.value = 0.15;
-    bus = actx.createGain(); bus.connect(comp); comp.connect(actx.destination);
+    bus = actx.createGain(); bus.connect(comp); comp.connect(master || actx.destination);
   } catch { bus = null; }
   try {   // an empty clip inside the gesture, or old iOS doesn't open the output
     const src = actx.createBufferSource();
     src.buffer = actx.createBuffer(1, 1, 22050); src.connect(actx.destination); src.start(0);
   } catch { /* */ }
-  hum = null; noiseBuf = null;
+  hum = null; noiseBuf = null; muffle = null;
 }
 
 let htmlAudio = null;
@@ -94,7 +99,9 @@ export function initAudio(settings) {
 }
 // a setting changed: the volume of what is already sounding follows
 export function applyVolume() {
-  if (music.gain) { try { music.gain.gain.value = musicVol(); } catch { /* */ } }
+  if (music.gain) {   // glides to the new level (a jump of the gain clicks, and would cut a fade-in short)
+    try { const p = music.gain.gain, t = music.ctx.currentTime; p.cancelScheduledValues(t); p.setTargetAtTime(musicVol(), t, 0.03); } catch { /* */ }
+  }
   if (!musicOn()) musicPause(); else if (actx && !document.hidden) musicGesture();
   if (!soundOn() && htmlAudio) htmlAudio.pause();
 }
@@ -129,9 +136,12 @@ function note(f, { type = 'sine', vol = 0.2, a = 0.004, dur = 0.2, delay = 0, to
 let noiseBuf = null;
 function noise() {   // two seconds of brownish noise, shared by every burst and the hum
   if (noiseBuf && noiseBuf.ctx === actx) return noiseBuf.buf;
-  const n = actx.sampleRate * 2, buf = actx.createBuffer(1, n, actx.sampleRate), d = buf.getChannelData(0);
+  const n = actx.sampleRate * 2, m = Math.floor(actx.sampleRate * 0.05), buf = actx.createBuffer(1, n, actx.sampleRate), d = buf.getChannelData(0);
+  const raw = new Float32Array(n + m);
   let last = 0;
-  for (let i = 0; i < n; i++) { last = (last + 0.04 * (Math.random() * 2 - 1)) / 1.04; d[i] = last * 6; }
+  for (let i = 0; i < n + m; i++) { last = (last + 0.04 * (Math.random() * 2 - 1)) / 1.04; raw[i] = last * 6; }
+  // it loops: its first 50 ms fade over from what comes after its end, so the end runs on into the start with no step
+  for (let i = 0; i < n; i++) d[i] = i < m ? raw[i] * (i / m) + raw[n + i] * (1 - i / m) : raw[i];
   noiseBuf = { ctx: actx, buf };
   return buf;
 }
@@ -286,7 +296,7 @@ export function haptic(kind) {
 // switch is obeyed. Only one track is kept decoded; when it ends, another one starts. Fetched files stay in the
 // service worker's cache, so they keep playing offline.
 export const MUSIC = ['run', 'adventure', 'chase', 'sport', 'space'];
-const MUSIC_K = 3, MUSIC_SR = 32000;
+const MUSIC_K = 3, MUSIC_SR = 32000, MUSIC_FADE = 0.1;
 const music = { buf: null, id: null, src: null, gain: null, ctx: null, t0: 0, off: 0, loading: 0, bad: new Set(), miss: new Set(), retryAt: 0 };
 const musicVol = () => Math.min(1, gainOf() * cfg.music * cfg.music * MUSIC_K);   // never past full scale: it bypasses the compressor
 const musicOn = () => musicVol() > 0;
@@ -297,7 +307,7 @@ function musicOut() {
   if (muffle && muffle.ctx === actx) return muffle.fl;
   try {
     const fl = actx.createBiquadFilter(); fl.type = 'lowpass'; fl.Q.value = 0.7; fl.frequency.value = muffled ? 450 : 20000;
-    fl.connect(actx.destination); muffle = { ctx: actx, fl };
+    fl.connect(master || actx.destination); muffle = { ctx: actx, fl };
     return fl;
   } catch { return actx.destination; }
 }
@@ -318,8 +328,9 @@ function musicPlay() {
   if (!music.buf || !actx || !musicOn() || document.hidden || (music.src && music.ctx === actx)) return;
   musicPause();
   try {
-    const g = actx.createGain(), s = actx.createBufferSource(), off = music.off % music.buf.duration;
-    g.gain.value = musicVol(); g.connect(musicOut());
+    const g = actx.createGain(), s = actx.createBufferSource(), off = music.off % music.buf.duration, t = actx.currentTime;
+    // it comes in over a tenth of a second: started at full level in the middle of the waveform it clicked
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(musicVol(), t + MUSIC_FADE); g.connect(musicOut());
     s.buffer = music.buf; s.connect(g);
     s.onended = () => { if (s === music.src) musicEnded(); };
     s.start(0, off);
@@ -332,8 +343,14 @@ function musicPause() {
   music.src = null;
   let at = 0;
   try { at = music.ctx.currentTime - music.t0; } catch { /* */ }
-  try { s.onended = null; s.stop(); } catch { /* */ }
-  try { music.gain.disconnect(); } catch { /* */ }
+  // fades out instead of stopping dead in the middle of the waveform (that clicked), then leaves the graph
+  const g = music.gain;
+  try {
+    const t = music.ctx.currentTime;
+    g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t); g.gain.linearRampToValueAtTime(0, t + MUSIC_FADE);
+    s.onended = () => { try { g.disconnect(); } catch { /* */ } };
+    s.stop(t + MUSIC_FADE + 0.02);
+  } catch { try { s.onended = null; s.stop(); g.disconnect(); } catch { /* */ } }
   music.gain = null;
   if (at >= music.buf.duration - 0.05) musicEnded(); else music.off = at;
 }
