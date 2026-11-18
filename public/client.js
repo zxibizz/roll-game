@@ -3067,6 +3067,7 @@ function frame(t) {
     update(dt);
     draw();
     watchFrames(t - (watchFrames.prev ?? t), performance.now() - t0);
+    matchEdge(t);
     watchFrames.prev = t;
   } catch (e) {
     console.error(e);
@@ -3091,6 +3092,18 @@ function watchFrames(gap, work) {
   if (!slow || quality <= Q_MIN) return;
   qBefore = { quality, gap: avg };
   quality = Math.max(Q_MIN, quality * Q_STEP); qWant = true;
+}
+// On an iPhone the game kept on the home screen can get a strip at the bottom that no page can draw in (an iOS bug,
+// WebKit 301994): the system paints it in the page's background colour. So the background follows the grass of the
+// biome under the ball, and the strip reads as more of the road rather than a black cut-out.
+let edgeAt = 0, edgeColor = '';
+function matchEdge(t) {
+  if (t - edgeAt < 500) return;
+  edgeAt = t;
+  const c = pal('grass', -4);
+  if (c === edgeColor) return;
+  edgeColor = c;
+  document.documentElement.style.background = c; document.body.style.background = c;
 }
 function relayout() { resize(); follow(); hudStar = null; }
 
