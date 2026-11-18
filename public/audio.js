@@ -104,8 +104,14 @@ const out = () => bus || actx.destination;
 // a note: attack a, decay until dur; `to` — where the pitch glides; lp — a low-pass filter for softer saws and squares
 // pan: -1 left … 1 right, where the thing happens
 function panned(node, pan) {
-  if (!pan || !actx.createStereoPanner) { node.connect(out()); return; }
+  if (!pan || !actx.createStereoPanner) { node.connect(out()); return null; }
   const p = actx.createStereoPanner(); p.pan.value = clamp(pan, -1, 1); node.connect(p); p.connect(out());
+  return p;
+}
+// A sound that has played out is taken out of the graph at once. Left connected, every one of them stayed there until
+// the garbage collector got to it, and a run makes thousands (Safari is known to keep such nodes around).
+function unplug(src, ...nodes) {
+  src.onended = () => { for (const n of [src, ...nodes]) if (n) try { n.disconnect(); } catch { /* */ } };
 }
 function note(f, { type = 'sine', vol = 0.2, a = 0.004, dur = 0.2, delay = 0, to = 0, lp = 0, detune = 0, pan = 0 } = {}) {
   if (!canSound()) return;
@@ -115,9 +121,9 @@ function note(f, { type = 'sine', vol = 0.2, a = 0.004, dur = 0.2, delay = 0, to
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(vol * gainOf(), t + Math.min(a, dur * 0.9));
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  let src = o;
-  if (lp) { const fl = actx.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = lp; o.connect(fl); src = fl; }
-  src.connect(g); panned(g, pan);
+  let src = o, fl = null;
+  if (lp) { fl = actx.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = lp; o.connect(fl); src = fl; }
+  src.connect(g); unplug(o, fl, g, panned(g, pan));
   o.start(t); o.stop(t + dur + 0.05);
 }
 let noiseBuf = null;
@@ -139,7 +145,7 @@ function burst({ type = 'lowpass', f0 = 800, f1 = 0, q = 0.7, vol = 0.3, a = 0.0
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(vol * gainOf(), t + Math.min(a, dur * 0.9));
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  s.connect(fl); fl.connect(g); panned(g, pan);
+  s.connect(fl); fl.connect(g); unplug(s, fl, g, panned(g, pan));
   s.start(t, Math.random() * 1.5); s.stop(t + dur + 0.05);
 }
 const semi = (f, n) => f * Math.pow(2, n / 12);
@@ -157,17 +163,22 @@ function knock(k, { f = 260, pan = 0, delay = 0 } = {}) {
 // ---- the hum of the rolling ball: noise through a low-pass filter, louder and brighter with the speed ----
 let hum = null;
 export function setHum(speed, onGround) {   // speed 0..1 of the top speed
-  if (!canSound() || document.hidden) { if (hum) { try { hum.g.gain.value = 0; } catch { /* */ } } return; }
+  if (!canSound() || document.hidden) { if (hum) { try { hum.g.gain.value = 0; } catch { /* */ } hum.k = -1; } return; }
   if (!hum || hum.ctx !== actx) {
     try {
       const s = actx.createBufferSource(), fl = actx.createBiquadFilter(), g = actx.createGain();
       s.buffer = noise(); s.loop = true; fl.type = 'lowpass'; fl.Q.value = 0.8; g.gain.value = 0;
       s.connect(fl); fl.connect(g); g.connect(out()); s.start();
-      hum = { ctx: actx, s, fl, g };
+      hum = { ctx: actx, s, fl, g, k: -1, vol: -1 };
     } catch { hum = null; return; }
   }
+  // called every frame, but the sound is only told when it should really change: every call added two events to
+  // the parameters' timelines, a hundred and twenty a second for the whole run
   const t = actx.currentTime, k = onGround ? clamp(speed, 0, 1) : 0;
-  hum.g.gain.setTargetAtTime(k > 0 ? (0.05 + 0.13 * k) * gainOf() : 0, t, k > 0 ? 0.08 : 0.03);
+  const vol = gainOf();
+  if (Math.abs(k - hum.k) < 0.02 && (k > 0) === (hum.k > 0) && vol === hum.vol) return;
+  hum.k = k; hum.vol = vol;
+  hum.g.gain.setTargetAtTime(k > 0 ? (0.05 + 0.13 * k) * vol : 0, t, k > 0 ? 0.08 : 0.03);
   hum.fl.frequency.setTargetAtTime(160 + 520 * k, t, 0.1);
 }
 

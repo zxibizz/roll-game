@@ -71,14 +71,28 @@ let shake = 0, squash = 0, hitStop = 0, count = 0, beatBest = false, overAnim = 
 // and pulled back by a spring; zoom — a short punch of the view; rush — a burst of speed lines; gulp — the ball
 // swells for a moment as it takes something; tint — the screen's edges flash in a bonus's colour; homing — stars
 // flying from the ball up to the counter.
-let squashV = 0, gulp = 0, zoom = 0, rush = 0, tint = null, homing = [], shownStars = 0, hudStar = null;
+let squashV = 0, gulp = 0, zoom = 0, rush = 0, tint = null, homing = [], shownStars = 0, hudStar = null, shownScore = -1;
 const kick = { x: 0, y: 0, vx: 0, vy: 0 };
 let passRow = -1, whooshAt = 0, rollAcc = 0, nearN = 0;
 
 // ---- Colours ----
 let FOG = [5, 6, 13];
+// A frame asks for a few thousand colours, mostly the same ones: building a new string for each made close to a
+// megabyte of garbage a frame, and the phone stopped now and then to clear it up. So a colour is made once and kept,
+// rounded to a whole degree / per cent and fog to 1/64 (too little to see). The store is emptied when the fog colour
+// changes (between biomes) or when it gets big.
+const HSL = new Map();
+let hslFog = null;
 function hsl(h, s, l, fog = 0) {
-  h = ((h % 360) + 360) % 360; s /= 100; l /= 100;
+  if (hslFog !== FOG || HSL.size > 6000) { HSL.clear(); hslFog = FOG; }
+  const hq = ((Math.round(h) % 360) + 360) % 360, sq = clamp(Math.round(s), 0, 100), lq = clamp(Math.round(l), 0, 100), fq = Math.round(clamp(fog, 0, 1) * 64);
+  const key = ((hq * 101 + sq) * 101 + lq) * 65 + fq;
+  let c = HSL.get(key);
+  if (c === undefined) { c = makeHsl(hq, sq, lq, fq / 64); HSL.set(key, c); }
+  return c;
+}
+function makeHsl(h, s, l, fog) {
+  s /= 100; l /= 100;
   const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
   const c = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
   const rgb = [c(0), c(8), c(4)].map((v, i) => Math.round(v * 255 * (1 - fog) + FOG[i] * fog));
@@ -276,8 +290,11 @@ const theme = {
 };
 
 // blend the palette for the current distance; the HUD turns light once the sky is dark
+let phaseK = -1;
 function setPhase(z) {
-  P = paletteAt(phaseAt(z));
+  // the same inside a biome, and 64 steps across a change of biome: the colours made from it stay valid that long
+  const k = Math.round(phaseAt(z) * 64) / 64;
+  if (k !== phaseK) { phaseK = k; P = paletteAt(k); }
   FOG = P.fog;
   const dark = P.hud < 0.5;
   if (dark !== hudDark) {
@@ -301,7 +318,7 @@ function resetView() {
   parts = []; rings = []; nudge = null; lean = 0; wasOff = 0; flyLift = world.ball.fly ? 1.85 : 0; flyShow = world.ball.fly ? 1 : 0; shake = 0; squash = 0; hitStop = 0; beatBest = false;
   squashV = 0; gulp = 0; zoom = 0; rush = 0; tint = null; homing = []; passRow = -1; rollAcc = 0; Object.assign(kick, { x: 0, y: 0, vx: 0, vy: 0 });
   shownStars = world.stars; muffleMusic(false);
-  $score.textContent = world.score; $score.style.color = ''; $starN.textContent = world.stars;
+  $score.textContent = shownScore = world.score; $score.style.color = ''; $starN.textContent = world.stars;
   follow();
 }
 
@@ -409,18 +426,33 @@ function spray(n, at, make) {
 }
 const rnd = (a, b) => a + Math.random() * (b - a);
 
-function popEl(el) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
+// A counter swells for a moment. Played by the animations API: restarting a CSS animation needed a forced layout of
+// the page in the middle of the frame, for every star.
+const POPS = {
+  score: [[{ transform: 'none' }, { transform: 'scale(1.3)', offset: 0.3 }, { transform: 'none' }], 350],
+  stars: [[{ transform: 'none' }, { transform: 'scale(1.5) rotate(18deg)', offset: 0.4 }, { transform: 'none' }], 250],
+};
+const $hudStarIcon = $hudStars.querySelector('svg');
+function popEl(el) {
+  const [frames, ms] = POPS[el === $score ? 'score' : 'stars'], target = el === $score ? el : $hudStarIcon;
+  if (target && target.animate) target.animate(frames, { duration: ms });
+}
 function kickCam(x, y) { kick.vx += x * dpr; kick.vy += y * dpr; }   // px/s on a 1x screen; positive y is down
 function shownStar() {   // one more digit moves the icon: its place is looked up again
-  shownStars = Math.min(world.stars, shownStars + 1); $starN.textContent = shownStars; popEl($hudStars); hudStar = null;
+  const was = String(shownStars).length;
+  shownStars = Math.min(world.stars, shownStars + 1); $starN.textContent = shownStars; popEl($hudStars);
+  if (String(shownStars).length !== was) hudStar = null;
 }
 function flushHoming() { for (const h of homing) shownStar(); homing = []; }
 // where the counter's star is on the canvas; null while the HUD is not on screen
 function hudStarAt() {
   if (hudStar) return hudStar;
-  const r = $hudStars.querySelector('svg').getBoundingClientRect();
+  const r = $hudStarIcon.getBoundingClientRect();
   if (!r.width) return null;
-  return (hudStar = { x: (r.left + r.width / 2) * dpr, y: (r.top + r.height / 2) * dpr, r: r.height / 2 * dpr });
+  const at = { x: (r.left + r.width / 2) * dpr, y: (r.top + r.height / 2) * dpr, r: r.height / 2 * dpr };
+  // measured in the middle of its swell it is too big: use it, but measure again next time
+  if (!($hudStarIcon.getAnimations && $hudStarIcon.getAnimations().length)) hudStar = at;
+  return at;
 }
 
 function onEvent(e) {
@@ -550,10 +582,11 @@ function update(dt) {
     if (parts.length < 120) spray(1, { x: b.x + rnd(-0.25, 0.25), y: b.y + rnd(-0.1, 0.1), z: b.z - 0.1 }, () => ({ vx: rnd(-0.4, 0.4), vy: rnd(-0.6, 0.2), vz: world.v * 0.25, g: 0.5, life: rnd(0.4, 0.8), size: rnd(0.01, 0.02), color: Math.random() < 0.5 ? '#fff3b0' : '#ffffff' }));
   }
   const events = world.events.splice(0);
+  if (perfLog) perfEvs = events;
   for (const e of events) onEvent(e);
   follow();
   if (world.state === 'run') {
-    $score.textContent = world.score;
+    if (world.score !== shownScore) { shownScore = world.score; $score.textContent = shownScore; }   // not every frame: the HUD is laid out anew each time
     if (!beatBest && save.best > 0 && world.score > save.best) {   // a new record, right now: confetti
       beatBest = true; $score.style.color = '#ffc107'; sfx.best(); popEl($score);
       const C = ['#ffd84a', '#ff6fa5', '#4fb4ff', '#7ee07e', '#ffffff'];
@@ -614,10 +647,16 @@ let W, H, dpr, f, cy, horY, stars;
 const CP = Math.cos(PITCH), SP = Math.sin(PITCH);
 const BALL_ZC = CAM_BACK * CP + CAM_H * SP;   // depth of the ball's contact point in camera space
 
+// A frame projects two to three and a half thousand points. Each answer is one of PROJ_N arrays taken in turn, not a new
+// one (less garbage, fewer stops to clear it up): it stays good for more than two frames' worth of calls — plenty, as
+// nothing keeps one longer than the drawing of a row. Copy it to keep it for longer.
+const PROJ_N = 8192, PROJ = Array.from({ length: PROJ_N }, () => [0, 0, 0]);
+let projI = 0;
 function proj(x, y, z) {
   const dx = x + world.offAt(z) - camX, dy = y - camY - CAM_H, dz = z - camZ;   // x is across the road
-  const zc = dz * CP - dy * SP, yc = dy * CP + dz * SP;
-  return [W / 2 + f * dx / zc, cy - f * yc / zc, f / zc];
+  const zc = dz * CP - dy * SP, yc = dy * CP + dz * SP, p = PROJ[projI = (projI + 1) & (PROJ_N - 1)];
+  p[0] = W / 2 + f * dx / zc; p[1] = cy - f * yc / zc; p[2] = f / zc;
+  return p;
 }
 
 // The canvas has at most MAX_PX pixels: a tablet at its full density costs two to three times a phone's frame for a
@@ -893,7 +932,7 @@ function drawRow(rz, part = 'all') {
   }
   }
   if (part === 'ground') return;
-  const order = [...Array(LANES).keys()].sort((a, b) => Math.abs(laneX(b) - (camX - world.offAt(rz))) - Math.abs(laneX(a) - (camX - world.offAt(rz))));
+  const order = laneOrder(camX - world.offAt(rz));
   const camL = camX - world.offAt(rz + 0.5);   // the camera's place across this row
   for (const l of order) if (row.ramp[l]) drawRamp(l, rz, zA, zB, hA, hB, camL, fog, px);
   // obstacles: the same box for hitting, drawn as whatever fits the theme; a full wall is all one kind
@@ -1096,35 +1135,45 @@ function drawPit(rz, l, row, prev, next, fog, px) {
 
 // grass tufts and small things on plain ground near the camera, by biome: flowers; fallen leaves; leaves and glowing
 // toadstools; flowers and sparkles; little lamps (and no grass); glowing spores
+// lanes from the farthest from the camera to the nearest, so nearer things are drawn over farther ones (one array, reused)
+const ORDER = [...Array(LANES).keys()];
+let orderAt = 0;
+const byDist = (a, b) => Math.abs(laneX(b) - orderAt) - Math.abs(laneX(a) - orderAt) || a - b;   // ties: always the same way
+function laneOrder(at) { orderAt = at; return ORDER.sort(byDist); }   // one shared array: never call while one row's lanes are being gone through
+
+// grass blades (x, y, height, flat) and little things (point, kind) of a row: arrays kept from row to row
+const BLADES = [], BITS = [];
 function drawDecor(rz, row, zA, px, fog, theme) {
-  const blades = [], bits = [];
+  const blades = BLADES, bits = BITS;
+  blades.length = 0; bits.length = 0;
   for (let l = 0; l < LANES; l++) {
     if (!row.road[l] || !row.floor[l] || row.block[l] || row.low[l] || row.ramp[l]) continue;
     for (let k = 0; theme !== 'tech' && theme !== 'winter' && k < 4; k++) {   // no grass on steel or snow
       const z = rz + 0.08 + hash(rz, l, 2 * k + 1) * 0.84;
       if (z < zA) continue;
       const x = l - HALF + 0.08 + hash(rz, l, 2 * k) * 0.84, p = proj(x, world.hAt(z), z);
-      blades.push([p[0], p[1], p[2] * 0.06]);
+      blades.push(p[0], p[1], p[2] * 0.06);
     }
     const n = hash(rz, l, 99) < 0.3 ? 1 : hash(rz, l, 99) < 0.45 ? 2 : 0;
     for (let k = 0; k < n; k++) {
       const z = rz + 0.12 + hash(rz, l, 50 + k) * 0.76;
       if (z < zA) continue;
       const x = l - HALF + 0.12 + hash(rz, l, 60 + k) * 0.76;
-      bits.push([proj(x, world.hAt(z) + 0.02, z), hash(rz, l, 70 + k)]);
+      bits.push(proj(x, world.hAt(z) + 0.02, z), hash(rz, l, 70 + k));
     }
   }
   if (blades.length) {
     ctx.strokeStyle = pal('tuft', 0, fog); ctx.lineWidth = Math.max(1, px * 0.01); ctx.globalAlpha = 0.75 * (1 - fog);
     ctx.beginPath();
-    for (const [x, y, h] of blades) {
+    for (let i = 0; i < blades.length; i += 3) {
+      const x = blades[i], y = blades[i + 1], h = blades[i + 2];
       ctx.moveTo(x - h * 0.35, y - h); ctx.lineTo(x, y);
       ctx.lineTo(x + h * 0.05, y - h * 1.2); ctx.moveTo(x, y); ctx.lineTo(x + h * 0.4, y - h * 0.9);
     }
     ctx.stroke(); ctx.globalAlpha = 1;
   }
-  for (const [p, h] of bits) {
-    const r = p[2] * 0.03;
+  for (let i = 0; i < bits.length; i += 2) {
+    const p = bits[i], h = bits[i + 1], r = p[2] * 0.03;
     if (theme === 'farm' || (theme === 'magic' && h < 0.6)) drawFlower(p, r, FLOWERS[Math.floor(h * FLOWERS.length) % FLOWERS.length], fog);
     else if (theme === 'magic') glowBit(p, r * 0.7, [h < 0.8 ? 50 : 320, 95, 80], fog, false);   // a sparkle
     else if (theme === 'tech') glowBit(p, r * 0.6, h < 0.5 ? [185, 95, 60] : [35, 95, 60], fog, false);   // a little lamp
@@ -3085,7 +3134,11 @@ addEventListener('keydown', (e) => {
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 addEventListener('pagehide', saveRun);
 
-let last = performance.now();
+let last = performance.now(), stillSince = null, stillDirty = false;
+// ?perf in the address: every frame's times (and the world's events in it) go into window.__frames for a script to read;
+// __frames.auto = true lets the bot play
+const perfLog = new URLSearchParams(location.search).has('perf') ? (window.__frames = []) : null;
+let perfEvs = [];
 // The next frame is requested first: an error in one frame must not stop the game for good.
 function frame(t) {
   requestAnimationFrame(frame);
@@ -3094,15 +3147,55 @@ function frame(t) {
   try {
     if (qWant) { qWant = false; relayout(); }   // a lower resolution starts with a fresh frame, never mid-frame
     checkSize(t);
+    // Under the pause and the results the scene stands still behind a blur: it is drawn a few more times and then
+    // left alone (the phone has to blur it anew for every new picture; it also stays cooler, and a hot phone slows down)
+    stillSince = mode === 'pause' || mode === 'over' ? stillSince ?? t : null;
+    const still = stillSince !== null && t - stillSince > (mode === 'over' ? 1300 : 80) && !stillDirty;
     const t0 = performance.now();
+    if (perfLog && perfLog.auto && mode === 'play') world.auto();
+    perfEvs = [];
     update(dt);
-    draw();
+    const t1 = performance.now();
+    if (!still) { draw(); stillDirty = false; }
+    if (perfLog) {
+      perfLog.push({ gap: t - (watchFrames.prev ?? t), upd: t1 - t0, drw: performance.now() - t1, evs: perfEvs, at: t });
+      if (perfLog.length > 3600) perfLog.splice(0, 600);
+      if (!still) drawPerf(t);
+    }
     watchFrames(t - (watchFrames.prev ?? t), performance.now() - t0);
     matchEdge(t);
     watchFrames.prev = t;
   } catch (e) {
     console.error(e);
   }
+}
+
+// ?perf on a phone: a strip at the bottom with the last two seconds of frames (a bar each: the gap since the last one;
+// green under 20 ms, yellow under 34, red above; the dark part is the script's own work), and the worst frame of the
+// last ten seconds with what happened in it — to be read off a screenshot.
+function drawPerf(now) {
+  const n = 120, from = Math.max(0, perfLog.length - n), bw = W / n, base = H - 4 * dpr, k = 2 * dpr;   // 2 px a millisecond
+  ctx.save(); ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(0, base - 70 * k, W, 70 * k + 4 * dpr);
+  for (let i = from; i < perfLog.length; i++) {
+    const fr = perfLog[i], x = (i - from) * bw;
+    ctx.fillStyle = fr.gap < 20 ? '#3c3' : fr.gap < 34 ? '#ec3' : '#e33'; ctx.fillRect(x, base - Math.min(70, fr.gap) * k, bw - 1, Math.min(70, fr.gap) * k);
+    ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(x, base - Math.min(70, fr.upd + fr.drw) * k, bw - 1, Math.min(70, fr.upd + fr.drw) * k);
+  }
+  let worst = null;
+  const gaps = [];
+  for (let i = perfLog.length - 1; i >= 0 && now - perfLog[i].at < 10000; i--) {
+    gaps.push(perfLog[i].gap);
+    if (!worst || perfLog[i].gap > worst.gap) worst = { ...perfLog[i], prev: perfLog[i - 1] };
+  }
+  gaps.sort((a, b) => a - b);
+  const q = (p) => (gaps.length ? gaps[Math.min(gaps.length - 1, Math.floor(p * gaps.length))].toFixed(0) : '-');
+  ctx.fillStyle = '#fff'; ctx.font = `${11 * dpr}px system-ui, sans-serif`; ctx.textBaseline = 'top';
+  ctx.fillText(`v${VERSION} ${W}x${H} q${quality.toFixed(2)}  10s: p50 ${q(0.5)} p95 ${q(0.95)} p99 ${q(0.99)} max ${q(1)} ms`, 4 * dpr, base - 70 * k + 3 * dpr);
+  if (worst) {
+    const ev = [...(worst.prev ? worst.prev.evs : []), '|', ...worst.evs].join(' ');
+    ctx.fillText(`worst ${worst.gap.toFixed(0)} ms: js ${(worst.upd + worst.drw).toFixed(1)}; events ${ev}`, 4 * dpr, base - 70 * k + 17 * dpr);
+  }
+  ctx.restore();
 }
 
 // Slow frames during a run lower the resolution a step (to Q_MIN at most) for the rest of the visit. Only when the
@@ -3136,7 +3229,7 @@ function matchEdge(t) {
   edgeColor = c;
   document.documentElement.style.background = c; document.body.style.background = c;
 }
-function relayout() { resize(); follow(); hudStar = null; }
+function relayout() { resize(); follow(); hudStar = null; stillDirty = true; }   // a new size clears the canvas
 
 // A new version downloads in the background and waits for the player: the home screen shows an update button, and
 // a tap lets it take over and reloads the page. The game also asks for a new version itself — on start, when it comes
@@ -3183,7 +3276,7 @@ initAudio(save);
 addEventListener('resize', relayout);
 if (window.visualViewport) visualViewport.addEventListener('resize', sizeNow);
 addEventListener('pageshow', sizeNow);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(sizeNow, 300); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { stillDirty = true; setTimeout(sizeNow, 300); } });   // the canvas may have been dropped meanwhile
 addEventListener('scroll', () => { if (tall && (scrollX || scrollY)) scrollTo(0, 0); });   // a page taller than its window must not move
 resize();
 if (!restoreRun()) goHome();
@@ -3197,7 +3290,7 @@ window.__shot = (seed, z) => {
     world.auto(); world.step(1 / 60); world.events.length = 0;
   }
   follow();
-  $hud.hidden = false; $score.textContent = world.score; $starN.textContent = world.stars; draw();
+  $hud.hidden = false; $score.textContent = shownScore = world.score; $starN.textContent = world.stars; draw();
 };
 window.__world = () => world;
 window.__update = () => { swChecked = -1e9; checkUpdate(); };
