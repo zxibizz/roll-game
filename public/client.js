@@ -618,9 +618,17 @@ function proj(x, y, z) {
   return [W / 2 + f * dx / zc, cy - f * yc / zc, f / zc];
 }
 
+// The canvas has at most MAX_PX pixels: a tablet at its full density costs two to three times a phone's frame for a
+// picture one hardly sees as sharper. On top of that `quality` scales it down step by step while frames are slow
+// (see watchFrames), for this visit only. The page's buttons and counters grow with the screen (`ui`), as long as
+// the tallest card (about 330 px with a new record and a new ball) still fits under the top bar.
+const MAX_PX = 2.5e6, Q_MIN = 0.6;
+let quality = 1, ui = 1;
 function resize() {
   fxAt = null;   // the pause button may have moved: find it again
-  dpr = Math.min(2, devicePixelRatio || 1);
+  dpr = Math.min(2, devicePixelRatio || 1, Math.sqrt(MAX_PX / (innerWidth * innerHeight))) * quality;
+  ui = clamp(Math.min(Math.min(innerWidth, innerHeight) / 480, (innerHeight - 40) / 420), 1, 1.5);
+  document.documentElement.style.setProperty('--ui', ui);
   W = cv.width = Math.round(innerWidth * dpr);
   H = cv.height = Math.round(innerHeight * dpr);
   f = Math.min(W * 1.2, H * 0.9);
@@ -2782,16 +2790,16 @@ function drawEffects() {
   const fx = world.fx, on = [];
   if (!fxAt) {
     const r = $('btnPause').getBoundingClientRect();
-    if (r.width) fxAt = { x: r.left + r.width / 2, y: r.bottom + 14 + 21 };
+    if (r.width) fxAt = { x: r.left + r.width / 2, y: r.bottom + (14 + 21) * ui };
   }
-  const ax = fxAt ? fxAt.x : 36, ay = fxAt ? fxAt.y : 112;
+  const ax = fxAt ? fxAt.x : 36 * ui, ay = fxAt ? fxAt.y : 112 * ui;
   if (world.ball.fly) on.push(['fly', fx.fly / FLY_T]);
   if (fx.magnet > 0) on.push(['magnet', fx.magnet / MAGNET_T]);
   if (fx.shield > 0) on.push(['shield', fx.shield / SHIELD_T]);
   on.forEach(([kind, left], i) => {
-    const r = 21 * dpr, x = (ax + i * 52) * dpr, y = ay * dpr, c = BONUS_C[kind];
+    const r = 21 * ui * dpr, x = (ax + i * 52 * ui) * dpr, y = ay * dpr, c = BONUS_C[kind];
     ctx.fillStyle = 'rgba(20,30,60,.35)'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
-    ctx.strokeStyle = `rgb(${c})`; ctx.lineWidth = 3.5 * dpr; ctx.lineCap = 'round';
+    ctx.strokeStyle = `rgb(${c})`; ctx.lineWidth = 3.5 * ui * dpr; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * clamp(left, 0.001, 1)); ctx.stroke(); ctx.lineCap = 'butt';
     bonusIcon(kind, x, y, r * 0.72);
   });
@@ -2939,7 +2947,9 @@ function bigNumber(n, size, alpha) {
 // down — out of the air straight to the ground. It counts as soon as the finger has gone SWIPE of the screen's
 // shorter side, without waiting for it to lift; the rest of the touch does nothing. A tap — a touch that lifts within
 // TAP_T without having become a swipe — is a jump too, the same as a swipe up.
-const SWIPE = 0.06, SWIPE_MIN = 18;   // SWIPE: of the shorter side of the screen; SWIPE_MIN: px, the least on any screen
+// SWIPE: of the shorter side of the screen; SWIPE_MIN, SWIPE_MAX: px, the least and the most on any screen — on a
+// tablet 6 % of the screen was a finger's travel of about 9 mm, more than twice a phone's
+const SWIPE = 0.06, SWIPE_MIN = 18, SWIPE_MAX = 28;
 const TAP_T = 300;                    // ms: held longer than this and let go in place, a touch does nothing
 let dragId = null, dragX = 0, dragY = 0, dragDone = false, dragAt = 0;
 // during the 3-2-1 after a pause a swipe already counts: the ball sets off towards the chosen lane or with a jump
@@ -2958,7 +2968,7 @@ addEventListener('pointerdown', (e) => {
 addEventListener('pointermove', (e) => {
   if (e.pointerId !== dragId || dragDone) return;
   const dx = e.clientX - dragX, dy = e.clientY - dragY;
-  if (Math.max(Math.abs(dx), Math.abs(dy)) < Math.max(SWIPE_MIN, Math.min(innerWidth, innerHeight) * SWIPE)) return;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < clamp(Math.min(innerWidth, innerHeight) * SWIPE, SWIPE_MIN, SWIPE_MAX)) return;
   dragDone = true;
   if (Math.abs(dx) >= Math.abs(dy)) act(Math.sign(dx), 0); else act(0, Math.sign(dy));
 });
@@ -3050,12 +3060,37 @@ function frame(t) {
   const dt = clamp((t - last) / 1000, 0, 1 / 20);
   last = t;
   try {
+    if (qWant) { qWant = false; relayout(); }   // a lower resolution starts with a fresh frame, never mid-frame
+    const t0 = performance.now();
     update(dt);
     draw();
+    watchFrames(t - (watchFrames.prev ?? t), performance.now() - t0);
+    watchFrames.prev = t;
   } catch (e) {
     console.error(e);
   }
 }
+
+// Slow frames during a run lower the resolution a step (to Q_MIN at most) for the rest of the visit. Only when the
+// script's own work is heavy too: a screen held to 30 frames a second (a phone saving its battery) with cheap frames
+// is left alone. A step that did not make the frames at least a tenth quicker is taken back, and then nothing is
+// tried any more: the time goes somewhere the resolution does not help. Never back up otherwise: a picture going
+// sharp and soft by turns is worse than either.
+const Q_WINDOW = 90, Q_SLOW = 22, Q_DRAW = 9, Q_STEP = 0.85, Q_GAIN = 0.9;
+let qFrames = 0, qGap = 0, qWork = 0, qWant = false, qDone = false, qBefore = null;   // qBefore: { quality, gap } of the last step
+function watchFrames(gap, work) {
+  if (qDone || mode !== 'play' || document.hidden || gap <= 0 || gap > 200) { qFrames = qGap = qWork = 0; return; }
+  qFrames++; qGap += gap; qWork += work;
+  if (qFrames < Q_WINDOW) return;
+  const avg = qGap / qFrames, slow = avg > Q_SLOW && qWork / qFrames > Q_DRAW;
+  qFrames = qGap = qWork = 0;
+  if (qBefore && avg > qBefore.gap * Q_GAIN) { quality = qBefore.quality; qDone = true; qWant = true; return; }   // it did not help
+  qBefore = null;
+  if (!slow || quality <= Q_MIN) return;
+  qBefore = { quality, gap: avg };
+  quality = Math.max(Q_MIN, quality * Q_STEP); qWant = true;
+}
+function relayout() { resize(); follow(); hudStar = null; }
 
 // A new version takes over as soon as it is downloaded: reload right away on the home screen, otherwise when the
 // player gets there (a stored run belongs to the version that made it).
@@ -3070,7 +3105,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 
 initAudio(save);
-addEventListener('resize', () => { resize(); follow(); hudStar = null; });
+addEventListener('resize', relayout);
 resize();
 if (!restoreRun()) goHome();
 requestAnimationFrame(frame);
@@ -3086,6 +3121,8 @@ window.__shot = (seed, z) => {
   $hud.hidden = false; $score.textContent = world.score; $starN.textContent = world.stars; draw();
 };
 window.__world = () => world;
+window.__res = () => ({ dpr, quality, ui, W, H, qDone });
+window.__watch = (gap, work) => { watchFrames(gap, work); if (qWant) { qWant = false; relayout(); } };
 window.__lean = (v) => { lean = v; draw(); const b = world.ball; return proj(b.x, b.y, b.z).slice(0, 2); };
 window.__draw = draw;
 window.__follow = follow;

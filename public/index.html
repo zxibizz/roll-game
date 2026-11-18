@@ -123,8 +123,15 @@
   .sw[aria-checked="true"]::after { transform: translateX(22px); }
   .sl .gap { flex: 1; }
 
+  /* a tablet: the counters, the top bar and the cards grow with the screen (--ui, 1 to 1.5, set by the script);
+     the language list stays as it is, it is tall already */
+  :root { --ui: 1; }
+  #hud { transform: scale(var(--ui)); transform-origin: 0 0; right: auto; width: calc(100% / var(--ui)); box-sizing: border-box;
+    padding: 10px calc(14px + var(--right) / var(--ui)) 10px calc(14px + var(--left) / var(--ui)); }   /* the notch is not scaled */
+  .bar { align-self: center; width: calc(100% / var(--ui)); scale: var(--ui); transform-origin: 50% 0; }
+  .screen:not(#langs) .card { scale: var(--ui); }
   /* first runs: a hand shows the swipe */
-  #hint { position: fixed; left: 50%; top: 62%; font-size: 64px; color: #fff; pointer-events: none;
+  #hint { position: fixed; left: 50%; top: 62%; font-size: calc(64px * var(--ui)); color: #fff; pointer-events: none;
     filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .35)); animation: swipe 1.6s ease-in-out infinite; }
   #hint.up { animation: swipe-up .5s ease-out infinite; }
   @keyframes swipe-up { 0% { transform: translate(-50%, 40%); } 100% { transform: translate(-50%, -90%); } }
