@@ -170,7 +170,14 @@ export const sfx = {
     note(f, { type: 'triangle', vol: 0.2, dur: 0.22, lp: 2400 });
     note(f * 2, { vol: 0.07, dur: 0.3, delay: 0.015 });
   },
-  move() { burst({ type: 'bandpass', f0: 500, f1: 900, q: 1, vol: 0.16, a: 0.02, dur: 0.1 }); },   // a lane change: a soft swish
+  move() {   // a lane change: something heavy starts rolling sideways
+    burst({ type: 'bandpass', f0: 260, f1: 620, q: 0.9, vol: 0.3, a: 0.03, dur: 0.16 });
+    note(95, { vol: 0.12, dur: 0.14, to: 130 });
+  },
+  settle() {   // and drops into its lane
+    note(105, { vol: 0.3, dur: 0.12, to: 58 });
+    burst({ f0: 380, f1: 110, vol: 0.28, dur: 0.09 });
+  },
   bump() { note(150, { vol: 0.25, dur: 0.1, to: 90 }); },                                          // no lane there
   drop() { burst({ type: 'bandpass', f0: 1000, f1: 300, q: 1, vol: 0.3, a: 0.01, dur: 0.12 }); },   // thrown down out of the air
   jump() {
@@ -203,7 +210,7 @@ export const sfx = {
 
 // ---- vibration: Android only, the web cannot vibrate an iPhone ----
 const CAN_VIBRATE = !IOS && typeof navigator.vibrate === 'function';
-const HAPTIC = { land: 10, section: 14, crash: [60, 40, 120], fall: [20, 60, 80], best: [12, 50, 12, 50, 50] };
+const HAPTIC = { tick: 6, land: 10, section: 14, crash: [60, 40, 120], fall: [20, 60, 80], best: [12, 50, 12, 50, 50] };
 export const canHaptic = () => CAN_VIBRATE && matchMedia('(pointer: coarse)').matches;
 export function haptic(kind) {
   if (!canHaptic() || !cfg.haptic || document.hidden) return;

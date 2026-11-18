@@ -38,15 +38,17 @@ test('every row keeps its goal lane open', () => {
 });
 
 test('jump set pieces always have a ramp on the path lane', () => {
-  const t = new Track(7);
   let pieces = 0;
-  for (let i = 1; i < SEC_ROWS * 25; i++) {
-    const r = t.get(i);
-    if (!r.ramp.some(Boolean)) continue;
-    pieces++;
-    assert.ok(r.ramp[r.goal], `row ${i}: no ramp on lane ${r.goal}`);
+  for (let seed = 1; seed <= 8; seed++) {
+    const t = new Track(seed);
+    for (let i = 1; i < SEC_ROWS * 25; i++) {
+      const r = t.get(i);
+      if (!r.ramp.some(Boolean)) continue;
+      pieces++;
+      assert.ok(r.ramp[r.goal], `seed ${seed} row ${i}: no ramp on lane ${r.goal}`);
+    }
   }
-  assert.ok(pieces > 3);
+  assert.ok(pieces > 20);
 });
 
 test('the same seed builds the same track', () => {
@@ -343,8 +345,8 @@ test('a swipe moves the ball exactly one lane over, and two quick ones two lanes
   assert.equal(w.state, 'run');
 });
 
-test('a lane change takes about a sixth of a second at the start and less at the top speed', () => {
-  for (const [sec, max] of [[0, 0.2], [20, 0.14]]) {
+test('a lane change takes about a fifth of a second at any speed', () => {
+  for (const [sec, max] of [[0, 0.21], [20, 0.21]]) {
     const w = new World(5);
     w.v = speedOf(sec); w.move(1);
     let t = 0;
@@ -365,8 +367,8 @@ test('a swipe towards a lane that ends before the ball would get there is refuse
         seen++;
         while (w.lane > 0 && w.move(-1));   // swipe left as far as it goes
         while (w.state === 'run' && w.ball.z < i + 6) w.step(DT);
-        // falling is fair only from the middle of lane 0, reached in time before it ended — never half-way across
-        if (w.state === 'fall') assert.equal(w.ball.x, laneX(0), `seed ${seed} row ${i} from ${back} rows back`);
+        // falling is fair only from lane 0, reached in time before it ended — never half-way across
+        if (w.state === 'fall') assert.ok(Math.abs(w.ball.x - laneX(0)) < 0.1, `seed ${seed} row ${i} from ${back} rows back: fell at ${w.ball.x.toFixed(2)}`);
       }
       break;
     }
@@ -398,8 +400,11 @@ test('swiping at random never takes the ball off the side of the road', () => {
       w.step(DT);
       if (w.state === 'fall' && !w.track.get(w.ball.fallRow).road[Math.floor(w.ball.x + LANES / 2)]) {
         // off the road: only because the lane it was in came to an end, never by crossing the edge sideways
-        assert.equal(Math.abs(w.ball.x - laneX(lane)) < 0.5, true, `seed ${seed} row ${rz}`);
-        assert.equal(w.track.get(Math.max(0, rz - 3)).road[lane], true, `seed ${seed} row ${rz}`);
+        // (a late swipe out of an ending lane may not make it: then the ball is still over where that lane was)
+        assert.equal(w.track.get(Math.max(0, rz - 3)).road[Math.floor(w.ball.x + LANES / 2)], true, `seed ${seed} row ${rz}`);
+        // and never over a lane it was let into but had not reached yet: such a swipe must be refused
+        const cell = Math.floor(w.ball.x + LANES / 2);
+        assert.ok(cell !== lane || Math.abs(w.ball.x - laneX(lane)) <= 0.1, `seed ${seed} row ${rz}: fell at ${w.ball.x.toFixed(2)} on the way to lane ${lane}`);
       }
     }
   }
@@ -647,4 +652,14 @@ test('the road narrows to three lanes and zigzags: one lane at a time, with time
     }
   }
   assert.ok(zigs >= 20 && steps >= zigs * 2, `${zigs} zigzags, ${steps} steps`);
+});
+
+test('the ball has weight in a lane change: it speeds up, is fastest about half-way and slows down into its lane', () => {
+  const w = new World(5), xs = [];
+  w.move(1);
+  for (let n = 0; n < 60; n++) { w.tick(1 / 240); xs.push(w.ball.x); }
+  const v = xs.map((x, n) => (n ? x - xs[n - 1] : x) * 240), peak = v.indexOf(Math.max(...v)), xPeak = xs[peak];
+  assert.ok(v[2] < Math.max(...v) * 0.3, 'it does not jump off at full speed');
+  assert.ok(xPeak > 0.2 && xPeak < 0.8, `fastest at ${xPeak.toFixed(2)} of the way`);
+  assert.ok(v[59] < Math.max(...v) * 0.15 && xs[59] > 0.95, `after a quarter of a second: at ${xs[59].toFixed(3)}, speed ${v[59].toFixed(2)}`);
 });

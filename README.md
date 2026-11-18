@@ -7,8 +7,7 @@ Site: `https://roll.games.bubas.cc`.
 
 - The ball rolls forward by itself along the middle of a lane. One touch is one swipe, and one swipe is one move,
   however long it is:
-  - left / right (← → / A D) — the next lane, also in the air. A lane change takes about 0.15 s at the start and
-    gets quicker with the speed;
+  - left / right (← → / A D) — the next lane, also in the air. A lane change takes about 0.2 s at any speed;
   - up (↑ / W / Space) — a jump: about 0.65 of a lane high, 0.5 s long, the same up and down a slope. A log is
     cleared by a jump started anywhere from 0.37 to 0.1 s before it. It clears a log and a short pit, not a rock or a bush. Asked for up to 0.15 s before landing, it happens on landing;
   - down (↓ / S) — out of the air straight to the ground, also off a ramp.
@@ -32,9 +31,12 @@ Site: `https://roll.games.bubas.cc`.
   to the road on its own). Its shape changes in two ways. It widens from 5 to 7 lanes and splits: the centre lane
   becomes a gap between two 3-lane roads. Or it narrows to 3 lanes and zigzags, stepping one lane sideways every
   0.6 s or more (at the fastest downhill speed) — a row of stars shows the way, and there are no obstacles on the
-  zigzag. Holes are pits with ragged edges; ramps are wooden.
-- Six biomes follow one another with the distance, blending over two sections each (`PAL`, `PHASE_AT`, `THEMES`
-  in `client.js`; fully in at sections 1.5, 3.5, 5.5, 7.5, 9.5, 11.5). Each has its own colours and sky, things on
+  zigzag. Ramps are wooden.
+- Pits: a hole with a rim of trodden earth, turf hanging over the edge, walls of earth with layers, stones and
+  roots that go down into the dark, and the shadow of the near edge inside.
+- Six biomes follow one another with the distance, three sections (144 rows) each: a biome stays as it is for most
+  of that and turns into the next one over the last three quarters of a section (`PAL`, `BIOME_LEN`, `BIOME_BLEND`,
+  `THEMES` in `client.js`). Space is reached at 720 rows. Each has its own colours and sky, things on
   the road, someone who walks across it, islands beside the road and things in the air:
 
   | Biome | On the road | Walks across | Islands | In the air, sky |
@@ -79,6 +81,10 @@ Site: `https://roll.games.bubas.cc`.
 
 ## Feel
 
+- The ball has weight. In a lane change it takes a moment to get going, is fastest about half-way and slows down
+  into its lane; meanwhile it leans (its top lags behind), stretches a little along the way, and the whole view
+  rolls half a degree with it. Arriving in the lane it lands with a thud: a small squash, dust on the far side, a
+  low sound, a tick of vibration. Turning back mid-way it stops first.
 - Landing squashes the ball, raises dust and shakes the camera a little; a crash stops the world for a moment, then
   the ball bursts into shards with a ring and a flash; a star gives a few sparks and a pop of the counter.
 - The camera follows 60 % of the ball's sideways move, more on a narrow screen, so the ball never leaves the screen

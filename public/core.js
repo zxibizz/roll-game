@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.9.0';
+export const VERSION = '0.10.0';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -40,11 +40,14 @@ const STAR_X = 0.5, STAR_Z = 0.55, STAR_Y = 0.75;
 // Steering: the ball rolls along the middle of a lane, and a swipe sends it to the next one (World.move sets the
 // target `tx` to that lane's centre). One swipe is one lane. On the way there speeding up is limited (STEER_ACC, no jerks), slowing down is
 // not; close to the target the ball settles in at STEER_K per second and never steps past it.
-const STEER_ACC = 150, STEER_K = 40;
+// The ball has weight: it takes a moment to get going (STEER_ACC) and rolls into its lane slowing down from
+// about a third of a lane away (STEER_K).
+const STEER_ACC = 110, STEER_K = 26;
 export function steer(b, L, dt) {
   const d = b.tx - b.x, want = Math.sign(d) * Math.min(L, STEER_K * Math.abs(d));
-  if (Math.sign(want) !== Math.sign(b.vx) || Math.abs(want) < Math.abs(b.vx)) b.vx = want;   // slow down / turn at once
-  else b.vx += Math.min(Math.abs(want - b.vx), STEER_ACC * dt) * Math.sign(want);           // speed up gently
+  if (b.vx !== 0 && Math.sign(want) !== Math.sign(b.vx)) b.vx = 0;                 // turning back: stop, then set off again
+  if (Math.abs(want) < Math.abs(b.vx)) b.vx = want;                               // slowing down follows the target at once
+  else b.vx += Math.min(Math.abs(want - b.vx), STEER_ACC * dt) * Math.sign(want);   // speeding up takes time, from rest too
   const move = b.vx * dt;
   if (Math.abs(move) >= Math.abs(d) - 1e-3) { b.x = b.tx; b.vx = 0; } else b.x += move;   // the last hair: exactly on the lane
 }

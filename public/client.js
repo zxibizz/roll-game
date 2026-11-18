@@ -44,6 +44,8 @@ let skinView = skinAt;                                                          
 // hook at the end); the world has its own state inside a game
 let mode = 'home', world = new World(1), parts = [], rings = [], flash = null;
 let camZ = 0, camX = 0, camL = 0, camY = 0;   // camL: the camera across the road
+const ROLL = 0.009;   // how far the view rolls in a lane change, radians
+let lean = 0, roll = 0, wasOff = 0;   // weight: how far the ball leans in a lane change, the camera's roll, last distance to its lane
 let nudge = null;   // a refused lane change: the ball leans towards the edge and comes back
 let shake = 0, squash = 0, hitStop = 0, count = 0, beatBest = false, overAnim = null, hintUntil = 0, hintRow = -1;
 
@@ -65,8 +67,7 @@ const grad = (y0, y1, stops) => {
 
 // ---- Biomes ----
 // One look that changes with the distance: a summer farm → autumn → a Halloween night → a pink magic land →
-// a land of robots → space. PAL holds the key frames, PHASE_AT says at which section each one is fully reached;
-// in between everything is blended (hues are plain numbers: neighbours are written on the same side of the colour
+// a land of robots → space. PAL holds the key frames; between two biomes everything is blended (hues are plain numbers: neighbours are written on the same side of the colour
 // wheel, negative where needed, so a blend takes the short way). What stands and moves there is picked by themeAt.
 const PAL = [
   { // summer: a farm under a clear sky
@@ -118,19 +119,15 @@ const PAL = [
     sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0, cloudC: [60, 72, 130], glow: 0.6, rainbow: 0, city: 0,
   },
 ];
-const PHASE_AT = [1.5, 3.5, 5.5, 7.5, 9.5, 11.5];   // sections where each biome is fully in
+// a biome lasts BIOME_LEN sections: it stays as it is for most of them and turns into the next one over the last
+// BIOME_BLEND
+const BIOME_LEN = 3, BIOME_BLEND = 0.75;
 const THEMES = ['farm', 'autumn', 'spooky', 'magic', 'tech', 'alien'];
 
 const mix = (a, b, t) => (Array.isArray(a) ? a.map((v, i) => mix(v, b[i], t)) : a + (b - a) * t);
 function phaseAt(z) {
-  const s = z / SEC_ROWS;
-  for (let i = 0; i < PHASE_AT.length - 1; i++) {
-    if (s < PHASE_AT[i + 1]) {
-      const t = clamp((s - PHASE_AT[i]) / (PHASE_AT[i + 1] - PHASE_AT[i]), 0, 1);
-      return i + t * t * (3 - 2 * t);
-    }
-  }
-  return PAL.length - 1;
+  const s = Math.max(0, z / SEC_ROWS), i = Math.floor(s / BIOME_LEN), t = clamp((s - i * BIOME_LEN - (BIOME_LEN - BIOME_BLEND)) / BIOME_BLEND, 0, 1);
+  return Math.min(PAL.length - 1, i + t * t * (3 - 2 * t));
 }
 function paletteAt(k) {
   const i = Math.min(PAL.length - 2, Math.floor(k)), t = k - i, a = PAL[i], b = PAL[i + 1], out = {};
@@ -232,7 +229,7 @@ function setMode(m) {
 
 function resetView() {
   banked = null;
-  parts = []; rings = []; flash = null; nudge = null; shake = 0; squash = 0; hitStop = 0; beatBest = false;
+  parts = []; rings = []; flash = null; nudge = null; lean = 0; roll = 0; wasOff = 0; shake = 0; squash = 0; hitStop = 0; beatBest = false;
   $score.textContent = world.score; $score.style.color = ''; $starN.textContent = world.stars;
   follow();
 }
@@ -293,6 +290,7 @@ function bankRun() {
 }
 
 function gameOver() {
+  lean = 0; roll = 0;
   const { s, isBest, stars, fresh } = bankRun();
   $('overCard').classList.toggle('best', isBest); $('newBest').hidden = !isBest;
   $('overBest').textContent = save.best; $('overStars').textContent = '+' + stars;
@@ -389,6 +387,18 @@ function update(dt) {
   if (hitStop > 0) { hitStop -= dt; return; }   // the world holds its breath for a moment on impact
   const b = world.ball;
   world.step(dt);
+  // weight: the ball leans back as it sets off sideways and the view rolls a little with it; rolling into its lane
+  // it lands there with a thud
+  const side = world.state === 'run' ? clamp(b.vx / 9, -1, 1) : 0, offNow = Math.abs(b.tx - b.x);
+  lean += (side - lean) * Math.min(1, dt * 22);
+  roll += (side * ROLL - roll) * Math.min(1, dt * 10);
+  if (wasOff > 0.05 && offNow <= 0.05 && world.state === 'run' && !b.air) {   // in the air there is nothing to land on
+    sfx.settle(); haptic('tick');
+    squash = Math.max(squash, 0.13);
+    const dir = Math.sign(lean) || 1, dust = pal('soil', 18);
+    spray(4, { x: b.x + dir * R * 0.8, y: b.y - R, z: b.z }, () => ({ vx: dir * rnd(0.8, 2.4), vy: rnd(0.3, 1.2), vz: world.v * 0.7 + rnd(-1, 1), g: 3, life: rnd(0.25, 0.45), size: rnd(0.06, 0.12), color: dust, grow: 1.5 }));
+  }
+  wasOff = offNow;
   const events = world.events.splice(0);
   for (const e of events) onEvent(e);
   follow();
@@ -621,7 +631,7 @@ function drawStar(l, rz, s, fog) {
   ctx.restore();
 }
 
-const PIT_DEPTH = 0.8;
+const PIT_DEPTH = 0.75;   // how far down the walls of a pit can be seen before they are lost in the dark
 // One pit cell. Towards grass its edge sits a varying, ragged distance in from the cell border (about the rim the
 // ball can still roll on); towards another pit it reaches past the border, so pits merge; towards the void it stays
 // on the border. Inside: a dark bottom, the far wall with layers of earth and roots, side walls in shadow, and grass
@@ -633,9 +643,9 @@ function drawPit(rz, l, row, prev, next, fog, px) {
   };
   const side = { L: kind(-1, 0), R: kind(1, 0), N: kind(0, -1), F: kind(0, 1) };
   // sideways the edge sits well in from the grass; along the road only a little, or a pit far ahead would be a slit
-  const amp = 0.07 + hash(rz, l, 90) * 0.13, ampZ = 0.02 + hash(rz, l, 94) * 0.05, rough = 0.02 + hash(rz, l, 91) * 0.08;
+  const amp = 0.07 + hash(rz, l, 90) * 0.11, ampZ = 0.02 + hash(rz, l, 94) * 0.05, rough = 0.01 + hash(rz, l, 91) * 0.03;
   const bite = Math.floor(hash(rz, l, 92) * 16);
-  const off = (s, k) => side[s] === 'grass' ? (s === 'N' || s === 'F' ? ampZ : amp) + (hash(rz * 5 + k, l, 93) - 0.5) * 2 * rough + (k === bite ? 0.07 : 0)
+  const off = (s, k) => side[s] === 'grass' ? (s === 'N' || s === 'F' ? ampZ : amp) + (hash(rz * 5 + k, l, 93) - 0.5) * 2 * rough + (k === bite ? 0.04 : 0)
     : side[s] === 'pit' ? -0.08 : 0;
   // walk round the cell, four points a side: near (w = 0), right, far, left
   const ring = [];
@@ -646,7 +656,7 @@ function drawPit(rz, l, row, prev, next, fog, px) {
     if (u === 0) uu += off('L', k); if (u === 1) uu -= off('R', k);
     if (w === 0) ww += off('N', k); if (w === 1) ww -= off('F', k);
     if (k % 4) {   // points along a side wander a little, so no two pits look alike
-      const t = (hash(rz, l, 100 + k) - 0.5) * 0.12;
+      const t = (hash(rz, l, 100 + k) - 0.5) * 0.06;
       if (s === 'N' || s === 'F') uu += t; else ww += t;
     }
     return { x: l - HALF + uu, z: rz + ww, s };
@@ -654,16 +664,25 @@ function drawPit(rz, l, row, prev, next, fog, px) {
   if (pts.length < 3) return;
   const top = (p) => proj(p.x, world.hAt(p.z), p.z), down = (p) => proj(p.x, world.hAt(p.z) - PIT_DEPTH, p.z);
   const open = pts.map(top);
-  const yTop = Math.min(...open.map((q) => q[1])), yBot = Math.max(...open.map((q) => q[1]));
+  const yTop = Math.min(...open.map((q) => q[1])), yBot = Math.max(...open.map((q) => q[1])), xMin = Math.min(...open.map((q) => q[0])), xMax = Math.max(...open.map((q) => q[0]));
+  // trodden earth round the hole, where it meets grass
+  ctx.strokeStyle = pal('soil', 8, fog); ctx.lineWidth = Math.max(1, px * 0.09); ctx.lineCap = 'round'; ctx.globalAlpha = 0.85 * (1 - fog);
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    if (side[pts[i].s] !== 'grass') continue;
+    const a = open[i], b = open[(i + 1) % open.length];
+    ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+  }
+  ctx.stroke(); ctx.lineCap = 'butt'; ctx.globalAlpha = 1;
   ctx.save();
   blob(open); ctx.clip();
-  ctx.fillStyle = pal('pit', -2, fog); ctx.fillRect(Math.min(...open.map((q) => q[0])) - 2, yTop - 2, W, yBot - yTop + 4);
-  const wall = (edge, light) => {   // a wall below one edge of the opening, its top lit, its foot in the dark
+  ctx.fillStyle = pal('pit', 0, fog); ctx.fillRect(xMin - 2, yTop - 2, xMax - xMin + 4, yBot - yTop + 4);   // the dark at the bottom
+  const wall = (edge, light) => {   // the wall below one edge of the opening: turf, then earth, going down into the dark
     if (edge.length < 2) return;
     const a = edge.map(top), b = edge.map(down).reverse();
     const y0 = Math.min(...a.map((q) => q[1])), y1 = Math.max(...b.map((q) => q[1]));
     const g = ctx.createLinearGradient(0, y0, 0, Math.max(y0 + 1, y1));
-    g.addColorStop(0, pal('soil', light, fog)); g.addColorStop(0.18, pal('pitWall', light - 8, fog)); g.addColorStop(0.5, pal('pit', 2, fog)); g.addColorStop(1, pal('pit', -3, fog));
+    g.addColorStop(0, pal('grass', light - 12, fog)); g.addColorStop(0.09, pal('soil', light + 8, fog)); g.addColorStop(0.45, pal('soil', light - 6, fog)); g.addColorStop(0.8, pal('pitWall', light - 8, fog)); g.addColorStop(1, pal('pit', 1, fog));
     ctx.fillStyle = g; path([...a, ...b]); ctx.fill();
     return a;
   };
@@ -684,16 +703,24 @@ function drawPit(rz, l, row, prev, next, fog, px) {
         ctx.beginPath(); ctx.moveTo(q0[0], q0[1]); ctx.quadraticCurveTo(q0[0] + (q1[0] - q0[0]) * 1.4, (q0[1] + q1[1]) / 2, q1[0], q1[1]); ctx.stroke();
       }
       ctx.globalAlpha = 1;
+      for (let k = 0; k < 3; k++) {   // stones in the earth
+        const p = far[Math.floor(hash(rz, l, 160 + k) * far.length)], q = proj(p.x + (hash(rz, l, 163 + k) - 0.5) * 0.1, world.hAt(p.z) - 0.12 - hash(rz, l, 166 + k) * 0.28, p.z), r = px * (0.025 + hash(rz, l, 169 + k) * 0.025);
+        ctx.fillStyle = pal('rock', -6, fog); ctx.beginPath(); ctx.ellipse(q[0], q[1], r * 1.3, r, 0, 0, 7); ctx.fill();
+      }
     }
   }
   const leftX = Math.min(...pts.filter((p) => p.s === 'L').map((p) => p.x)), rightX = Math.max(...pts.filter((p) => p.s === 'R').map((p) => p.x));
-  if (side.L === 'grass' && camAcross > leftX) wall(pts.filter((p) => p.s === 'L').sort((p, q) => q.z - p.z), -8);
-  if (side.R === 'grass' && camAcross < rightX) wall(pts.filter((p) => p.s === 'R').sort((p, q) => q.z - p.z), -8);
+  if (side.L === 'grass' && camAcross > leftX) wall(pts.filter((p) => p.s === 'L').sort((p, q) => q.z - p.z), -9);
+  if (side.R === 'grass' && camAcross < rightX) wall(pts.filter((p) => p.s === 'R').sort((p, q) => q.z - p.z), -9);
+  // the near edge throws its shadow into the hole, and the turf overhangs the far wall
+  const sh = ctx.createLinearGradient(0, yTop, 0, yBot);
+  sh.addColorStop(0, `rgba(8,10,28,${0.3 * (1 - fog)})`); sh.addColorStop(0.18, 'rgba(8,10,28,0)'); sh.addColorStop(0.6, 'rgba(8,10,28,0)'); sh.addColorStop(1, `rgba(8,10,28,${0.5 * (1 - fog)})`);
+  ctx.fillStyle = sh; ctx.fillRect(xMin - 2, yTop - 2, xMax - xMin + 4, yBot - yTop + 4);
   ctx.restore();
   // the rim: a dark lip and grass hanging over it, only where the pit meets grass
   const cx = open.reduce((s2, q) => s2 + q[0], 0) / open.length, cy = open.reduce((s2, q) => s2 + q[1], 0) / open.length;
   ctx.globalAlpha = 1 - fog;
-  for (const [which, color, wdt] of [[(s2) => s2 === 'F', pal('grassHi', 8, fog), 0.03], [(s2) => s2 !== 'F', pal('grass', -16, fog), 0.022]]) {
+  for (const [which, color, wdt] of [[(s2) => s2 === 'F', pal('grassHi', 10, fog), 0.04], [(s2) => s2 !== 'F', pal('grass', -18, fog), 0.03]]) {
     ctx.strokeStyle = color; ctx.lineWidth = Math.max(1, px * wdt);
     ctx.beginPath();
     for (let i = 0; i < pts.length; i++) {
@@ -1596,13 +1623,14 @@ function drawBall() {
   if (g !== null) {   // the shadow shows where a jump lands
     const s = proj(bx, g, b.z), up = b.y - R - g, c = theme.shadow;
     ctx.fillStyle = `rgba(${c},${0.38 * clamp(1 - up / 3, 0.25, 1)})`;
-    ctx.beginPath(); ctx.ellipse(s[0], s[1], R * 1.15 * s[2], R * 0.45 * s[2], 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(s[0], s[1], R * (1.15 + Math.abs(lean) * 0.25) * s[2], R * 0.45 * s[2], 0, 0, 7); ctx.fill();
   }
   const [px, py0, sc] = proj(bx, b.y, b.z), r = R * sc;
   if (!(sc > 0) || !Number.isFinite(px + py0 + r)) return;   // behind the camera: nothing to draw
-  // a landing squashes the ball for a moment: wider, lower, still touching the ground
-  const py = py0 + r * squash;
-  ctx.save(); ctx.translate(px, py); ctx.scale(1 + squash * 0.5, 1 - squash); ctx.translate(-px, -py);
+  // a landing squashes the ball for a moment: wider, lower, still touching the ground;
+  // and a lane change makes it lean: its top lags behind, it stretches a little along the way
+  const py = py0, yb = py + r, al = Math.abs(lean);   // squashed and stretched about the point it stands on
+  ctx.save(); ctx.translate(px, yb); ctx.transform(1, 0, lean * 0.2, 1, 0, 0); ctx.scale((1 + squash * 0.5) * (1 + al * 0.07), (1 - squash) * (1 - al * 0.05)); ctx.translate(-px, -yb);
   if (T.glow && P.glow > 0.01) {
     const gl = ctx.createRadialGradient(px, py, r * 0.8, px, py, r * 2.6);
     gl.addColorStop(0, `rgba(${T.glow},${0.55 * P.glow})`); gl.addColorStop(1, `rgba(${T.glow},0)`);
@@ -1648,6 +1676,11 @@ function drawStreaks() {
 function draw() {
   const hue = secHue(Math.floor(Math.max(0, camZ + CAM_BACK) / SEC_ROWS));
   setPhase(camZ + CAM_BACK);
+  ctx.save();
+  if (Math.abs(roll) > 1e-4) {   // the whole view rolls a little into a lane change, pivoting on the ball
+    const zoom = 1 + Math.abs(roll) * Math.max(1.7 * H / W, 2.7 * W / H);   // just enough to keep the corners covered, upright or wide
+    ctx.translate(W / 2, H * 0.8); ctx.rotate(roll); ctx.scale(zoom, zoom); ctx.translate(-W / 2, -H * 0.8);
+  }
   theme.sky(hue, horY);
   ctx.save();
   if (shake > 0.01) { const k = shake * shake * 14 * dpr; ctx.translate((Math.random() - 0.5) * k, (Math.random() - 0.5) * k); }
@@ -1681,6 +1714,7 @@ function draw() {
     ctx.beginPath(); ctx.arc(px, py, (0.2 + 1.3 * k) * sc, 0, 7); ctx.stroke();
   }
   ctx.globalAlpha = 1;
+  ctx.restore();
   ctx.restore();
   drawStreaks();
   if (rings.length && rings[0].t < 0.12) { ctx.fillStyle = `rgba(255,255,255,${0.35 * (1 - rings[0].t / 0.12)})`; ctx.fillRect(0, 0, W, H); }
