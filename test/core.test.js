@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { World, Track, SEC_ROWS, LANES, MID, VERSION, laneX, speedOf } from '../public/core.js';
+import { World, Track, SEC_ROWS, LANES, MID, VERSION, laneX, speedOf, mulberry } from '../public/core.js';
 
 const DT = 1 / 60;
 
@@ -327,4 +327,92 @@ test('landing after a jump is reported with its strength', () => {
     w.events.length = 0;
   }
   assert.ok(lands >= 3 && lands >= w.stats.jumps - 1, `${lands} landings for ${w.stats.jumps} jumps`);
+});
+
+test('a swipe moves the ball exactly one lane over, and two quick ones two lanes', () => {
+  const w = new World(5);
+  assert.equal(w.lane, MID);
+  assert.equal(w.move(1), true);
+  for (let n = 0; n < 30; n++) w.step(DT);
+  assert.equal(w.ball.x, laneX(MID + 1));
+  w.move(-1); w.move(-1);
+  assert.deepEqual(w.events.filter((e) => e === 'move').length, 3);
+  for (let n = 0; n < 40; n++) w.step(DT);
+  assert.equal(w.ball.x, laneX(MID - 1));
+  assert.equal(w.state, 'run');
+});
+
+test('a lane change takes about a sixth of a second at the start and less at the top speed', () => {
+  for (const [sec, max] of [[0, 0.2], [20, 0.14]]) {
+    const w = new World(5);
+    w.v = speedOf(sec); w.move(1);
+    let t = 0;
+    while (w.ball.x < laneX(MID + 1) - 0.05 && t < 1) { w.tick(1 / 240); t += 1 / 240; }
+    assert.ok(t < max, `section ${sec}: ${t.toFixed(3)} s`);
+  }
+});
+
+test('a swipe towards a lane that ends before the ball would get there is refused, a double swipe too: the ball never slides off sideways', () => {
+  let seen = 0;
+  for (let seed = 1; seed <= 40 && seen < 6; seed++) {
+    const t = new Track(seed);
+    for (let i = 20; i < SEC_ROWS * 12; i++) {
+      if (!(t.get(i).road[0] && !t.get(i + 1).road[0] && t.get(i + 1).road[1])) continue;   // the road narrows after row i
+      for (const back of [0.5, 1.5, 3]) {
+        const w = drive(seed, i + 1 - back);
+        if (w.state !== 'run' || w.lane < 1 || w.lane > 2) continue;
+        seen++;
+        while (w.lane > 0 && w.move(-1));   // swipe left as far as it goes
+        while (w.state === 'run' && w.ball.z < i + 6) w.step(DT);
+        // falling is fair only from the middle of lane 0, reached in time before it ended — never half-way across
+        if (w.state === 'fall') assert.equal(w.ball.x, laneX(0), `seed ${seed} row ${i} from ${back} rows back`);
+      }
+      break;
+    }
+  }
+  assert.ok(seen >= 3, `only ${seen} cases found`);
+});
+
+test('a swipe off the road is refused: the ball stays in its lane and rolls on', () => {
+  const w = new World(3);
+  assert.equal(w.move(1), true); assert.equal(w.move(1), true);   // lane 5, the last one of a 5-lane road
+  w.events.length = 0;
+  for (let k = 0; k < 5; k++) assert.equal(w.move(1), false);
+  assert.deepEqual(w.events, Array(5).fill('bump'));
+  assert.equal(w.side, 1);
+  for (let n = 0; n < 60; n++) w.step(DT);
+  assert.equal(w.ball.x, laneX(5));
+  assert.equal(w.state, 'run');
+});
+
+test('swiping at random never takes the ball off the side of the road', () => {
+  // whatever is swiped, the ball leaves the road only where the road itself ends under it (a split or a narrowing)
+  for (let seed = 1; seed <= 20; seed++) {
+    const w = new World(seed), rnd = mulberry(seed);
+    let n = 0;
+    while (w.state === 'run' && w.ball.z < SEC_ROWS * 14) {
+      if (n++ % 12 === 0) { const d = rnd() < 0.5 ? -1 : 1; for (let k = 1 + Math.floor(rnd() * 3); k > 0; k--) w.move(d); }   // 1–3 swipes at once
+      const lane = w.lane, rz = Math.floor(w.ball.z);
+      assert.ok(lane >= 0 && lane < LANES);
+      w.step(DT);
+      if (w.state === 'fall' && !w.track.get(w.ball.fallRow).road[Math.floor(w.ball.x + LANES / 2)]) {
+        // off the road: only because the lane it was in came to an end, never by crossing the edge sideways
+        assert.equal(Math.abs(w.ball.x - laneX(lane)) < 0.5, true, `seed ${seed} row ${rz}`);
+        assert.equal(w.track.get(Math.max(0, rz - 3)).road[lane], true, `seed ${seed} row ${rz}`);
+      }
+    }
+  }
+});
+
+test('a bot that steers with swipes alone survives up to the top speed', () => {
+  // it swipes towards the path's lane as soon as the path under the ball has moved on
+  for (let seed = 1; seed <= 30; seed++) {
+    const w = new World(seed);
+    while (w.state === 'run' && w.ball.z < SEC_ROWS * 20) {
+      const goal = w.track.get(Math.max(0, Math.floor(w.ball.z - 0.27))).goal;
+      if (goal !== w.lane) w.move(Math.sign(goal - w.lane));
+      w.step(DT);
+    }
+    assert.equal(w.state, 'run', `seed ${seed}: ${w.state} at row ${Math.floor(w.ball.z)}`);
+  }
 });

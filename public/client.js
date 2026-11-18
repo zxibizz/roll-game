@@ -10,7 +10,6 @@ const $hud = $('hud'), $score = $('score'), $starN = $('starN'), $hudStars = $('
 const $home = $('home'), $pause = $('pause'), $over = $('over'), $set = $('set');
 $('ver').textContent = 'v' + VERSION;   // small, on the home screen: which version runs
 
-const SENS = 3.2;                   // lanes per full screen-width drag: one lane takes about a third of the screen
 const SLAB = 0.35, VIEW = 46;       // track thickness, rows drawn ahead
 const PITCH = 0.5;
 const CAM_FOLLOW = 0.6;             // how much of the ball's sideways move the camera repeats
@@ -44,7 +43,8 @@ let skinView = skinAt;                                                          
 // mode: 'home' | 'play' | 'count' (3-2-1 after a pause) | 'pause' | 'over' (and 'shot' — frozen by the screenshot
 // hook at the end); the world has its own state inside a game
 let mode = 'home', world = new World(1), parts = [], rings = [], flash = null;
-let camZ = 0, camX = 0, camL = 0, camY = 0, keyDir = 0;   // camL: the camera across the road
+let camZ = 0, camX = 0, camL = 0, camY = 0;   // camL: the camera across the road
+let nudge = null;   // a refused lane change: the ball leans towards the edge and comes back
 let shake = 0, squash = 0, hitStop = 0, count = 0, beatBest = false, overAnim = null, hintUntil = 0;
 
 // ---- Colours ----
@@ -191,7 +191,7 @@ function setMode(m) {
 
 function resetView() {
   banked = null;
-  parts = []; rings = []; flash = null; shake = 0; squash = 0; hitStop = 0; beatBest = false;
+  parts = []; rings = []; flash = null; nudge = null; shake = 0; squash = 0; hitStop = 0; beatBest = false;
   $score.textContent = world.score; $score.style.color = ''; $starN.textContent = world.stars;
   follow();
 }
@@ -304,6 +304,8 @@ function onEvent(e) {
     $hudStars.classList.remove('pop'); void $hudStars.offsetWidth; $hudStars.classList.add('pop');
     spray(5, b, () => ({ vx: rnd(-1.6, 1.6), vy: rnd(1.5, 4), vz: world.v + rnd(-1, 1), g: 7, life: rnd(0.25, 0.45), size: rnd(0.02, 0.04), color: '#fff3b0' }));
   } else if (e === 'jump') sfx.jump();
+  else if (e === 'move') { sfx.move(); $hint.hidden = true; }
+  else if (e === 'bump') { sfx.bump(); haptic('land'); $hint.hidden = true; nudge = { dir: world.side, t: 0 }; }
   else if (e === 'land') {
     const k = world.impact;
     sfx.land(k); haptic('land');
@@ -332,6 +334,7 @@ function update(dt) {
   rings = rings.filter((r) => r.t < 0.45);
   shake = Math.max(0, shake - dt * 3.5); squash = Math.max(0, squash - dt * 2.2);
   if (flash && (flash.t -= dt * 0.8) <= 0) flash = null;
+  if (nudge && (nudge.t += dt / 0.18) >= 1) nudge = null;
   if (mode === 'count') {
     const was = Math.ceil(count / COUNT_T);
     count -= dt;
@@ -342,7 +345,6 @@ function update(dt) {
   if (mode !== 'play') return;
   if (hitStop > 0) { hitStop -= dt; return; }   // the world holds its breath for a moment on impact
   const b = world.ball;
-  if (keyDir) b.tx = clamp(b.x + keyDir, -HALF - 0.9, HALF + 0.9);
   world.step(dt);
   const events = world.events.splice(0);
   for (const e of events) onEvent(e);
@@ -913,13 +915,14 @@ const OBSTACLES = {
 function drawBall() {
   const b = world.ball, T = theme.ball;
   if (world.state === 'crash' || world.state === 'over') return;
+  const bx = b.x + (nudge ? nudge.dir * 0.1 * Math.sin(Math.PI * nudge.t) : 0);
   const g = world.state === 'fall' ? null : world.groundAt(b.x, b.z);
   if (g !== null) {   // the shadow shows where a jump lands
-    const s = proj(b.x, g, b.z), up = b.y - R - g, c = theme.shadow;
+    const s = proj(bx, g, b.z), up = b.y - R - g, c = theme.shadow;
     ctx.fillStyle = `rgba(${c},${0.38 * clamp(1 - up / 3, 0.25, 1)})`;
     ctx.beginPath(); ctx.ellipse(s[0], s[1], R * 1.15 * s[2], R * 0.45 * s[2], 0, 0, 7); ctx.fill();
   }
-  const [px, py0, sc] = proj(b.x, b.y, b.z), r = R * sc;
+  const [px, py0, sc] = proj(bx, b.y, b.z), r = R * sc;
   if (!(sc > 0) || !Number.isFinite(px + py0 + r)) return;   // behind the camera: nothing to draw
   // a landing squashes the ball for a moment: wider, lower, still touching the ground
   const py = py0 + r * squash;
@@ -1022,19 +1025,30 @@ function bigNumber(n, size, alpha) {
 
 // ---- Input ----
 // One finger steers: the first one down on the scene. Others are ignored, so a second touch can't jerk the ball.
-let dragId = null, dragX = 0;
+// A swipe sideways moves the ball one lane over. The first lane takes a short flick (SWIPE_NEAR of the screen width);
+// keeping the finger going, or bringing it back, without lifting it takes a longer way (SWIPE_FAR) for every further
+// lane, so a hand drifting after the flick changes nothing.
+const SWIPE_NEAR = 0.06, SWIPE_FAR = 0.15, SWIPE_MIN = 18;   // SWIPE_MIN: px, the least a flick takes on any screen
+let dragId = null, dragX = 0, dragAcc = 0, dragMoved = false;
+// during the 3-2-1 after a pause a swipe already counts: the ball sets off towards the chosen lane
+const steerable = () => mode === 'play' || mode === 'count';
 addEventListener('pointerdown', (e) => {
   if (dragId !== null || e.target.closest('button, input, .card')) return;
-  dragId = e.pointerId; dragX = e.clientX;
+  dragId = e.pointerId; dragX = e.clientX; dragAcc = 0; dragMoved = false;
 });
 addEventListener('pointermove', (e) => {
   if (e.pointerId !== dragId) return;
-  const dx = e.clientX - dragX;
+  dragAcc += e.clientX - dragX;
   dragX = e.clientX;
-  if (mode !== 'play') return;
-  const b = world.ball;
-  b.tx = clamp(b.tx + dx / innerWidth * SENS, -HALF - 0.9, HALF + 0.9);
-  if (Math.abs(dx) > 2) $hint.hidden = true;
+  if (!steerable()) { dragAcc = 0; return; }
+  // a fast swipe may arrive as a single event: take every lane its length is worth
+  for (;;) {
+    const need = Math.max(SWIPE_MIN, innerWidth * (dragMoved ? SWIPE_FAR : SWIPE_NEAR));
+    if (Math.abs(dragAcc) < need) break;
+    const dir = Math.sign(dragAcc);
+    dragAcc -= dir * need;
+    if (world.move(dir)) dragMoved = true; else { dragAcc = 0; break; }   // at the edge: the rest of the swipe is void
+  }
 });
 const dragEnd = (e) => { if (e.pointerId === dragId) dragId = null; };
 addEventListener('pointerup', dragEnd);
@@ -1075,7 +1089,7 @@ const KEYS = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1 };
 addEventListener('keydown', (e) => {
   if (e.repeat || e.target.closest('input')) return;
   if (KEYS[e.code]) {
-    if (mode === 'home') turnSkin(KEYS[e.code]); else keyDir = KEYS[e.code];
+    if (mode === 'home') turnSkin(KEYS[e.code]); else if (steerable()) world.move(KEYS[e.code]);
   } else if (e.code === 'Space' || e.code === 'Enter') {
     if (e.target.closest('button')) return;   // the focused button gets its click
     if (!$set.hidden) $set.hidden = true;
@@ -1086,12 +1100,8 @@ addEventListener('keydown', (e) => {
     else if (mode === 'pause') resume(); else pause();
   }
 });
-addEventListener('keyup', (e) => {
-  if (KEYS[e.code] === keyDir) { keyDir = 0; world.ball.tx = world.ball.x; }
-});
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 addEventListener('pagehide', saveRun);
-addEventListener('blur', () => { keyDir = 0; });
 
 let last = performance.now();
 // The next frame is requested first: an error in one frame must not stop the game for good.

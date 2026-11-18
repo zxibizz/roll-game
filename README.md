@@ -1,20 +1,25 @@
 # Roll (roll-game)
 
-A ball rolls down an endless track: steer it, collect stars, don't fall off and don't crash. No ads, works offline (PWA).
+A ball rolls down an endless track, lane by lane: swipe it left and right, collect stars, don't fall in and don't crash. No ads, works offline (PWA).
 Site: `https://roll.games.bubas.cc`.
 
 ## How it plays
 
-- The ball rolls forward by itself; drag a finger (or the mouse) left and right to steer, or use ← → / A D.
+- The ball rolls forward by itself along the middle of a lane. A swipe left or right (or ← → / A D) sends it to the
+  next lane, also in the air; swipes add up, so two quick ones cross two lanes. A short flick (6 % of the screen
+  width) is enough for the first lane; dragging on without lifting the finger takes 15 % for every further one.
+  A lane change takes about 0.15 s at the start and gets quicker with the speed.
+- There is no swiping off the road: at its edge the ball leans out, thuds and stays in its lane. It still falls
+  where the lane itself ends — into the gap when the road splits, or off the outer lane when the road narrows.
 - The track is usually 5 lanes wide and comes in sections of 48 rows. Every section has its own colour and is 6 % faster
   (9 → 24 rows per second, the top speed from section 18). The first 8 rows of a section are free of obstacles; the first sections are sparse.
 - Hills: downhill speeds the ball up, uphill slows it down; on flat ground it settles back to the section's speed.
 - Ramps: a light tile with chevrons. Behind it a block wall or a gap spans the whole width — the only way over is to jump.
-  In the first two sections every lane has a ramp, later only the path lane is sure to have one. The ball can be steered
-  in the air; its shadow shows where it lands.
-- Falling into a pit or off the edge, or hitting an obstacle ends the run. The ball still rolls on the rim of a pit
-  until its centre is 0.2 of a lane past the edge (0.12 at the road edge), and the hit boxes are smaller than the
-  drawn obstacles, with rounded corners, so brushing past is fine. The score is the number of rows covered;
+  In the first two sections every lane has a ramp, later only the path lane is sure to have one. The ball can change
+  lanes in the air; its shadow shows where it lands.
+- Falling into a pit or hitting an obstacle ends the run. The hit boxes are smaller than the drawn obstacles, with
+  rounded corners, and a pit holds the ball until its centre is 0.2 of a lane past the rim, so changing lanes right
+  past an obstacle is fine. The score is the number of rows covered;
   the best score is kept on the device.
 - The road is a strip of grass with wavy edges; it bends like a snake now and then (just the look: the ball keeps
   to the road on its own). Sometimes it widens from 5 to 7 lanes and splits: the centre lane becomes a gap between
@@ -62,10 +67,11 @@ Site: `https://roll.games.bubas.cc`.
 ## Track generator
 
 `public/core.js`, no DOM. A guaranteed path runs through every row; when it shifts by a lane, both lanes stay open for
-long enough to move sideways even at the fastest downhill speed. Obstacle patterns (scatter, walls, bridge, slalom,
+long enough to change lanes even at the fastest downhill speed. Obstacle patterns (scatter, walls, bridge, slalom,
 strips) fill only cells outside the path. Jumps are set pieces placed on flat ground after at least 6 flat rows: where the
 wall or the gap goes is computed from the ramp's physics with a ±25 % margin on the section's speed.
-The tests drive a bot along the path on 30 tracks up to the top speed and expect no deaths.
+The tests drive a bot along the path on 30 tracks up to the top speed and expect no deaths, and the same for a bot
+that steers with swipes only (`World.move`).
 
 ## Layout
 

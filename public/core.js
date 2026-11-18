@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.5.0';
+export const VERSION = '0.6.0';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -29,16 +29,16 @@ export const SAVE_V = 1;         // format of a saved run (World.toSave); bump w
 // Stars: runs of them lie along the guaranteed path, an arc of them hangs over most jumps, and now and then a lone
 // one sits off the path. A star is taken when the ball's centre is this close to it (sideways / along / up).
 const STAR_X = 0.5, STAR_Z = 0.55, STAR_Y = 0.75;
-// Steering: the ball follows the finger's target closely. Speeding up is limited (STEER_ACC, no jerks), slowing
-// down is not: when the finger stops or turns back, the ball does too, with no momentum carrying it on. Close to the
-// target it settles in at STEER_K per second and never steps past it.
+// Steering: the ball rolls along the middle of a lane, and a swipe sends it to the next one (World.move sets the
+// target `tx` to that lane's centre). On the way there speeding up is limited (STEER_ACC, no jerks), slowing down is
+// not; close to the target the ball settles in at STEER_K per second and never steps past it.
 const STEER_ACC = 150, STEER_K = 40;
 export function steer(b, L, dt) {
   const d = b.tx - b.x, want = Math.sign(d) * Math.min(L, STEER_K * Math.abs(d));
   if (Math.sign(want) !== Math.sign(b.vx) || Math.abs(want) < Math.abs(b.vx)) b.vx = want;   // slow down / turn at once
   else b.vx += Math.min(Math.abs(want - b.vx), STEER_ACC * dt) * Math.sign(want);           // speed up gently
   const move = b.vx * dt;
-  if (Math.abs(move) >= Math.abs(d)) { b.x = b.tx; b.vx = 0; } else b.x += move;
+  if (Math.abs(move) >= Math.abs(d) - 1e-3) { b.x = b.tx; b.vx = 0; } else b.x += move;   // the last hair: exactly on the lane
 }
 // how long moving over by one lane takes at forward speed v, until the ball is well inside the new lane
 // (the generator keeps both lanes open that long)
@@ -295,8 +295,8 @@ export class Track {
 
 // ---- World ----
 // state: 'run' → 'fall' (off the track or into a hole) or 'crash' (into a block) → 'over'.
-// events: 'section', 'jump', 'land' (how hard — in `impact`, 0..1), 'star', 'fall', 'crash', 'over' — the page
-// drains them for effects.
+// events: 'section', 'jump', 'land' (how hard — in `impact`, 0..1), 'star', 'move' and 'bump' (a lane change made
+// or refused; which way it was refused — in `side`), 'fall', 'crash', 'over' — the page drains them for effects.
 export class World {
   constructor(seed) {
     this.seed = seed;
@@ -309,6 +309,7 @@ export class World {
     this.events = [];
     this.stars = 0;      // stars taken in this run
     this.impact = 0;     // strength of the last landing
+    this.side = 0;       // which way the last refused lane change went: -1 left, 1 right
     this.stats = { jumps: 0, hops: 0, vRatioMin: Infinity, vRatioMax: 0 };
   }
 
@@ -366,6 +367,27 @@ export class World {
   // where the guaranteed path goes under the ball: lets a bot (and the tests) steer
   autoTarget() {
     return laneX(this.track.get(Math.max(0, Math.floor(this.ball.z - R - 0.05))).goal);
+  }
+
+  // the lane the ball is in or heading for
+  get lane() { return Math.round(this.ball.tx + HALF - 0.5); }
+
+  // A swipe: head for the next lane to the left (-1) or to the right (1), also in the air. Swipes add up, so two
+  // quick ones cross two lanes. There is no leaving the road sideways: at its edge the swipe is refused ('bump').
+  // Pits are fair game, and so is staying in a lane that ends.
+  move(dir) {
+    if (this.state !== 'run') return false;
+    const b = this.ball, to = this.lane + dir;
+    // The road must be there all the way the ball rolls while it crosses over: from the moment it leaves its own
+    // lane (the first quarter of a change it is still well inside) until it has arrived, counting every lane still
+    // to cross and the speed a downhill may add.
+    const T = shiftTime(this.v), n = Math.max(1, Math.ceil(Math.abs(laneX(to) - b.x) - 0.05));
+    const z0 = Math.max(0, Math.floor(b.z + this.v * T * 0.25)), z1 = Math.floor(b.z + (this.v + GS * SMAX / DRIVE + 0.5) * T * n);
+    let ok = to >= 0 && to < LANES;
+    for (let r = z0; ok && r <= z1; r++) ok = this.track.get(r).road[to];
+    if (ok) b.tx = laneX(to); else this.side = dir;
+    this.events.push(ok ? 'move' : 'bump');
+    return ok;
   }
 
   fall() {

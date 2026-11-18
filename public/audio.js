@@ -170,6 +170,8 @@ export const sfx = {
     note(f, { type: 'triangle', vol: 0.2, dur: 0.22, lp: 2400 });
     note(f * 2, { vol: 0.07, dur: 0.3, delay: 0.015 });
   },
+  move() { burst({ type: 'bandpass', f0: 500, f1: 900, q: 1, vol: 0.16, a: 0.02, dur: 0.1 }); },   // a lane change: a soft swish
+  bump() { note(150, { vol: 0.25, dur: 0.1, to: 90 }); },                                          // no lane there
   jump() {
     burst({ type: 'bandpass', f0: 300, f1: 1100, q: 1.2, vol: 0.5, a: 0.05, dur: 0.32 });
     note(190, { type: 'triangle', vol: 0.16, dur: 0.2, to: 330, lp: 1200 });
