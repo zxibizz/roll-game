@@ -33,19 +33,25 @@ Site: `https://roll.games.bubas.cc`.
   becomes a gap between two 3-lane roads. Or it narrows to 3 lanes and zigzags, stepping one lane sideways every
   0.6 s or more (at the fastest downhill speed) — a row of stars shows the way, and there are no obstacles on the
   zigzag. Holes are pits with ragged edges; ramps are wooden.
-- Someone walks across the road now and then: a cow by day, a ghost at night, a small flying saucer in space. It
-  sets off when the ball is 24 rows away and is in its lane exactly when the ball gets there, so what is seen coming
-  is what will be there; every other lane is free. It cannot be jumped.
-- What stands on the road follows the sky: rocks, bushes, leafy trees (apples, blossom), firs and haystacks by day
-  and at sunset; at night
-  (from section 5) Halloween — pumpkins with flickering faces, gravestones, dead trees, a waving skeleton, a swaying
-  zombie, fallen leaves and glowing toadstools; in space (from section 10) glowing crystals and alien mushrooms on
-  teal grass under nebulas and a ringed planet. They all move in place only; the hit box is the same block.
-- Around the road: islands float beside it with trees, firs, a house with a smoking chimney, a windmill, a grazing
-  cow, haystacks (at night a haunted house, dead trees, pumpkins, graves, ghosts; in space crystals, a glass dome, a
-  rocket). In the air: flocks of birds, hot-air balloons, butterflies and small clouds by day, a rainbow in the sky;
-  bats, a witch on a broom and ghosts at night; flying saucers, comets and rockets in space. All of it is looks
-  only and is placed by the row number, so it is the same every time for the same track.
+- Six biomes follow one another with the distance, blending over two sections each (`PAL`, `PHASE_AT`, `THEMES`
+  in `client.js`; fully in at sections 1.5, 3.5, 5.5, 7.5, 9.5, 11.5). Each has its own colours and sky, things on
+  the road, someone who walks across it, islands beside the road and things in the air:
+
+  | Biome | On the road | Walks across | Islands | In the air, sky |
+  |---|---|---|---|---|
+  | Summer farm | rocks, bushes, leafy trees, firs, haystacks, sunflowers, scarecrows | a cow | trees, a house, a windmill, a barn, a cow | birds, balloons, butterflies, a rainbow |
+  | Autumn | orange trees, pumpkins, haystacks, toadstools, scarecrows; fallen leaves | a fox | a house, a barn, pumpkins, toadstools | falling leaves, birds, balloons |
+  | Halloween night | pumpkins, graves, dead trees, a skeleton, a zombie | a ghost | a haunted house, dead trees, graves | bats, a witch; the moon |
+  | Magic land (pink) | mint trees, lollipops, glowing mushrooms, crystals; sparkles | a unicorn | a castle with flags, lollipops, mushrooms | fairies, butterflies, balloons, a rainbow |
+  | Land of robots | robots, antenna masts, batteries; steel plates with neon seams | a rover with a beacon | a factory, a dish, robots, a rocket | drones, rockets; a city on the horizon |
+  | Space | crystals, alien mushrooms | a flying saucer | crystals, a glass dome, a rocket | comets, rockets; nebulas, a ringed planet |
+
+  All of it but the walker is looks only (the hit box is the same block) and is placed by the row number, so it is
+  the same every time for the same track. Nothing in the air or on the islands looks like a walker, but for the
+  farm's cow, which also grazes on islands well away from the road.
+- The walker sets off two lanes away when the ball is 30 rows from it and stands in its lane from 6 rows on, so
+  nothing moves any more when the ball is close; it moves with the ball's approach, not with the clock. Every
+  other lane in its row is free. It cannot be jumped.
 - Obstacles come in waves — a line across the road, one to three rows deep — with free road in between: at least
   0.6 s plus a lane change at the fastest downhill speed (10 rows at the start, 20 at the top speed). In a wave every
   lane is free, has a free lane right next to it, or holds a log. So from any lane one swipe or one jump per wave is

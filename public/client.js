@@ -63,25 +63,27 @@ const grad = (y0, y1, stops) => {
   return g;
 };
 
-// ---- Sky cycle ----
-// One look that changes with the distance: day → sunset → night → space. PAL holds the key frames,
-// PHASE_AT says at which section each one is fully reached; in between everything is blended.
+// ---- Biomes ----
+// One look that changes with the distance: a summer farm → autumn → a Halloween night → a pink magic land →
+// a land of robots → space. PAL holds the key frames, PHASE_AT says at which section each one is fully reached;
+// in between everything is blended (hues are plain numbers: neighbours are written on the same side of the colour
+// wheel, negative where needed, so a blend takes the short way). What stands and moves there is picked by themeAt.
 const PAL = [
-  { // day
+  { // summer: a farm under a clear sky
     sky: [[111, 177, 242], [169, 211, 251], [226, 240, 255]], fog: [226, 240, 255],
     grass: [98, 52, 50], grassHi: [88, 62, 64], tuft: [104, 55, 34], soil: [30, 42, 38], pit: [26, 40, 12], pitWall: [28, 38, 24],
     rock: [35, 8, 64], bush: [118, 45, 34], bushHi: [100, 58, 52], wood: [33, 55, 58], woodDark: [28, 50, 38],
     flowerL: 72, glowF: 0, litK: 0.6,
     shadow: [40, 70, 130], hud: 0, stars: 0, space: 0, moon: 0,
-    sunA: 1, sunH: 0.22, sunC: [255, 253, 240], sunR: 0.06, clouds: 1, cloudC: [255, 255, 255], glow: 0,
+    sunA: 1, sunH: 0.22, sunC: [255, 253, 240], sunR: 0.06, clouds: 1, cloudC: [255, 255, 255], glow: 0, rainbow: 1, city: 0,
   },
-  { // sunset
-    sky: [[51, 64, 126], [201, 112, 143], [255, 195, 138]], fog: [255, 200, 165],
-    grass: [85, 45, 42], grassHi: [70, 55, 56], tuft: [90, 45, 28], soil: [22, 40, 30], pit: [20, 40, 10], pitWall: [22, 35, 20],
-    rock: [20, 12, 52], bush: [105, 35, 26], bushHi: [88, 45, 42], wood: [28, 50, 50], woodDark: [22, 45, 32],
-    flowerL: 66, glowF: 0.1, litK: 0.7,
-    shadow: [60, 20, 60], hud: 0.8, stars: 0.15, space: 0, moon: 0,
-    sunA: 1, sunH: 0.03, sunC: [255, 170, 100], sunR: 0.09, clouds: 0.85, cloudC: [255, 205, 215], glow: 0.25,
+  { // autumn: golden light, yellowing grass, orange leaves
+    sky: [[96, 150, 214], [186, 205, 230], [255, 226, 190]], fog: [255, 228, 200],
+    grass: [62, 50, 48], grassHi: [52, 60, 58], tuft: [45, 55, 32], soil: [25, 42, 32], pit: [24, 40, 11], pitWall: [24, 36, 22],
+    rock: [30, 10, 58], bush: [22, 72, 46], bushHi: [40, 88, 58], wood: [30, 50, 52], woodDark: [24, 48, 34],
+    flowerL: 68, glowF: 0.05, litK: 0.65,
+    shadow: [70, 40, 90], hud: 0, stars: 0, space: 0, moon: 0,
+    sunA: 1, sunH: 0.12, sunC: [255, 225, 170], sunR: 0.07, clouds: 0.9, cloudC: [255, 240, 225], glow: 0.1, rainbow: 0, city: 0,
   },
   { // night: stars and a hint of space up top, the flowers glow
     sky: [[6, 10, 34], [17, 28, 74], [38, 52, 110]], fog: [26, 36, 84],
@@ -89,7 +91,23 @@ const PAL = [
     rock: [-135, 10, 32], bush: [165, 30, 13], bushHi: [158, 35, 25], wood: [30, 25, 26], woodDark: [30, 25, 17],
     flowerL: 70, glowF: 0.7, litK: 1,
     shadow: [0, 0, 0], hud: 1, stars: 0.85, space: 0.3, moon: 1,
-    sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0.2, cloudC: [60, 72, 130], glow: 0.6,
+    sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0.2, cloudC: [60, 72, 130], glow: 0.6, rainbow: 0, city: 0,
+  },
+  { // a magic land: pink grass, mint trees, candy
+    sky: [[176, 138, 236], [243, 170, 218], [255, 216, 234]], fog: [255, 218, 238],
+    grass: [316, 58, 74], grassHi: [322, 70, 82], tuft: [285, 45, 56], soil: [-85, 35, 42], pit: [-85, 40, 16], pitWall: [-85, 35, 30],
+    rock: [-100, 30, 72], bush: [172, 50, 56], bushHi: [165, 65, 76], wood: [35, 40, 90], woodDark: [335, 60, 70],
+    flowerL: 80, glowF: 0.4, litK: 0.6,
+    shadow: [120, 40, 140], hud: 0, stars: 0.25, space: 0, moon: 0,
+    sunA: 0.9, sunH: 0.2, sunC: [255, 245, 250], sunR: 0.07, clouds: 1, cloudC: [255, 238, 247], glow: 0.3, rainbow: 1, city: 0,
+  },
+  { // a land of robots: steel ground with neon lines, a city on the horizon
+    sky: [[6, 14, 30], [10, 44, 70], [20, 110, 130]], fog: [18, 70, 95],
+    grass: [215, 22, 26], grassHi: [205, 30, 36], tuft: [185, 80, 45], soil: [-140, 25, 14], pit: [-140, 40, 4], pitWall: [-140, 25, 10],
+    rock: [-150, 12, 45], bush: [200, 30, 30], bushHi: [190, 50, 48], wood: [-150, 15, 58], woodDark: [-145, 20, 34],
+    flowerL: 72, glowF: 1, litK: 1,
+    shadow: [0, 0, 0], hud: 1, stars: 0.5, space: 0.15, moon: 0,
+    sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0, cloudC: [60, 72, 130], glow: 0.6, rainbow: 0, city: 1,
   },
   { // space: alien teal grass
     sky: [[5, 6, 13], [5, 6, 13], [5, 6, 13]], fog: [5, 6, 13],
@@ -97,10 +115,11 @@ const PAL = [
     rock: [-105, 12, 34], bush: [195, 40, 15], bushHi: [188, 50, 28], wood: [-80, 25, 32], woodDark: [-80, 25, 22],
     flowerL: 72, glowF: 1, litK: 1,
     shadow: [0, 0, 0], hud: 1, stars: 1, space: 1, moon: 0,
-    sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0, cloudC: [60, 72, 130], glow: 0.6,
+    sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0, cloudC: [60, 72, 130], glow: 0.6, rainbow: 0, city: 0,
   },
 ];
-const PHASE_AT = [2.5, 4.5, 7, 10];   // sections where day, sunset, night and space are fully in
+const PHASE_AT = [1.5, 3.5, 5.5, 7.5, 9.5, 11.5];   // sections where each biome is fully in
+const THEMES = ['farm', 'autumn', 'spooky', 'magic', 'tech', 'alien'];
 
 const mix = (a, b, t) => (Array.isArray(a) ? a.map((v, i) => mix(v, b[i], t)) : a + (b - a) * t);
 function phaseAt(z) {
@@ -155,10 +174,23 @@ const theme = {
       ctx.fillStyle = css(mix(P.sunC, [255, 255, 255], 0.5)); ctx.beginPath(); ctx.arc(sx, sy, sr, 0, 7); ctx.fill();
       ctx.restore();
     }
-    if (P.sunA > 0.5 && P.clouds > 0.5) {   // a rainbow by day
+    if (P.city > 0.01) {   // a city of towers on the horizon, windows lit
+      const rr = mulberry(11);
+      ctx.globalAlpha = P.city;
+      for (let n = 0; n < 16; n++) {
+        const bw = (0.05 + rr() * 0.06) * W, bh = (0.03 + rr() * 0.11) * H, bx = wrap(rr() * 1.5 * W - camX * 2.5 * dpr, W * 1.5) - 0.25 * W, lit = rr();
+        ctx.fillStyle = 'rgb(7,18,36)'; ctx.fillRect(bx, horY - bh, bw, bh + 2);
+        ctx.fillStyle = lit < 0.5 ? 'rgba(90,240,255,.8)' : 'rgba(255,200,90,.8)';
+        const cw = bw / 5, ch = cw * 1.2;
+        for (let wy = 1; wy * ch * 1.8 < bh - ch; wy++) for (let wx = 0; wx < 3; wx++) if (hash(n, wy, wx) < 0.55) ctx.fillRect(bx + cw * (0.6 + wx * 1.4), horY - bh + wy * ch * 1.8 - ch, cw * 0.7, ch * 0.7);
+        if (lit > 0.7) { ctx.fillStyle = `rgba(255,70,70,${Math.sin(now() * 3 + n) > 0 ? 1 : 0.2})`; ctx.fillRect(bx + bw / 2 - 1.5 * dpr, horY - bh - 4 * dpr, 3 * dpr, 4 * dpr); }
+      }
+      ctx.globalAlpha = 1;
+    }
+    if (P.rainbow > 0.02) {   // a rainbow over the farm and the magic land
       const rx = W * 0.16 - camX * 2 * dpr, ry = horY + H * 0.05, rr = Math.min(W, H) * 0.62, lw = rr * 0.022;
       ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, horY); ctx.clip();
-      ctx.globalAlpha = 0.3 * (P.sunA - 0.5) * 2 * (P.clouds - 0.5) * 2; ctx.lineWidth = lw + 1;
+      ctx.globalAlpha = 0.3 * P.rainbow; ctx.lineWidth = lw + 1;
       [[0, 85, 62], [28, 95, 62], [52, 95, 62], [125, 60, 58], [205, 80, 62], [270, 60, 64]].forEach((c, k) => {
         ctx.strokeStyle = hsl(c[0], c[1], c[2]); ctx.beginPath(); ctx.arc(rx, ry, rr - k * lw, Math.PI, 2 * Math.PI); ctx.stroke();
       });
@@ -458,11 +490,9 @@ const pal = (k, dl = 0, fog = 0) => { const v = P[k]; return hsl(v[0], v[1], cla
 const FLOWERS = [[0, 0, 97], [50, 95, 60], [330, 80, 76], [275, 65, 72], [5, 80, 62], [205, 85, 72]];
 const LEAVES = [[28, 85, 48], [15, 75, 40], [40, 90, 52], [5, 60, 34]];
 
-// what the obstacles and the small things on the grass look like at a row: a normal meadow by day and at sunset,
-// Halloween at night, an alien garden in space
+// what stands, walks and flies at a row: the biome that is closest there
 function themeAt(rz) {
-  const k = phaseAt(rz);
-  return k < 1.6 ? 'meadow' : k < 2.6 ? 'spooky' : 'alien';
+  return THEMES[Math.min(THEMES.length - 1, Math.round(phaseAt(rz)))];
 }
 
 // the road edge waves a little instead of following the lane grid; `edge` numbers the lane boundary
@@ -479,6 +509,7 @@ function blob(pts) {
 }
 
 // part: 'ground' (grass, pits, little things), 'objects' (ramps, obstacles) or both
+let rowTheme = 'farm';   // the biome of the row being drawn, for sprites that differ a little from biome to biome
 function drawRow(rz, part = 'all') {
   const track = world.track, row = track.get(rz), zA = Math.max(rz, camZ + 0.4), zB = rz + 1;
   if (zB <= zA) return;
@@ -489,6 +520,7 @@ function drawRow(rz, part = 'all') {
   const px = proj(0, hA, (zA + zB) / 2)[2];   // pixels per world unit at this row
   const zM = (zA + zB) / 2, hM = world.hAt(zM), zE = zB + 0.02, hE = world.hAt(zE);
   const theme = themeAt(rz);
+  rowTheme = theme;
   if (part !== 'objects') {
   drawSide(rz, fog, theme);
   // grass over the whole road, holes included (the pits are dug into it below); outer edges wave
@@ -513,6 +545,14 @@ function drawRow(rz, part = 'all') {
   }
   // pits dug into the grass: a ragged opening, earthen walls going down into the dark
   for (let l = 0; l < LANES; l++) if (row.road[l] && !row.floor[l]) drawPit(rz, l, row, prev, next, fog, px);
+  if (theme === 'tech') {   // steel plates: neon seams between the lanes and across every other row
+    const c = `rgba(70,235,255,${0.35 * (1 - fog)})`, w = Math.max(1, px * 0.012), plate = (l) => l >= 0 && l < LANES && row.road[l] && row.floor[l];
+    for (let l = 0; l < LANES; l++) {
+      if (!plate(l)) continue;
+      if (plate(l - 1)) line(proj(l - HALF, hA + 0.01, zA), proj(l - HALF, hB + 0.01, zB), c, w);
+      if (zA === rz && rz % 2 === 0) line(proj(l - HALF + (plate(l - 1) ? 0 : 0.18), hA + 0.01, rz), proj(l - HALF + 1 - (plate(l + 1) ? 0 : 0.18), hA + 0.01, rz), c, w);
+    }
+  }
   if (dz < 22) drawDecor(rz, row, zA, px, fog, theme);
   if (rz > 0 && rz % SEC_ROWS === 0 && zA === rz) {   // section start line, like chalk on the grass
     ctx.globalAlpha = 0.6 * (1 - fog);
@@ -674,13 +714,13 @@ function drawPit(rz, l, row, prev, next, fog, px) {
   ctx.globalAlpha = 1;
 }
 
-// grass tufts and small things on plain ground near the camera: flowers by day, fallen leaves and glowing
-// toadstools at night, glowing spores in space
+// grass tufts and small things on plain ground near the camera, by biome: flowers; fallen leaves; leaves and glowing
+// toadstools; flowers and sparkles; little lamps (and no grass); glowing spores
 function drawDecor(rz, row, zA, px, fog, theme) {
   const blades = [], bits = [];
   for (let l = 0; l < LANES; l++) {
     if (!row.road[l] || !row.floor[l] || row.block[l] || row.low[l] || row.ramp[l]) continue;
-    for (let k = 0; k < 4; k++) {
+    for (let k = 0; theme !== 'tech' && k < 4; k++) {   // no grass on steel
       const z = rz + 0.08 + hash(rz, l, 2 * k + 1) * 0.84;
       if (z < zA) continue;
       const x = l - HALF + 0.08 + hash(rz, l, 2 * k) * 0.84, p = proj(x, world.hAt(z), z);
@@ -705,10 +745,12 @@ function drawDecor(rz, row, zA, px, fog, theme) {
   }
   for (const [p, h] of bits) {
     const r = p[2] * 0.03;
-    if (theme === 'meadow') drawFlower(p, r, FLOWERS[Math.floor(h * FLOWERS.length)], fog);
-    else if (theme === 'spooky') {
-      if (h < 0.75) {   // a fallen leaf
-        const c = LEAVES[Math.floor(h * 4 / 0.75)];
+    if (theme === 'farm' || (theme === 'magic' && h < 0.6)) drawFlower(p, r, FLOWERS[Math.floor(h * FLOWERS.length) % FLOWERS.length], fog);
+    else if (theme === 'magic') glowBit(p, r * 0.7, [h < 0.8 ? 50 : 320, 95, 80], fog, false);   // a sparkle
+    else if (theme === 'tech') glowBit(p, r * 0.6, h < 0.5 ? [185, 95, 60] : [35, 95, 60], fog, false);   // a little lamp
+    else if (theme === 'spooky' || theme === 'autumn') {
+      if (h < 0.75 || theme === 'autumn') {   // a fallen leaf
+        const c = LEAVES[Math.floor(h * 4 / 0.75) % 4];
         ctx.fillStyle = hsl(c[0], c[1], c[2], fog);
         ctx.beginPath(); ctx.ellipse(p[0], p[1], r * 1.6, r * 0.7, h * 9, 0, 7); ctx.fill();
       } else glowBit(p, r, [110, 90, 60], fog, true);   // a little glowing toadstool
@@ -962,7 +1004,7 @@ function mushroom(o, s, fog, rz, l) {
   for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.arc(o.x + (hash(rz, l, 80 + k) - 0.5) * o.hw * 1.2, cy - (0.1 + hash(rz, l, 84 + k) * 0.6) * H * 0.35, Math.max(1, o.hw * 0.07), 0, 7); ctx.fill(); }
 }
 
-// ---- more of the meadow: trees and a haystack ----
+// ---- trees and a haystack ----
 const ell = (x, y, rx, ry, rot = 0) => { ctx.beginPath(); ctx.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), rot, 0, 7); ctx.fill(); };
 function crown(x, y, r, fog, dl = 0) {
   if (r < 12 * dpr) { ctx.fillStyle = pal('bush', dl + 6, fog); ctx.beginPath(); ctx.arc(x, y, Math.max(0.1, r), 0, 7); ctx.fill(); return; }   // far away: no shading
@@ -977,9 +1019,9 @@ function tree(o, s, fog, rz, l) {
   ctx.beginPath(); ctx.moveTo(o.x - w * 0.2, o.bottom); ctx.lineTo(o.x - w * 0.11, o.bottom - H * 0.55); ctx.lineTo(o.x + w * 0.11, o.bottom - H * 0.55); ctx.lineTo(o.x + w * 0.2, o.bottom); ctx.fill();
   const balls = [[-0.5, 0.5, 0.5], [0.5, 0.52, 0.48], [-0.22, 0.66, 0.52], [0.26, 0.68, 0.5], [0, 0.82, 0.5]];
   for (const [dx, dy, r] of balls) crown(o.x + dx * w + sway * dy * 2, o.bottom - dy * H, r * w * 1.15, fog);
-  const kind = hash(rz, l, 14);   // apples, blossom or plain
-  if (kind < 0.7) {
-    ctx.fillStyle = kind < 0.35 ? hsl(2, 80, 55, fog) : hsl(335, 85, 86, fog);
+  const kind = hash(rz, l, 14);   // on the farm apples, blossom or plain; apples in autumn; golden fruit in the magic land
+  if (rowTheme === 'farm' ? kind < 0.7 : rowTheme === 'autumn' ? kind < 0.35 : kind < 0.6) {
+    ctx.fillStyle = rowTheme === 'magic' ? hsl(48, 100, 70, fog) : kind < 0.35 ? hsl(2, 80, 55, fog) : hsl(335, 85, 86, fog);
     for (let k = 0; k < 7; k++) {
       const [dx, dy, r] = balls[k % 5], a = hash(rz, l, 80 + k) * 6.28, d = hash(rz, l, 90 + k) * 0.7;
       ell(o.x + (dx + Math.cos(a) * r * d) * w + sway * dy * 2, o.bottom - dy * H + Math.sin(a) * r * d * w, w * 0.075, w * 0.075);
@@ -1021,13 +1063,7 @@ function cow(o, s, fog, rz, l, dir = 1, walk = 0) {
   ctx.strokeStyle = dark; ctx.lineWidth = Math.max(1, u * 0.35);   // tail
   ctx.beginPath(); ctx.moveTo(x - dir * u * 3.8, by - u * 5.2 - bob);
   ctx.quadraticCurveTo(x - dir * u * 5.2, by - u * 4.6, x - dir * u * 4.8 + Math.sin(now() * 3 + s * 9) * u * 0.6, by - u * 2.6); ctx.stroke();
-  for (const [lx, ph] of [[-2.7, 0], [-1.7, Math.PI], [1.7, Math.PI], [2.7, 0]]) {   // legs
-    const sw = Math.sin(walk + ph) * u * 0.8;
-    ctx.strokeStyle = white; ctx.lineWidth = Math.max(1, u * 0.95);
-    ctx.beginPath(); ctx.moveTo(x + lx * u, by - u * 3.4); ctx.lineTo(x + lx * u + sw, by - u * 0.6); ctx.stroke();
-    ctx.fillStyle = dark; ctx.fillRect(x + lx * u + sw - u * 0.5, by - u * 0.75, u, u * 0.75);
-  }
-  ctx.lineCap = 'butt';
+  legs4(x, by, u, walk, 3.4, white, dark);
   ctx.fillStyle = pink; ell(x - dir * u * 1.3, by - u * 2.6 - bob, u * 0.9, u * 0.6);   // udder
   ctx.fillStyle = white; ell(x, by - u * 4.4 - bob, u * 4, u * 2.1);
   ctx.fillStyle = dark;   // patches
@@ -1069,7 +1105,226 @@ function saucer(o, s, fog, rz, l, dir = 1) {
     ctx.fillStyle = hsl((k * 70 + t * 120) % 360, 95, 68, fog); ell(x + (k - 2) * w * 0.38, y + Math.abs(k - 2) * -H * 0.025 + H * 0.02, w * 0.07, w * 0.07);
   }
 }
-const MOVERS = { meadow: cow, spooky: ghost, alien: saucer };
+// ---- more to meet: the farm, autumn, the magic land, the land of robots ----
+function sunflower(o, s, fog) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * 1.5, w = o.hw, sway = Math.sin(now() * 1.4 + s * 20) * w * 0.05;
+  for (const [dx, hh] of [[-0.5, 0.75], [0.5, 0.85], [0, 1]]) {
+    const x = o.x + dx * w, ty = o.bottom - H * hh, tx = x + sway * hh * 2, r = w * 0.3;
+    ctx.strokeStyle = hsl(100, 50, 32, fog); ctx.lineWidth = Math.max(1, w * 0.09); ctx.beginPath(); ctx.moveTo(x, o.bottom); ctx.lineTo(tx, ty); ctx.stroke();
+    ctx.fillStyle = hsl(105, 50, 38, fog); ell(x + w * 0.16, o.bottom - H * hh * 0.45, w * 0.2, w * 0.09, -0.5); ell(x - w * 0.16, o.bottom - H * hh * 0.6, w * 0.2, w * 0.09, 0.5);
+    ctx.fillStyle = hsl(48, 100, 56, fog);
+    for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; ell(tx + Math.cos(a) * r * 0.75, ty + Math.sin(a) * r * 0.75, r * 0.5, r * 0.26, a); }
+    ctx.fillStyle = hsl(25, 55, 26, fog); ell(tx, ty, r * 0.52, r * 0.52);
+  }
+}
+function scarecrow(o, s, fog) {
+  shadowUnder(o, fog, 0.7);
+  const H = (o.bottom - o.top) * 1.6, u = H / 10, x = o.x, by = o.bottom, sw = Math.sin(now() * 1.6 + s * 12) * u * 0.25;
+  ctx.strokeStyle = hsl(28, 45, 30, fog); ctx.lineWidth = Math.max(1, u * 0.5);
+  ctx.beginPath(); ctx.moveTo(x, by); ctx.lineTo(x, by - u * 8); ctx.moveTo(x - u * 3.2, by - u * 6.3 + sw); ctx.lineTo(x + u * 3.2, by - u * 6.3 - sw); ctx.stroke();
+  ctx.fillStyle = hsl(s < 0.5 ? 5 : 210, 65, 50, fog);   // a shirt
+  ctx.beginPath(); ctx.moveTo(x - u * 2.9, by - u * 7 + sw); ctx.lineTo(x + u * 2.9, by - u * 7 - sw); ctx.lineTo(x + u * 2.9, by - u * 5.7 - sw); ctx.lineTo(x + u * 1.3, by - u * 5.6);
+  ctx.lineTo(x + u * 1.5, by - u * 3); ctx.lineTo(x - u * 1.5, by - u * 3); ctx.lineTo(x - u * 1.3, by - u * 5.6); ctx.lineTo(x - u * 2.9, by - u * 5.7 + sw); ctx.fill();
+  ctx.fillStyle = hsl(45, 80, 62, fog);   // straw
+  for (const e of [-1, 1]) ell(x + e * u * 3.3, by - u * 6.3 - e * sw, u * 0.6, u * 0.4);
+  ell(x, by - u * 2.8, u * 1.5, u * 0.5);
+  ctx.fillStyle = hsl(40, 50, 78, fog); ell(x, by - u * 8.2, u * 1.25, u * 1.3);
+  ctx.fillStyle = hsl(25, 40, 20, fog); ell(x - u * 0.45, by - u * 8.4, u * 0.18, u * 0.18); ell(x + u * 0.45, by - u * 8.4, u * 0.18, u * 0.18);
+  ctx.strokeStyle = hsl(25, 40, 20, fog); ctx.lineWidth = Math.max(1, u * 0.14); ctx.beginPath(); ctx.arc(x, by - u * 8.1, u * 0.55, 0.2, Math.PI - 0.2); ctx.stroke();
+  ctx.fillStyle = hsl(38, 60, 45, fog); ell(x, by - u * 9.2, u * 2, u * 0.4);   // a hat
+  ctx.beginPath(); ctx.moveTo(x - u * 1, by - u * 9.2); ctx.lineTo(x - u * 0.7, by - u * 10.6); ctx.lineTo(x + u * 0.7, by - u * 10.6); ctx.lineTo(x + u * 1, by - u * 9.2); ctx.fill();
+}
+function barn(o, s, fog) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * 1.3, w = o.hw * 1.2, x = o.x, by = o.bottom;
+  ctx.fillStyle = hsl(4, 62, 44, fog);
+  ctx.beginPath(); ctx.moveTo(x - w * 0.85, by); ctx.lineTo(x - w * 0.85, by - H * 0.5); ctx.lineTo(x - w * 0.55, by - H * 0.82); ctx.lineTo(x, by - H); ctx.lineTo(x + w * 0.55, by - H * 0.82); ctx.lineTo(x + w * 0.85, by - H * 0.5); ctx.lineTo(x + w * 0.85, by); ctx.fill();
+  ctx.strokeStyle = hsl(40, 30, 94, fog); ctx.lineWidth = Math.max(1, w * 0.07);
+  ctx.beginPath(); ctx.moveTo(x - w * 0.95, by - H * 0.48); ctx.lineTo(x - w * 0.58, by - H * 0.85); ctx.lineTo(x, by - H * 1.03); ctx.lineTo(x + w * 0.58, by - H * 0.85); ctx.lineTo(x + w * 0.95, by - H * 0.48); ctx.stroke();
+  ctx.strokeRect(x - w * 0.36, by - H * 0.42, w * 0.72, H * 0.42);
+  ctx.beginPath(); ctx.moveTo(x - w * 0.36, by - H * 0.42); ctx.lineTo(x + w * 0.36, by); ctx.moveTo(x + w * 0.36, by - H * 0.42); ctx.lineTo(x - w * 0.36, by); ctx.stroke();
+  ctx.fillStyle = hsl(40, 30, 94, fog); ell(x, by - H * 0.68, w * 0.14, w * 0.14);
+}
+function toadstool(o, s, fog, rz, l) {
+  shadowUnder(o, fog);
+  const H = o.bottom - o.top, w = o.hw;
+  for (const [dx, k] of s < 0.5 ? [[0, 1]] : [[-0.4, 0.7], [0.3, 1]]) {
+    const x = o.x + dx * w, hh = H * k, cw = w * 0.85 * k;
+    ctx.fillStyle = hsl(45, 30, 90, fog);
+    ctx.beginPath(); ctx.moveTo(x - cw * 0.3, o.bottom); ctx.quadraticCurveTo(x - cw * 0.12, o.bottom - hh * 0.4, x - cw * 0.2, o.bottom - hh * 0.6); ctx.lineTo(x + cw * 0.2, o.bottom - hh * 0.6); ctx.quadraticCurveTo(x + cw * 0.12, o.bottom - hh * 0.4, x + cw * 0.3, o.bottom); ctx.fill();
+    ctx.fillStyle = hsl(2, 78, 50, fog); ctx.beginPath(); ctx.ellipse(x, o.bottom - hh * 0.58, cw, hh * 0.45, 0, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = hsl(45, 30, 96, fog);
+    for (let n = 0; n < 5; n++) ell(x + (hash(rz, l, 80 + n) - 0.5) * cw * 1.4, o.bottom - hh * (0.66 + hash(rz, l, 86 + n) * 0.28), cw * 0.1, cw * 0.08);
+  }
+}
+// four legs that walk: `top` — where they start above the ground, in units
+function legs4(x, by, u, walk, top, color, hoof, xs = [-2.7, -1.7, 1.7, 2.7]) {
+  ctx.lineCap = 'round';
+  xs.forEach((lx, k) => {
+    const sw = Math.sin(walk + (k % 3 ? Math.PI : 0)) * u * 0.8;
+    ctx.strokeStyle = color; ctx.lineWidth = Math.max(1, u * 0.8);
+    ctx.beginPath(); ctx.moveTo(x + lx * u, by - u * top); ctx.lineTo(x + lx * u + sw, by - u * 0.5); ctx.stroke();
+    ctx.fillStyle = hoof; ctx.fillRect(x + lx * u + sw - u * 0.45, by - u * 0.6, u * 0.9, u * 0.6);
+  });
+  ctx.lineCap = 'butt';
+}
+function fox(o, s, fog, rz, l, dir = 1, walk = 0) {
+  shadowUnder(o, fog, 0.9);
+  const u = o.hw / 5, x = o.x, by = o.bottom, bob = Math.abs(Math.sin(walk)) * u * 0.3;
+  const org = hsl(22, 88, 52, fog), dark = hsl(20, 40, 16, fog), white = hsl(40, 30, 96, fog);
+  ctx.fillStyle = org; ell(x - dir * u * 4.3, by - u * 3.9 - bob, u * 2.3, u * 0.95, -dir * (0.5 + Math.sin(now() * 3 + s * 9) * 0.15));
+  ctx.fillStyle = white; ell(x - dir * u * 5.9, by - u * 4.9 - bob, u * 0.9, u * 0.65, -dir * 0.5);
+  legs4(x, by, u, walk, 2.6, dark, dark, [-2.3, -1.5, 1.5, 2.3]);
+  ctx.fillStyle = org; ell(x, by - u * 3.3 - bob, u * 3.4, u * 1.5);
+  ctx.fillStyle = white; ell(x + dir * u * 0.6, by - u * 2.6 - bob, u * 2, u * 0.7);
+  const hx = x + dir * u * 3.7, hy = by - u * 4.6 - bob;
+  ctx.fillStyle = org;
+  for (const e of [-1, 1]) { ctx.beginPath(); ctx.moveTo(hx + e * u * 0.2, hy - u * 0.8); ctx.lineTo(hx + e * u * 1.1, hy - u * 2.3); ctx.lineTo(hx + e * u * 1.4, hy - u * 0.5); ctx.fill(); }
+  ell(hx, hy, u * 1.5, u * 1.25);
+  ctx.fillStyle = white; ell(hx + dir * u * 0.9, hy + u * 0.45, u * 1, u * 0.6);
+  ctx.fillStyle = dark; ell(hx + dir * u * 1.8, hy + u * 0.3, u * 0.25, u * 0.22); ell(hx + dir * u * 0.3, hy - u * 0.25, u * 0.2, u * 0.24); ell(hx + dir * u * 0.3 - dir * u * 0.9, hy - u * 0.25, u * 0.2, u * 0.24);
+}
+function unicorn(o, s, fog, rz, l, dir = 1, walk = 0) {
+  shadowUnder(o, fog);
+  const u = o.hw / 5, x = o.x, by = o.bottom, bob = Math.abs(Math.sin(walk)) * u * 0.3, white = hsl(300, 30, 97, fog), gold = hsl(45, 95, 60, fog);
+  const mane = [[340, 90, 70], [45, 95, 65], [190, 85, 65], [275, 70, 72]], wv = Math.sin(now() * 3 + s * 9) * u * 0.4;
+  ctx.lineCap = 'round'; ctx.lineWidth = Math.max(1, u * 0.5);
+  mane.forEach((c, k) => {   // tail
+    ctx.strokeStyle = hsl(c[0], c[1], c[2], fog); ctx.beginPath(); ctx.moveTo(x - dir * u * 3.7, by - u * 5 - bob);
+    ctx.quadraticCurveTo(x - dir * u * (5 + k * 0.3), by - u * 4.8, x - dir * u * (4.6 + k * 0.4) + wv, by - u * (2.2 + k * 0.3)); ctx.stroke();
+  });
+  legs4(x, by, u, walk, 3.4, white, gold);
+  ctx.fillStyle = white; ell(x, by - u * 4.4 - bob, u * 3.9, u * 1.9);
+  const hx = x + dir * u * 4.4, hy = by - u * 7.6 - bob;
+  ctx.beginPath(); ctx.moveTo(x + dir * u * 2, by - u * 5.4 - bob); ctx.lineTo(hx - dir * u * 0.9, hy); ctx.lineTo(hx + dir * u * 0.6, hy + u * 0.8); ctx.lineTo(x + dir * u * 3.7, by - u * 3.6 - bob); ctx.fill();   // neck
+  mane.forEach((c, k) => {
+    ctx.strokeStyle = hsl(c[0], c[1], c[2], fog); ctx.beginPath(); ctx.moveTo(hx - dir * u * (0.9 + k * 0.1), hy - u * 0.3 + k * u * 0.9);
+    ctx.lineTo(hx - dir * u * (1.9 + k * 0.25) + wv * 0.5, hy + u * (1.2 + k * 0.9)); ctx.stroke();
+  });
+  ctx.lineCap = 'butt';
+  ctx.fillStyle = gold; ctx.beginPath(); ctx.moveTo(hx - dir * u * 0.1, hy - u * 0.9); ctx.lineTo(hx + dir * u * 0.9, hy - u * 3); ctx.lineTo(hx + dir * u * 0.6, hy - u * 0.7); ctx.fill();   // horn
+  ctx.fillStyle = white; ell(hx + dir * u * 0.5, hy + u * 0.1, u * 1.6, u * 1, dir * 0.45);
+  ctx.beginPath(); ctx.moveTo(hx - dir * u * 0.8, hy - u * 0.6); ctx.lineTo(hx - dir * u * 0.6, hy - u * 1.7); ctx.lineTo(hx - dir * u * 0.1, hy - u * 0.7); ctx.fill();
+  ctx.fillStyle = hsl(275, 40, 25, fog); ell(hx + dir * u * 0.5, hy - u * 0.1, u * 0.2, u * 0.26);
+  ctx.fillStyle = hsl(340, 80, 82, fog); ell(hx + dir * u * 1.6, hy + u * 0.75, u * 0.3, u * 0.22);
+}
+function lollipop(o, s, fog, rz, l) {
+  shadowUnder(o, fog, 0.6);
+  const H = (o.bottom - o.top) * 1.5, r = o.hw * 0.62, x = o.x, cy = o.bottom - H + r, hue = [340, 190, 45, 275][Math.floor(s * 4)];
+  ctx.fillStyle = hsl(40, 30, 96, fog); ctx.fillRect(x - o.hw * 0.07, cy, o.hw * 0.14, o.bottom - cy);
+  ctx.fillStyle = hsl(hue, 85, 66, fog); ell(x, cy, r, r);
+  ctx.strokeStyle = hsl(40, 30, 97, fog); ctx.lineWidth = Math.max(1, r * 0.2); ctx.beginPath();
+  const a0 = now() * 0.8 + s * 6;
+  for (let k = 0; k <= 26; k++) { const a = a0 + k * 0.5, rr = r * 0.9 * k / 26; ctx[k ? 'lineTo' : 'moveTo'](x + Math.cos(a) * rr, cy + Math.sin(a) * rr); }
+  ctx.stroke();
+  ctx.fillStyle = `rgba(255,255,255,${0.5 * (1 - fog)})`; ell(x - r * 0.4, cy - r * 0.45, r * 0.22, r * 0.14, -0.6);
+}
+function castle(o, s, fog) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * 1.9, w = o.hw * 1.15, x = o.x, by = o.bottom, wall = hsl(330, 70, 86, fog), roof = hsl(275, 55, 60, fog);
+  const tower = (tx, tw, th) => {
+    ctx.fillStyle = wall; ctx.fillRect(tx - tw, by - th, tw * 2, th);
+    ctx.fillStyle = roof; ctx.beginPath(); ctx.moveTo(tx - tw * 1.25, by - th); ctx.lineTo(tx, by - th - tw * 2.6); ctx.lineTo(tx + tw * 1.25, by - th); ctx.fill();
+    ctx.strokeStyle = hsl(40, 30, 96, fog); ctx.lineWidth = Math.max(1, w * 0.03); ctx.beginPath(); ctx.moveTo(tx, by - th - tw * 2.6); ctx.lineTo(tx, by - th - tw * 3.6); ctx.stroke();
+    ctx.fillStyle = hsl(45, 95, 62, fog); const fl = Math.sin(now() * 5 + th * 0.01 + s * 9) * tw * 0.15;   // a flag
+    ctx.beginPath(); ctx.moveTo(tx, by - th - tw * 3.6); ctx.lineTo(tx + tw * 0.9, by - th - tw * 3.3 + fl); ctx.lineTo(tx, by - th - tw * 3); ctx.fill();
+    ctx.fillStyle = hsl(48, 100, 75, fog * 0.5); ell(tx, by - th * 0.75, tw * 0.3, tw * 0.45);
+  };
+  tower(x - w * 0.7, w * 0.24, H * 0.55); tower(x + w * 0.7, w * 0.24, H * 0.6);
+  ctx.fillStyle = hsl(325, 65, 80, fog); ctx.fillRect(x - w * 0.6, by - H * 0.36, w * 1.2, H * 0.36);
+  for (let k = 0; k < 5; k++) ctx.fillRect(x - w * 0.6 + k * w * 0.27, by - H * 0.42, w * 0.14, H * 0.07);
+  tower(x, w * 0.3, H * 0.72);
+  ctx.fillStyle = hsl(275, 45, 40, fog); ctx.beginPath(); ctx.arc(x, by - H * 0.14, w * 0.2, Math.PI, 0); ctx.lineTo(x + w * 0.2, by); ctx.lineTo(x - w * 0.2, by); ctx.fill();
+}
+function robot(o, s, fog, rz, l) {
+  shadowUnder(o, fog, 0.8);
+  const H = (o.bottom - o.top) * 1.35, u = H / 10, x = o.x, by = o.bottom, t = now(), body = hsl(205 + s * 30, 18, 62, fog), dark = hsl(215, 20, 30, fog);
+  const eye = hsl(s < 0.5 ? 185 : 40, 100, 62, fog * 0.4), wave = Math.sin(t * 3 + s * 20) * 0.5;
+  ctx.fillStyle = dark; ctx.fillRect(x - u * 1.7, by - u * 2.6, u * 1.1, u * 2.6); ctx.fillRect(x + u * 0.6, by - u * 2.6, u * 1.1, u * 2.6);   // legs
+  ctx.strokeStyle = dark; ctx.lineWidth = Math.max(1, u * 0.7); ctx.lineCap = 'round';   // arms: one waves
+  ctx.beginPath(); ctx.moveTo(x - u * 2.3, by - u * 6.2); ctx.lineTo(x - u * 3.2, by - u * 3.8);
+  ctx.moveTo(x + u * 2.3, by - u * 6.2); ctx.lineTo(x + u * 3.4 + wave * u, by - u * 8 - Math.abs(wave) * u); ctx.stroke(); ctx.lineCap = 'butt';
+  ctx.fillStyle = body; ctx.fillRect(x - u * 2.2, by - u * 6.8, u * 4.4, u * 4.4);
+  ctx.fillStyle = dark; ctx.fillRect(x - u * 1.4, by - u * 5.9, u * 2.8, u * 1.5);
+  for (let k = 0; k < 3; k++) { ctx.fillStyle = hsl([120, 45, 0][k], 90, 60, fog * 0.4); ctx.globalAlpha = Math.sin(t * 4 + k * 2 + s * 9) > 0 ? 1 : 0.3; ell(x - u * 0.8 + k * u * 0.8, by - u * 5.15, u * 0.25, u * 0.25); }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = body; ctx.fillRect(x - u * 1.7, by - u * 9.6, u * 3.4, u * 2.5);   // head
+  ctx.fillStyle = dark; ctx.fillRect(x - u * 1.3, by - u * 9, u * 2.6, u * 1.1);
+  halo(x, by - u * 8.45, u * 2.4, eye, 0.5 * (1 - fog));
+  ctx.fillStyle = eye; const look = Math.sin(t * 1.3 + s * 7) * u * 0.5;
+  ell(x - u * 0.55 + look, by - u * 8.45, u * 0.32, u * 0.32); ell(x + u * 0.55 + look, by - u * 8.45, u * 0.32, u * 0.32);
+  ctx.strokeStyle = dark; ctx.lineWidth = Math.max(1, u * 0.25); ctx.beginPath(); ctx.moveTo(x, by - u * 9.6); ctx.lineTo(x, by - u * 10.8); ctx.stroke();
+  ctx.fillStyle = `rgba(255,80,80,${(Math.sin(t * 5 + s * 9) > 0 ? 1 : 0.3) * (1 - fog)})`; ell(x, by - u * 11, u * 0.35, u * 0.35);
+}
+function antenna(o, s, fog) {
+  shadowUnder(o, fog, 0.6);
+  const H = (o.bottom - o.top) * 2, w = o.hw * 0.6, x = o.x, by = o.bottom, t = now();
+  ctx.strokeStyle = hsl(210, 15, 62, fog); ctx.lineWidth = Math.max(1, w * 0.1);
+  ctx.beginPath(); ctx.moveTo(x - w, by); ctx.lineTo(x, by - H); ctx.lineTo(x + w, by);
+  for (let k = 1; k < 5; k++) { const y = by - H * k / 5.5, hw = w * (1 - k / 5.5); ctx.moveTo(x - hw, y); ctx.lineTo(x + hw * (k % 2 ? 1 : -1) * 0.2 + hw * (k % 2 ? 0.8 : -0.8), y - H / 5.5 * 0.9); ctx.moveTo(x - hw, y); ctx.lineTo(x + hw, y); }
+  ctx.stroke();
+  const on = (t * 1.2 + s) % 1;
+  ctx.strokeStyle = `rgba(90,240,255,${(1 - on) * (1 - fog)})`; ctx.lineWidth = Math.max(1, w * 0.08);
+  ctx.beginPath(); ctx.arc(x, by - H, w * (0.4 + on * 1.6), -2.4, -0.74); ctx.stroke();
+  halo(x, by - H, w * 1.5, 'rgba(255,70,70,1)', (Math.sin(t * 4 + s * 9) > 0 ? 0.8 : 0.15) * (1 - fog));
+  ctx.fillStyle = hsl(0, 90, 60, fog * 0.4); ell(x, by - H, w * 0.16, w * 0.16);
+}
+function battery(o, s, fog) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * 0.95, w = o.hw * 0.62, x = o.x, by = o.bottom, hue = s < 0.5 ? 150 : 185, lvl = 2 + Math.floor((now() * 0.8 + s * 4) % 3);
+  halo(x, by - H * 0.5, w * 2.6, hsl(hue, 95, 60), 0.3 * (1 - fog));
+  const g = ctx.createLinearGradient(x - w, 0, x + w, 0);
+  g.addColorStop(0, hsl(215, 15, 62, fog)); g.addColorStop(1, hsl(215, 20, 30, fog));
+  ctx.fillStyle = g; ctx.fillRect(x - w, by - H, w * 2, H); ell(x, by, w, w * 0.25);
+  ctx.fillStyle = hsl(215, 15, 72, fog); ell(x, by - H, w, w * 0.25); ctx.fillRect(x - w * 0.3, by - H * 1.12, w * 0.6, H * 0.12);
+  ctx.fillStyle = hsl(hue, 95, 62, fog * 0.4);
+  for (let k = 0; k < lvl; k++) ctx.fillRect(x - w * 0.62, by - H * (0.2 + k * 0.2) - H * 0.13, w * 1.24, H * 0.13);
+}
+function rover(o, s, fog, rz, l, dir = 1, walk = 0) {
+  shadowUnder(o, fog);
+  const u = o.hw / 5, x = o.x, by = o.bottom, t = now(), dark = hsl(215, 22, 26, fog);
+  for (const wx of [-3, 0, 3]) {   // wheels
+    ctx.fillStyle = dark; ell(x + wx * u, by - u * 1.1, u * 1.15, u * 1.15);
+    ctx.strokeStyle = hsl(210, 15, 70, fog); ctx.lineWidth = Math.max(1, u * 0.25); ctx.beginPath();
+    ctx.moveTo(x + wx * u - Math.cos(walk) * u * 0.8, by - u * 1.1 - Math.sin(walk) * u * 0.8); ctx.lineTo(x + wx * u + Math.cos(walk) * u * 0.8, by - u * 1.1 + Math.sin(walk) * u * 0.8); ctx.stroke();
+  }
+  ctx.fillStyle = hsl(28, 90, 56, fog); ctx.fillRect(x - u * 4.3, by - u * 4.6, u * 8.6, u * 3);
+  ctx.fillStyle = hsl(28, 80, 42, fog); ctx.fillRect(x - u * 4.3, by - u * 2.4, u * 8.6, u * 0.8);
+  ctx.fillStyle = hsl(210, 15, 70, fog); ctx.fillRect(x + dir * u * 1 - u * 1.6, by - u * 7, u * 3.2, u * 2.4);   // head
+  ctx.fillStyle = dark; ctx.fillRect(x + dir * u * 1 - u * 1.2, by - u * 6.5, u * 2.4, u * 1.2);
+  ctx.fillStyle = hsl(185, 100, 65, fog * 0.4); ell(x + dir * u * 1.5 - u * 0.45, by - u * 5.9, u * 0.3, u * 0.3); ell(x + dir * u * 1.5 + u * 0.45, by - u * 5.9, u * 0.3, u * 0.3);
+  const on = Math.sin(t * 8) > 0;   // a beacon
+  halo(x - dir * u * 2.6, by - u * 5.4, u * 3, 'rgba(255,170,40,1)', (on ? 0.7 : 0.1) * (1 - fog));
+  ctx.fillStyle = hsl(40, 100, on ? 62 : 40, fog * 0.4); ctx.beginPath(); ctx.arc(x - dir * u * 2.6, by - u * 4.6, u * 0.8, Math.PI, 0); ctx.fill();
+}
+function factory(o, s, fog) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * 1.5, w = o.hw * 1.2, x = o.x, by = o.bottom, t = now();
+  ctx.fillStyle = hsl(215, 20, 26, fog); ctx.fillRect(x - w, by - H * 0.5, w * 2, H * 0.5); ctx.fillRect(x - w * 0.9, by - H * 0.8, w * 0.7, H * 0.8);
+  ctx.fillRect(x + w * 0.35, by - H, w * 0.3, H);
+  for (let k = 0; k < 3; k++) {   // glowing rings out of the stack
+    const a = (t * 0.4 + k / 3 + s) % 1;
+    ctx.strokeStyle = `rgba(90,240,255,${0.8 * (1 - a) * (1 - fog)})`; ctx.lineWidth = Math.max(1, w * 0.05);
+    ctx.beginPath(); ctx.ellipse(x + w * 0.5, by - H * (1.05 + a * 0.5), w * (0.18 + a * 0.25), w * (0.07 + a * 0.08), 0, 0, 7); ctx.stroke();
+  }
+  for (let k = 0; k < 8; k++) {
+    ctx.fillStyle = hash(k, Math.floor(s * 99), 5) < 0.5 ? hsl(185, 95, 62, fog * 0.4) : hsl(40, 95, 62, fog * 0.4);
+    if (k < 5) ctx.fillRect(x - w * 0.85 + k * w * 0.36, by - H * 0.36, w * 0.2, H * 0.12); else ctx.fillRect(x - w * 0.78 + (k - 5) * w * 0.2, by - H * 0.7, w * 0.11, H * 0.1);
+  }
+}
+function dish(o, s, fog) {
+  shadowUnder(o, fog, 0.7);
+  const H = (o.bottom - o.top) * 1.2, w = o.hw, x = o.x, by = o.bottom, a = Math.sin(now() * 0.5 + s * 9), cy = by - H * 0.7;
+  ctx.strokeStyle = hsl(210, 15, 50, fog); ctx.lineWidth = Math.max(1, w * 0.1);
+  ctx.beginPath(); ctx.moveTo(x - w * 0.4, by); ctx.lineTo(x, cy); ctx.lineTo(x + w * 0.4, by); ctx.stroke();
+  ctx.fillStyle = hsl(210, 15, 82, fog); ell(x, cy, w * (0.25 + 0.6 * Math.abs(a)), w * 0.85, 0);
+  ctx.fillStyle = hsl(210, 15, 60, fog); ell(x + a * w * 0.1, cy, w * (0.15 + 0.45 * Math.abs(a)), w * 0.65, 0);
+  ctx.strokeStyle = hsl(210, 15, 40, fog); ctx.beginPath(); ctx.moveTo(x, cy); ctx.lineTo(x + a * w * 0.9, cy - w * 0.1); ctx.stroke();
+  ctx.fillStyle = hsl(0, 90, 60, fog * 0.4); ell(x + a * w * 0.9, cy - w * 0.1, w * 0.1, w * 0.1);
+}
+
+const MOVERS = { farm: cow, autumn: fox, spooky: ghost, magic: unicorn, tech: rover, alien: saucer };
 
 // ---- buildings for the islands ----
 function house(o, s, fog) {
@@ -1144,11 +1399,14 @@ function rocket(o, s, fog, rz, l, dir = 1, walk = 0, flame = false) {
 
 // ---- islands floating beside the road, with something of the place on each ----
 const SIDE = {
-  meadow: [tree, tree, pine, house, windmill, cow, haystack, tree, bush, pine],
+  farm: [tree, tree, pine, house, windmill, cow, haystack, barn, sunflower, scarecrow],
+  autumn: [tree, tree, house, pumpkin, haystack, toadstool, scarecrow, barn],
   spooky: [deadTree, hauntedHouse, pumpkin, grave, deadTree, hauntedHouse, pumpkin, skeleton],
+  magic: [tree, castle, lollipop, mushroom, crystal, tree, castle],
+  tech: [robot, antenna, factory, dish, battery, rocket, dome, factory],
   alien: [crystal, mushroom, dome, rocket, crystal, mushroom],
 };
-const BIG = new Set([house, windmill, hauntedHouse, dome, rocket]);
+const BIG = new Set([house, windmill, hauntedHouse, dome, rocket, barn, castle, factory]);
 function drawSide(rz, fog, th) {
   if (rz + 0.5 < camZ + 3) return;
   for (const side of [-1, 1]) {
@@ -1274,10 +1532,45 @@ function rocketFly(rz, z, base, s, dir, t, fog) {
   rocket(o, s, fog, rz, 0, dir, 0, true);
   ctx.restore();
 }
+function leaves(rz, z, base, s, dir, t, fog) {   // leaves drift down across the road
+  for (let k = 0; k < 7; k++) {
+    const h = hash(rz, k, 320), fall = (t * (0.12 + h * 0.1) + h) % 1;
+    const p = proj((h - 0.5) * 9 + dir * fall * 3 + Math.sin(t * 2 + h * 30) * 0.4, base + 3.2 * (1 - fall) + 0.1, z + (hash(rz, k, 321) - 0.5) * 2), u = p[2] * 0.11;
+    if (!(u > 0)) continue;
+    const c = LEAVES[k % 4];
+    ctx.fillStyle = hsl(c[0], c[1], c[2] + 8, fog); ell(p[0], p[1], u, u * 0.5, t * 3 * (h + 0.3) + k);
+  }
+}
+function fairies(rz, z, base, s, dir, t, fog) {   // little lights with wings, dancing in a ring
+  const x0 = (s - 0.5) * 7, y0 = base + 1 + s * 1.5;
+  for (let k = 0; k < 4; k++) {
+    const a = t * (0.9 + k * 0.15) + k * 1.6, p = proj(x0 + Math.cos(a) * 0.8, y0 + Math.sin(a * 1.3) * 0.35, z + Math.sin(a) * 0.6), u = p[2] * 0.09;
+    if (!(u > 0)) continue;
+    const col = hsl([320, 50, 185, 275][k], 95, 78, fog * 0.4), flap = Math.abs(Math.sin(t * 16 + k));
+    halo(p[0], p[1], u * 5, col, 0.55 * (1 - fog));
+    ctx.fillStyle = `rgba(255,255,255,${0.75 * (1 - fog)})`; ell(p[0] - u * 0.9 * flap, p[1] - u * 0.5, u * 0.9 * flap + 0.3, u * 0.5, 0.5); ell(p[0] + u * 0.9 * flap, p[1] - u * 0.5, u * 0.9 * flap + 0.3, u * 0.5, -0.5);
+    ctx.fillStyle = col; ell(p[0], p[1], u * 0.5, u * 0.5);
+  }
+}
+function drone(rz, z, base, s, dir, t, fog) {
+  const p = proj(across(s, dir, t, 1.6), base + 1.9 + s * 2.4 + Math.sin(t * 2 + s * 9) * 0.15, z), u = p[2] * 0.3, x = p[0], y = p[1];
+  if (!(u > 0)) return;
+  ctx.strokeStyle = hsl(210, 15, 55, fog); ctx.lineWidth = Math.max(1, u * 0.12);
+  ctx.beginPath(); ctx.moveTo(x - u * 1.3, y - u * 0.25); ctx.lineTo(x + u * 1.3, y - u * 0.25); ctx.stroke();
+  ctx.fillStyle = `rgba(200,240,255,${0.45 * (1 - fog)})`;
+  for (const e of [-1, 1]) ell(x + e * u * 1.3, y - u * 0.4, u * 0.75 * (0.6 + 0.4 * Math.abs(Math.sin(t * 30 + e))), u * 0.12);
+  ctx.fillStyle = hsl(215, 20, 32, fog); ell(x, y, u * 0.7, u * 0.4);
+  ctx.fillStyle = hsl(185, 100, 65, fog * 0.4); ell(x + dir * u * 0.3, y + u * 0.05, u * 0.2, u * 0.2);
+  halo(x, y + u * 0.5, u * 1.2, Math.sin(t * 6 + s * 9) > 0 ? 'rgba(255,70,70,1)' : 'rgba(80,255,120,1)', 0.7 * (1 - fog));
+}
 const FLY = {
-  meadow: [birds, balloon, butterflies, cloudlet, birds, balloon, butterflies],
-  // nothing here looks like what walks across the road: a ghost or a saucer is always the real thing
+  farm: [birds, balloon, butterflies, cloudlet, birds, balloon, butterflies],
+  autumn: [leaves, birds, cloudlet, leaves, balloon],
+  // nothing here or on the islands looks like what walks across the road, but for the farm's cow, which grazes
+  // well away from it: a fox, a ghost, a unicorn, a rover or a saucer is always the real thing
   spooky: [bats, witch, bats],
+  magic: [fairies, butterflies, balloon, fairies, cloudlet],
+  tech: [drone, drone, rocketFly, drone],
   alien: [comet, rocketFly, comet],
 };
 function drawFlyers(rz, fog, th) {
@@ -1287,8 +1580,11 @@ function drawFlyers(rz, fog, th) {
 }
 
 const OBSTACLES = {
-  meadow: [rock, bush, tree, pine, haystack, tree],
+  farm: [rock, bush, tree, pine, haystack, tree, sunflower, scarecrow],
+  autumn: [tree, pumpkin, haystack, toadstool, rock, tree, scarecrow],
   spooky: [pumpkin, grave, deadTree, skeleton, zombie],
+  magic: [tree, lollipop, mushroom, crystal, lollipop],
+  tech: [robot, antenna, battery, robot],
   alien: [crystal, mushroom],
 };
 
