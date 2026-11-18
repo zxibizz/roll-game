@@ -299,7 +299,8 @@ function blob(pts) {
   ctx.closePath();
 }
 
-function drawRow(rz) {
+// part: 'ground' (grass, pits, little things), 'objects' (ramps, obstacles) or both
+function drawRow(rz, part = 'all') {
   const track = world.track, row = track.get(rz), zA = Math.max(rz, camZ + 0.4), zB = rz + 1;
   if (zB <= zA) return;
   const next = track.get(rz + 1), prev = rz > 0 ? track.get(rz - 1) : null;
@@ -308,6 +309,8 @@ function drawRow(rz) {
   const lit = slope * 20 * P.litK;   // uphill faces the camera and looks brighter
   const px = proj(0, hA, (zA + zB) / 2)[2];   // pixels per world unit at this row
   const zM = (zA + zB) / 2, hM = world.hAt(zM), zE = zB + 0.02, hE = world.hAt(zE);
+  const theme = themeAt(rz);
+  if (part !== 'objects') {
   // grass over the whole road, holes included (the pits are dug into it below); outer edges wave
   for (let l = 0; l < LANES; l++) {
     if (!row.road[l]) continue;
@@ -362,7 +365,6 @@ function drawRow(rz) {
     g.addColorStop(0, inF ? pal('pitWall', 0, fog) : pal('pit', 0, fog)); g.addColorStop(0.45, pal('pit', inF ? 4 : 0, fog)); g.addColorStop(1, pal('pit', 0, fog));
     ctx.fillStyle = g; blob(pts); ctx.fill();
   }
-  const theme = themeAt(rz);
   if (dz < 22) drawDecor(rz, row, zA, px, fog, theme);
   if (rz > 0 && rz % SEC_ROWS === 0 && zA === rz) {   // section start line, like chalk on the grass
     ctx.globalAlpha = 0.6 * (1 - fog);
@@ -373,6 +375,8 @@ function drawRow(rz) {
     }
     ctx.globalAlpha = 1;
   }
+  }
+  if (part === 'ground') return;
   const order = [...Array(LANES).keys()].sort((a, b) => Math.abs(laneX(b) - (camX - world.offAt(rz))) - Math.abs(laneX(a) - (camX - world.offAt(rz))));
   const camL = camX - world.offAt(rz + 0.5);   // the camera's place across this row
   for (const l of order) {   // wooden ramps
@@ -713,11 +717,19 @@ function draw() {
   theme.sky(hue, horY);
   const near = Math.max(0, Math.floor(camZ + 0.4)), far = Math.floor(camZ) + VIEW;
   const ballRow = world.state === 'fall' ? world.ball.fallRow : Math.floor(world.ball.z);
-  for (let rz = far; rz >= near; rz--) {
-    drawRow(rz);
-    if (rz === ballRow) drawBall();
+  if (world.state === 'fall') {   // falling into a pit: the near edge of the ground must hide the ball
+    for (let rz = far; rz >= near; rz--) { drawRow(rz); if (rz === ballRow) drawBall(); }
+    if (ballRow < near) drawBall();
+  } else {
+    // The rows around the ball get all their ground first and the ball, its shadow and the obstacles on top:
+    // drawn row by row, the nearer grass cut the shadow off with a straight line that jumped from row to row.
+    // Farther rows stay row by row, so a crest still hides what is behind it.
+    const split = Math.min(far, ballRow + 1);
+    for (let rz = far; rz > split; rz--) drawRow(rz);
+    for (let rz = split; rz >= near; rz--) drawRow(rz, 'ground');
+    for (let rz = split; rz >= near; rz--) { drawRow(rz, 'objects'); if (rz === ballRow) drawBall(); }
+    if (ballRow < near) drawBall();
   }
-  if (ballRow < near) drawBall();
   for (const p of parts) {
     const [px, py, sc] = proj(p.x, p.y, p.z);
     if (sc <= 0) continue;
