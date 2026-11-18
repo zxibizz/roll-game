@@ -159,3 +159,21 @@ test('the road splits now and then, and the path never runs into the gap or off 
   }
   assert.ok(splits >= 20, `only ${splits} splits on 20 tracks`);
 });
+
+test('steering arrives on the target without overshooting, at any frame rate', () => {
+  for (const dt of [1 / 30, 1 / 60, 1 / 120]) {
+    for (const lanes of [1, 2, -2, 0.4]) {   // within the 5-lane road (edge lanes at ±2)
+      const w = new World(1);
+      w.ball.tx = lanes;
+      let beyond = 0, t = 0, settled = null;
+      for (let n = 0; n < 2 / dt; n++) {
+        w.step(dt); t += dt;
+        beyond = Math.max(beyond, Math.sign(lanes) * (w.ball.x - lanes));
+        if (settled === null && Math.abs(w.ball.x - lanes) < 0.01) settled = t;
+      }
+      assert.ok(beyond <= 1e-9, `dt 1/${Math.round(1 / dt)}, ${lanes} lanes: went ${beyond.toFixed(3)} past the target`);
+      assert.ok(settled !== null && settled < 0.6, `dt 1/${Math.round(1 / dt)}, ${lanes} lanes: settled after ${settled}`);
+      assert.ok(Math.abs(w.ball.x - lanes) < 1e-6, 'it ends exactly on the target');
+    }
+  }
+});

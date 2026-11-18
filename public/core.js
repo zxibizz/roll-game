@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.4.0';
+export const VERSION = '0.4.1';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -20,9 +20,15 @@ const DRIVE = 2;                 // how fast the speed returns to the section's 
 const GS = 16;                   // how much a slope speeds up / slows down the ball
 const SMAX = 0.32;               // steepest slope the terrain generator makes
 const JUMP_VY = 7;               // vertical speed a ramp gives
-// Steering: the ball has sideways inertia. It speeds up towards the finger's target and slows down
-// near it; STEER_LAG is roughly how much later than an instant move it arrives.
-const STEER_K = 12, STEER_ACC = 10, STEER_LAG = 1 / STEER_K + 1 / STEER_ACC;
+// Steering: sideways the ball can't change speed faster than STEER_ACC (no jerks), and it is never faster than
+// it can still brake to a stop exactly on the finger's target (STEER_BRAKE, a little gentler than STEER_ACC),
+// so it gets there without overshooting and coming back. Close to the target it settles in at STEER_NEAR per second.
+const STEER_ACC = 80, STEER_BRAKE = 64, STEER_NEAR = 20;
+// how long moving over by one lane takes at forward speed v (the generator keeps both lanes open that long)
+const shiftTime = (v) => {
+  const L = latOf(v);
+  return (L * L / STEER_BRAKE >= 1 ? 2 / Math.sqrt(STEER_BRAKE) : 1 / L + L / STEER_BRAKE) + 0.06;
+};
 // The camera (client.js draws with these): it sits CAM_BACK rows behind the ball, CAM_H above the road.
 export const CAM_H = 1.4, CAM_BACK = 1.9;
 const SEE_AHEAD = 0.6;           // seconds of warning: an obstacle must be visible this long before the ball gets there
@@ -172,7 +178,7 @@ export class Track {
 
   gen() {
     const i = this.rows.length, r = this.r, sec = Math.floor(i / SEC_ROWS), k = i % SEC_ROWS;
-    const v = speedOf(sec), vhi = v + GS * SMAX / DRIVE + 0.5, m = Math.ceil(vhi * (1 / latOf(vhi) + STEER_LAG)) + 1;
+    const v = speedOf(sec), vhi = v + GS * SMAX / DRIVE + 0.5, m = Math.ceil(vhi * shiftTime(vhi)) + 1;
     const inJump = this.pat === 'jump' && this.pi < this.plen;   // a jump may run into the next section
     const open = i < START_OPEN || (k < BREATH && !inJump);
     const block = Array(LANES).fill(false), ramp = Array(LANES).fill(false), safe = Array(LANES).fill(false);
@@ -322,9 +328,12 @@ export class World {
         this.v = Math.max(2.5, this.v + (DRIVE * (target - this.v) - GS * s) * dt);
       }
       b.z += this.v * dt; b.roll += this.v * dt / R;
-      const L = latOf(this.v), want = clamp((b.tx - b.x) * STEER_K, -L, L);
-      b.vx += (want - b.vx) * Math.min(1, dt * STEER_ACC);
-      b.x += b.vx * dt;
+      const L = latOf(this.v), d = b.tx - b.x;
+      const want = Math.sign(d) * Math.min(L, Math.sqrt(2 * STEER_BRAKE * Math.abs(d)), STEER_NEAR * Math.abs(d));
+      b.vx += clamp(want - b.vx, -STEER_ACC * dt, STEER_ACC * dt);
+      const move = b.vx * dt;
+      if (d !== 0 && Math.sign(move) === Math.sign(d) && Math.abs(move) >= Math.abs(d)) { b.x = b.tx; b.vx = 0; }   // never past the target
+      else b.x += move;
       if (sec !== this.sec) { this.sec = sec; this.events.push('section'); }
       const lane = Math.floor(b.x + HALF), rz = Math.floor(b.z);
       const g = this.groundAt(b.x, b.z);
