@@ -88,18 +88,20 @@ Site: `https://roll.games.bubas.cc`.
 - Stars come in stretches of 1.2–2 s with breaks of 2.5–4.5 s and no stars between. In a stretch a line lies on the
   safe path and lines in about half of the other lanes alongside: a ball takes one lane of them, a magnet all. An
   arc hangs over most jumps, and one hangs over most logs on the path. They add up over all runs and open ball colours
-  (`SKINS` in `client.js`: 50, 150, 300, 500, 800, 1200, 1800). The score stays the distance.
+  and pets between them (`SKINS` in `client.js`: 50, a hamster at 100, 150, 300, a kitten at 400, 500, 800, a chick
+  at 1000, 1200, 1800). A pet runs inside a clear tinted ball: from behind in a run, its feet taking turns, its head
+  turning with a lane change (the hamster's cheeks puff up with a star); face on at home. The score stays the distance.
 
 ## Screens
 
-- **Home**: the title, the star bank, the best score, a big play button. The ball in the scene is the colour on show:
-  arrows beside it (or ← →) turn through the colours, a locked one shows `have/need` stars over it.
+- **Home**: the title, the star bank, the best score, a big play button. The ball in the scene is the colour or pet on show:
+  arrows beside it (or ← →) turn through them, a locked one shows `have/need` stars over it.
 - **In the game**: pause, the score (it turns gold once the record is beaten), stars taken. The first three runs a
   hand shows the swipe.
 - **Pause** (the button, Esc / P, or the game going into the background): resume, home, start over, settings.
   Resuming counts 3-2-1 first. Leaving a run from here banks its stars and score. A run in progress is stored (`roll.run`: the seed and the ball) whenever it is paused
   or hidden, and opens on pause the next time the game is started, even after the phone unloaded it.
-- **Results**: the score counts up, a cup if it is a new record, the record, stars earned, colours just opened.
+- **Results**: the score counts up, a cup if it is a new record, the record, stars earned, colours and pets just opened.
   The buttons ignore taps for the first 0.6 s.
 - **Settings** (home and pause): volume, music volume, vibration (Android only; hidden elsewhere).
 - Settings and progress live in `localStorage` under `roll.save`.

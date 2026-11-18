@@ -25,14 +25,19 @@ for (const k of ['vol', 'music']) save[k] = clamp(Number(save[k]) || 0, 0, 1);
 for (const k of ['stars', 'best', 'runs']) save[k] = Math.max(0, Math.floor(Number(save[k]) || 0));
 const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* private mode: play on without saving */ } };
 
-// Balls: smooth and glossy, they differ in colour only. `need` — stars collected over all runs that open one.
+// Balls: smooth and glossy, they differ in colour only; between them come pets that run inside a clear ball of the
+// given tint (`pet`, drawn by drawPet; `c` and `glow` are the glass, for the shards of a crash and the glow).
+// `need` — stars collected over all runs that open one.
 const SKINS = [
   { id: 'coral', need: 0, c: ['#fff1e6', '#ff8a5c', '#cf4b25'], glow: [255, 140, 90] },
   { id: 'sky', need: 50, c: ['#f0faff', '#4fb4ff', '#1867c9'], glow: [90, 170, 255] },
+  { id: 'hamster', need: 100, pet: 'hamster', c: ['#f2f9ff', '#9fd0ff', '#5d9bd9'], glow: [120, 190, 255] },
   { id: 'rose', need: 150, c: ['#fff0f6', '#ff6fa5', '#c42b6b'], glow: [255, 120, 170] },
   { id: 'sun', need: 300, c: ['#fffde6', '#ffd84a', '#e08e00'], glow: [255, 215, 90] },
+  { id: 'kitten', need: 400, pet: 'kitten', c: ['#fff4f8', '#ffb0d0', '#e0709f'], glow: [255, 150, 195] },
   { id: 'violet', need: 500, c: ['#f8eaff', '#b56cff', '#6a2bc4'], glow: [190, 120, 255] },
   { id: 'pearl', need: 800, c: ['#ffffff', '#ebe6f7', '#a79fc4'], glow: [230, 225, 255] },
+  { id: 'chick', need: 1000, pet: 'chick', c: ['#f0fff8', '#9be8c8', '#4fb88f'], glow: [110, 215, 170] },
   { id: 'night', need: 1200, c: ['#c3cdf0', '#3b4466', '#10131f'], glow: [120, 140, 255] },
   { id: 'ruby', need: 1800, c: ['#ffe3e3', '#e0193a', '#7a0018'], glow: [255, 70, 90], sparkle: true },
 ];
@@ -348,7 +353,8 @@ function gameOver() {
   $('overCard').classList.toggle('best', isBest); $('newBest').hidden = !isBest;
   $('overBest').textContent = save.best; $('overStars').textContent = '+' + stars;
   $('unlock').hidden = !fresh.length;
-  $('unlock').innerHTML = fresh.map((k) => `<i style="background:radial-gradient(circle at 35% 30%, ${k.c[0]}, ${k.c[1]} 60%, ${k.c[2]})"></i>`).join('');
+  $('unlock').innerHTML = fresh.map((k) => k.pet ? `<i style="background:#fff url(${petIcon(k.pet)}) center/cover"></i>`
+    : `<i style="background:radial-gradient(circle at 35% 30%, ${k.c[0]}, ${k.c[1]} 60%, ${k.c[2]})"></i>`).join('');
   $('overScore').textContent = '0'; overAnim = { t: 0, to: s };
   $('overActs').classList.add('wait');   // a stray tap right after a crash must not restart or leave
   setTimeout(() => $('overActs').classList.remove('wait'), 600);
@@ -2416,6 +2422,188 @@ const OBSTACLES = {
   }
 })();
 
+// ---- pets: a hamster, a kitten, a chick running inside a clear ball ----
+// Seen from behind in a run (its feet take turns, its head turns with a lane change and shows an eye), face on at
+// home. They draw on `pc`: the game's canvas, or a small one for the icon of a pet just opened.
+let pc = ctx;
+const PETS = {
+  hamster: { glass: [120, 190, 255], fur: ['#ffc98a', '#e8933f', '#c06a22'], pale: '#fff3e2', ear: '#c97434', inner: '#ffb0b5', pad: '#ffb0b5', eye: '#2a1a12' },
+  kitten: { glass: [255, 150, 195], fur: ['#e3e7ec', '#aab2bd', '#7c8592'], pale: '#f7f8fa', ear: '#8a93a0', inner: '#ffb3c6', pad: '#ffc0cf', eye: '#22301f', iris: '#8fd16d', stripe: '#6c7480' },
+  chick: { glass: [110, 215, 170], fur: ['#fff7a8', '#ffd93a', '#f2aa1c'], pale: '#fff9c8', pad: '#ff9a2e', eye: '#2a2010', beak: '#ff9228' },
+};
+function oval(x, y, rx, ry, fill, rot = 0) { pc.fillStyle = fill; pc.beginPath(); pc.ellipse(x, y, rx, ry, rot, 0, 7); pc.fill(); }
+function furG(k, x, y, r) {   // fur lit from above: light on top, darker underneath
+  const g = pc.createRadialGradient(x - r * 0.2, y - r * 0.5, r * 0.1, x, y, r * 1.1);
+  g.addColorStop(0, k.fur[0]); g.addColorStop(0.55, k.fur[1]); g.addColorStop(1, k.fur[2]); return g;
+}
+// the glass ball with the pet inside; in unit coordinates the ball is a circle of radius 1 about (0, 0)
+function drawPet(pet, px, py, r, front) {
+  const k = PETS[pet], b = world.ball, t = now(), g = k.glass.join(',');
+  const air = b.air && !front, run = front ? t * 1.2 : b.z * 2.4, ph = Math.sin(run * Math.PI);
+  let gr = pc.createRadialGradient(px, py, r * 0.2, px, py, r);   // the back of the glass: clear, tinted at the rim
+  gr.addColorStop(0, `rgba(${g},.05)`); gr.addColorStop(0.72, `rgba(${g},.16)`); gr.addColorStop(1, `rgba(${g},.6)`);
+  pc.fillStyle = gr; pc.beginPath(); pc.arc(px, py, r, 0, 7); pc.fill();
+  pc.save(); pc.beginPath(); pc.arc(px, py, r * 0.975, 0, 7); pc.clip();
+  pc.translate(px, py); pc.scale(r, r);
+  oval(0, 0.84, 0.5, 0.1, 'rgba(0,0,0,.16)');   // where it stands on the inside of the ball
+  pc.translate(0, 0.84); pc.scale(1.08, 1.08); pc.translate(0, -0.84);   // a little bigger, standing where it stood
+  pc.translate(0, front ? 0 : -Math.abs(ph) * 0.035 - (air ? 0.06 : 0));
+  pc.lineCap = 'round'; pc.lineJoin = 'round';
+  (front ? PET_FRONT : PET_BACK)[pet](k, t, ph, air);
+  pc.restore();
+  pc.strokeStyle = `rgba(${g},.55)`; pc.lineWidth = Math.max(1, r * 0.045);   // the rim of the glass
+  pc.beginPath(); pc.arc(px, py, r * 0.975, 0, 7); pc.stroke();
+}
+// its hind feet from behind: soles that take turns lifting as it runs, spread in the air
+function pet_soles(k, ph, air, y, dx, w, h) {
+  for (const e of [-1, 1]) {
+    const lift = air ? 0.04 : Math.max(0, e * ph) * 0.11;
+    oval(e * dx * (air ? 1.15 : 1), y - lift, w, h, k.pad);
+  }
+}
+// the turned head shows a little of its face on that side: an eye, a nose, whiskers
+function pet_peek(k, hx, hy, hr, kind) {
+  const s = Math.abs(lean); if (s < 0.12) return;
+  const e = Math.sign(lean), a = Math.min(1, (s - 0.12) * 2.5);
+  pc.globalAlpha *= a;
+  oval(hx + e * hr * 0.86, hy + hr * 0.02, hr * 0.1, hr * 0.13, k.eye);
+  if (kind === 'beak') {
+    pc.fillStyle = k.beak; pc.beginPath(); pc.moveTo(hx + e * hr * 0.9, hy + hr * 0.2); pc.lineTo(hx + e * hr * 1.22, hy + hr * 0.32); pc.lineTo(hx + e * hr * 0.9, hy + hr * 0.45); pc.fill();
+  } else {
+    oval(hx + e * hr * 1.0, hy + hr * 0.36, hr * 0.08, hr * 0.07, k.inner);
+    pc.strokeStyle = 'rgba(255,255,255,.85)'; pc.lineWidth = 0.018;
+    for (const d of [-0.06, 0.06]) { pc.beginPath(); pc.moveTo(hx + e * hr * 0.95, hy + hr * 0.45); pc.lineTo(hx + e * hr * 1.5, hy + hr * (0.45 + d * 4)); pc.stroke(); }
+  }
+  pc.globalAlpha /= a;
+}
+const PET_BACK = {
+  hamster(k, t, ph, air) {
+    const hx = lean * 0.07, ch = 1 + 0.3 * Math.min(1, gulp);   // a star stuffs its cheeks
+    pet_soles(k, ph, air, 0.74, 0.2, 0.1, 0.065);
+    oval(0, 0.3, 0.54, 0.44, k.pale);                              // pale flanks
+    oval(0, 0.22, 0.5, 0.41, furG(k, 0, 0.22, 0.5));               // golden back
+    for (const e of [-1, 1]) oval(hx * 0.6 + e * 0.29 * ch, -0.06, 0.17 * ch, 0.15 * ch, k.pale);   // cheek pouches
+    oval(hx, -0.2, 0.33, 0.31, furG(k, hx, -0.2, 0.33));
+    for (const e of [-1, 1]) { oval(hx + e * 0.22, -0.46, 0.1, 0.1, k.ear); oval(hx + e * 0.22 - 0.02, -0.48, 0.05, 0.04, 'rgba(255,255,255,.25)'); }
+    pet_peek(k, hx, -0.2, 0.33);
+    oval(0, 0.63, 0.055, 0.045, k.inner);                          // a stub of a tail
+  },
+  kitten(k, t, ph, air) {
+    const hx = lean * 0.07;
+    pet_soles(k, ph, air, 0.74, 0.18, 0.09, 0.065);
+    oval(0, 0.3, 0.45, 0.43, furG(k, 0, 0.3, 0.45));
+    pc.strokeStyle = k.stripe; pc.lineWidth = 0.05;
+    for (const y of [0.08, 0.24, 0.4]) { pc.beginPath(); pc.moveTo(-0.24, y - 0.02); pc.quadraticCurveTo(0, y + 0.07, 0.24, y - 0.02); pc.stroke(); }
+    oval(hx, -0.22, 0.32, 0.29, furG(k, hx, -0.22, 0.32));
+    for (const e of [-1, 1]) {   // pointed ears, seen from the back
+      pc.fillStyle = k.ear; pc.beginPath(); pc.moveTo(hx + e * 0.08, -0.4); pc.lineTo(hx + e * 0.27, -0.66); pc.lineTo(hx + e * 0.31, -0.3); pc.fill();
+    }
+    pc.strokeStyle = k.stripe; pc.lineWidth = 0.035;
+    for (const d of [-0.08, 0, 0.08]) { pc.beginPath(); pc.moveTo(hx + d, -0.44); pc.lineTo(hx + d * 1.2, -0.3); pc.stroke(); }
+    pet_peek(k, hx, -0.22, 0.32);
+    const sw = Math.sin(t * 3) * 0.08;   // the tail stands up and sways
+    pc.strokeStyle = k.fur[1]; pc.lineWidth = 0.1;
+    pc.beginPath(); pc.moveTo(0.1, 0.66); pc.bezierCurveTo(0.42, 0.74, 0.62 + sw, 0.42, 0.52 + sw, 0.12); pc.quadraticCurveTo(0.48 + sw * 1.4, -0.02, 0.6 + sw * 1.6, -0.08); pc.stroke();
+    pc.strokeStyle = k.stripe;
+    pc.beginPath(); pc.moveTo(0.5 + sw * 1.3, 0.03); pc.quadraticCurveTo(0.49 + sw * 1.4, -0.03, 0.6 + sw * 1.6, -0.08); pc.stroke();
+  },
+  chick(k, t, ph, air) {
+    const hx = lean * 0.06, fl = air ? 0.9 : 0.25 + Math.abs(ph) * 0.35;
+    for (const e of [-1, 1]) {   // three-toed feet
+      const lift = air ? 0.04 : Math.max(0, e * ph) * 0.1, x = e * 0.17, y = 0.73 - lift;
+      pc.strokeStyle = k.pad; pc.lineWidth = 0.045;
+      for (const d of [-0.07, 0, 0.07]) { pc.beginPath(); pc.moveTo(x, y - 0.05); pc.lineTo(x + d, y + 0.04); pc.stroke(); }
+    }
+    for (const e of [-1, 1]) {   // little wings, flapping as it runs
+      pc.save(); pc.translate(e * 0.44, 0.12); pc.rotate(-e * fl); oval(e * 0.08, 0, 0.16, 0.09, k.fur[2]); pc.restore();
+    }
+    oval(0, 0.12, 0.52, 0.56, furG(k, 0, 0.12, 0.52));
+    oval(hx, -0.1, 0.3, 0.26, 'rgba(255,255,255,.18)');
+    pc.fillStyle = k.fur[2];   // a tuft of tail feathers
+    pc.beginPath(); pc.moveTo(-0.1, 0.55); pc.lineTo(0, 0.7); pc.lineTo(0.1, 0.55); pc.fill();
+    pc.strokeStyle = k.fur[2]; pc.lineWidth = 0.05;   // and a tuft on top
+    for (const d of [-1, 0, 1]) { pc.beginPath(); pc.moveTo(hx + d * 0.03, -0.42); pc.quadraticCurveTo(hx + d * 0.12, -0.56, hx + d * 0.16 + 0.04, -0.6); pc.stroke(); }
+    pet_peek(k, hx, -0.14, 0.42, 'beak');
+  },
+};
+function pet_eyes(k, x, y, s, iris) {
+  for (const e of [-1, 1]) {
+    if (iris) oval(x + e * s * 1.2, y, s * 1.05, s * 1.2, iris);
+    oval(x + e * s * 1.2, y + (iris ? s * 0.1 : 0), s * (iris ? 0.6 : 0.95), s * (iris ? 0.95 : 1), k.eye);
+    oval(x + e * s * 1.2 - s * 0.3, y - s * 0.35, s * 0.32, s * 0.32, '#ffffff');
+  }
+}
+function pet_blush(x, y, w) { for (const e of [-1, 1]) oval(x + e * w, y, 0.07, 0.045, 'rgba(255,120,140,.45)'); }
+function pet_smile(x, y, s) {
+  pc.strokeStyle = 'rgba(70,40,30,.8)'; pc.lineWidth = 0.022;
+  pc.beginPath(); pc.moveTo(x - s, y); pc.quadraticCurveTo(x - s / 2, y + s * 0.8, x, y); pc.quadraticCurveTo(x + s / 2, y + s * 0.8, x + s, y); pc.stroke();
+}
+const PET_FRONT = {
+  hamster(k, t) {
+    const blink = (t % 3.2) < 0.12;
+    for (const e of [-1, 1]) oval(e * 0.2, 0.75, 0.11, 0.06, k.pad);
+    oval(0, 0.3, 0.52, 0.44, furG(k, 0, 0.3, 0.52));
+    oval(0, 0.36, 0.34, 0.32, k.pale);
+    for (const e of [-1, 1]) oval(e * 0.1, 0.12, 0.07, 0.06, k.pad);   // front paws held together
+    for (const e of [-1, 1]) { oval(e * 0.22, -0.46, 0.1, 0.1, k.ear); oval(e * 0.22, -0.45, 0.06, 0.06, k.inner); }
+    for (const e of [-1, 1]) oval(e * 0.28, -0.06, 0.18, 0.15, k.pale);
+    oval(0, -0.2, 0.33, 0.31, furG(k, 0, -0.2, 0.33));
+    oval(0, -0.08, 0.22, 0.17, k.pale);
+    if (blink) { pc.strokeStyle = k.eye; pc.lineWidth = 0.03; for (const e of [-1, 1]) { pc.beginPath(); pc.moveTo(e * 0.17, -0.22); pc.lineTo(e * 0.07, -0.22); pc.stroke(); } }
+    else pet_eyes(k, 0, -0.22, 0.1);
+    pet_blush(0, -0.08, 0.22);
+    oval(0, -0.12, 0.035, 0.025, '#ff8a9a');
+    pet_smile(0, -0.08, 0.045);
+  },
+  kitten(k, t) {
+    const sw = Math.sin(t * 2.5) * 0.06;
+    pc.strokeStyle = k.fur[1]; pc.lineWidth = 0.09;   // the tail, over the shoulder
+    pc.beginPath(); pc.moveTo(0.3, 0.6); pc.bezierCurveTo(0.6, 0.55, 0.55 + sw, 0.1, 0.42 + sw, -0.02); pc.stroke();
+    for (const e of [-1, 1]) oval(e * 0.17, 0.75, 0.1, 0.06, k.pale);
+    oval(0, 0.3, 0.44, 0.43, furG(k, 0, 0.3, 0.44));
+    oval(0, 0.36, 0.24, 0.3, k.pale);
+    for (const e of [-1, 1]) {
+      pc.fillStyle = k.ear; pc.beginPath(); pc.moveTo(e * 0.08, -0.4); pc.lineTo(e * 0.27, -0.66); pc.lineTo(e * 0.31, -0.3); pc.fill();
+      pc.fillStyle = k.inner; pc.beginPath(); pc.moveTo(e * 0.13, -0.42); pc.lineTo(e * 0.255, -0.59); pc.lineTo(e * 0.27, -0.36); pc.fill();
+    }
+    oval(0, -0.22, 0.32, 0.29, furG(k, 0, -0.22, 0.32));
+    pc.strokeStyle = k.stripe; pc.lineWidth = 0.03;
+    for (const d of [-0.07, 0, 0.07]) { pc.beginPath(); pc.moveTo(d, -0.47); pc.lineTo(d * 1.2, -0.37); pc.stroke(); }
+    oval(0, -0.1, 0.17, 0.11, k.pale);
+    pet_eyes(k, 0, -0.24, 0.085, k.iris);
+    pet_blush(0, -0.1, 0.2);
+    pc.fillStyle = '#ff8aa6'; pc.beginPath(); pc.moveTo(-0.035, -0.15); pc.lineTo(0.035, -0.15); pc.lineTo(0, -0.11); pc.fill();
+    pet_smile(0, -0.1, 0.04);
+    pc.strokeStyle = 'rgba(255,255,255,.9)'; pc.lineWidth = 0.014;
+    for (const e of [-1, 1]) for (const d of [-0.03, 0.02]) { pc.beginPath(); pc.moveTo(e * 0.12, -0.11 + d); pc.lineTo(e * 0.36, -0.13 + d * 2.2); pc.stroke(); }
+  },
+  chick(k, t) {
+    const fl = 0.3 + Math.max(0, Math.sin(t * 5)) * 0.25;
+    for (const e of [-1, 1]) {
+      pc.strokeStyle = k.pad; pc.lineWidth = 0.045;
+      for (const d of [-0.07, 0, 0.07]) { pc.beginPath(); pc.moveTo(e * 0.17, 0.68); pc.lineTo(e * 0.17 + d, 0.77); pc.stroke(); }
+    }
+    for (const e of [-1, 1]) { pc.save(); pc.translate(e * 0.44, 0.12); pc.rotate(-e * fl); oval(e * 0.08, 0, 0.16, 0.09, k.fur[2]); pc.restore(); }
+    oval(0, 0.12, 0.52, 0.56, furG(k, 0, 0.12, 0.52));
+    pc.strokeStyle = k.fur[2]; pc.lineWidth = 0.05;
+    for (const d of [-1, 0, 1]) { pc.beginPath(); pc.moveTo(d * 0.03, -0.42); pc.quadraticCurveTo(d * 0.12, -0.56, d * 0.16 + 0.04, -0.6); pc.stroke(); }
+    pet_eyes(k, 0, -0.14, 0.1);
+    pet_blush(0, 0.0, 0.27);
+    pc.fillStyle = k.beak; pc.beginPath(); pc.moveTo(-0.08, -0.02); pc.lineTo(0.08, -0.02); pc.lineTo(0, 0.08); pc.fill();
+    pc.fillStyle = '#e0700f'; pc.beginPath(); pc.moveTo(-0.08, -0.02); pc.lineTo(0.08, -0.02); pc.lineTo(0, 0.0); pc.fill();
+  },
+};
+
+// the pet face on, in its ball, as a picture for the results screen
+const petIcons = {};
+function petIcon(pet) {
+  if (petIcons[pet]) return petIcons[pet];
+  const c = document.createElement('canvas'); c.width = c.height = 96;
+  pc = c.getContext('2d');
+  try { drawPet(pet, 48, 48, 46, true); } finally { pc = ctx; }
+  return (petIcons[pet] = c.toDataURL());
+}
+
 function drawBall() {
   const b = world.ball, T = theme.ball;
   if (world.state === 'crash' || world.state === 'over') return;
@@ -2446,9 +2634,12 @@ function drawBall() {
     for (const e of [-1, 1]) wing(px + e * r * 0.75, py - r * 0.15, r * 1.6 * flyShow, e, flap);
   }
   if (world.fx.safe > 0 && world.state === 'run' && !b.fly) ctx.globalAlpha = 0.6 + 0.3 * Math.sin(now() * 30);   // nothing can hit it: it flickers
-  const gr = ctx.createRadialGradient(px - r * 0.35, py - r * 0.4, r * 0.1, px, py, r);
-  gr.addColorStop(0, T.c[0]); gr.addColorStop(0.7, T.c[1]); gr.addColorStop(1, T.c[2]);
-  ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.fill();
+  if (T.pet) drawPet(T.pet, px, py, r, mode === 'home');
+  else {
+    const gr = ctx.createRadialGradient(px - r * 0.35, py - r * 0.4, r * 0.1, px, py, r);
+    gr.addColorStop(0, T.c[0]); gr.addColorStop(0.7, T.c[1]); gr.addColorStop(1, T.c[2]);
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.fill();
+  }
   // gloss: a soft highlight up-left and a faint rim of reflected light at the bottom
   const hl = ctx.createRadialGradient(px - r * 0.38, py - r * 0.42, 0, px - r * 0.38, py - r * 0.42, r * 0.45);
   hl.addColorStop(0, 'rgba(255,255,255,.85)'); hl.addColorStop(1, 'rgba(255,255,255,0)');
@@ -2804,6 +2995,7 @@ window.__shot = (seed, z) => {
   $hud.hidden = false; $score.textContent = world.score; $starN.textContent = world.stars; draw();
 };
 window.__world = () => world;
+window.__lean = (v) => { lean = v; draw(); const b = world.ball; return proj(b.x, b.y, b.z).slice(0, 2); };
 window.__draw = draw;
 window.__follow = follow;
 window.__feel = () => ({ homing: homing.length, shown: shownStars, near: nearN, parts: parts.length, kick: { ...kick }, zoom, squash });
