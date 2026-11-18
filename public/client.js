@@ -13,6 +13,7 @@ const $home = $('home'), $pause = $('pause'), $over = $('over'), $set = $('set')
 $('ver').textContent = 'v' + VERSION;   // small, on the home screen: which version runs
 
 const SLAB = 0.35, VIEW = 46;       // track thickness, rows drawn ahead
+const VIEW_FAR = 20;                // and this many more in the last biome, where the road ahead curls up into rings
 const PITCH = 0.5;
 const CAM_FOLLOW = 0.6;             // how much of the ball's sideways move the camera repeats
 const COUNT_T = 0.55;               // seconds per digit of the 3-2-1 before a paused run goes on
@@ -107,12 +108,15 @@ const grad = (y0, y1, stops) => {
 
 // ---- Biomes ----
 // One look that changes with the distance: a summer farm → autumn → a snowy winter evening → a Halloween night →
-// a pink magic land → the bottom of the sea → a jungle of dinosaurs → a land of robots → space. PAL holds the key
+// a pink magic land → the bottom of the sea → a jungle of dinosaurs → a land of robots → space → and past space the
+// end of the world, where it all comes apart: patches of every biome and a road that curls up (see patchAt, the
+// broken geometry). PAL holds the key
 // frames; between two biomes everything is blended (colours given as [hue, saturation, lightness] turn the short
-// way round the colour wheel, see paletteAt). What stands and moves there is picked by themeAt.
+// way round the colour wheel, see paletteAt). What stands and moves there is picked row by row (drawRowAs).
 // Sky layers a frame leaves out are off there: snow (falling flakes), aurora (northern lights), sea (water instead
-// of air: light from above and bubbles), volcano (on the horizon, smoking).
-const LAYERS = { snow: 0, aurora: 0, sea: 0, volcano: 0 };
+// of air: light from above and bubbles), volcano (on the horizon, smoking), glitch (the sky in shards, each one a
+// piece of another biome's sky).
+const LAYERS = { snow: 0, aurora: 0, sea: 0, volcano: 0, glitch: 0 };
 const PAL = [
   { // summer: a farm under a clear sky
     sky: [[111, 177, 242], [169, 211, 251], [226, 240, 255]], fog: [226, 240, 255],
@@ -189,13 +193,41 @@ const PAL = [
     shadow: [0, 0, 0], hud: 1, stars: 1, space: 1, moon: 0,
     sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0, cloudC: [60, 72, 130], glow: 0.6, rainbow: 0, city: 0,
   },
+  { // the end of the world: a dark violet void, a sky in shards, a bit of every biome's sky at once. The ground
+    // colours here show only while space turns into it: every patch of this biome wears another biome's (PATCH).
+    sky: [[16, 8, 40], [34, 14, 66], [70, 26, 96]], fog: [30, 14, 58],
+    grass: [268, 40, 26], grassHi: [262, 50, 38], tuft: [275, 45, 15], soil: [-70, 28, 16], pit: [-70, 30, 4], pitWall: [-70, 25, 10],
+    rock: [-80, 14, 36], bush: [285, 40, 18], bushHi: [280, 50, 30], wood: [-60, 25, 34], woodDark: [-60, 25, 22],
+    flowerL: 72, glowF: 1, litK: 1,
+    shadow: [0, 0, 0], hud: 1, stars: 0.8, space: 0, moon: 1,
+    sunA: 0.9, sunH: 0.2, sunC: [255, 235, 200], sunR: 0.06, clouds: 0.3, cloudC: [150, 130, 200], glow: 0.6, rainbow: 0.8, city: 0.7,
+    aurora: 0.6, volcano: 0.8, snow: 0.35, glitch: 1,
+  },
 ].map((frame) => ({ ...LAYERS, ...frame }));
 // a biome is BIOME_SECS sections (core.js: sections are equal in time, so it is half a minute at any speed);
 // it stays as it is for most of that and turns into the next one over its last BIOME_BLEND sections. The last
 // biome never ends. To add a biome: a name in THEMES, a key frame in PAL at the same place, and an entry under that
 // name in MOVERS, SIDE, FLY and OBSTACLES (checked at start, see checkBiomes) — nothing else counts biomes.
+// 'glitch' stays the last one: it has nothing of its own, it is made of all the others (PLAIN).
 const BIOME_BLEND = 0.75;
-const THEMES = ['farm', 'autumn', 'winter', 'spooky', 'magic', 'sea', 'dino', 'tech', 'alien'];
+const THEMES = ['farm', 'autumn', 'winter', 'spooky', 'magic', 'sea', 'dino', 'tech', 'alien', 'glitch'];
+const GLITCH = THEMES.length - 1, PLAIN = GLITCH;   // the index of the last biome; how many ordinary ones come before it
+// how far the world has come apart at row z: 0 up to space, 1 in the last biome, in between while one turns into the other
+const glitchAt = (z) => clamp(phaseAt(z) - (GLITCH - 1), 0, 1);
+// The last biome is a patchwork: every dozen or two rows of road (12 to 24) belong to another biome, with its
+// ground, its obstacles and its walker. (No shorter: at full speed a patch still lasts half a second, so the ground
+// under the ball never flickers between snow and night.) While space turns into it, more and more patches show up.
+// patchAt: the biome a row wears there, or -1 where the row is still its own. Even patches take the even biomes
+// and odd ones the odd, so two patches side by side are never the same biome.
+const PATCH_ROWS = 18;
+const patchId = (rz) => { const k = Math.floor(rz / PATCH_ROWS); return rz - k * PATCH_ROWS < hash(k, 4, 901) * PATCH_ROWS / 3 ? k - 1 : k; };
+function patchAt(rz) {
+  const g = glitchAt(rz);
+  if (g <= 0) return -1;
+  const k = patchId(rz), odd = k & 1;
+  if (g < 1 && hash(k, 7, 903) >= g) return -1;
+  return PLAIN < 2 ? 0 : odd + 2 * Math.floor(hash(k, 3, 902) * ((PLAIN + 1 - odd) >> 1));
+}
 
 const mix = (a, b, t) => (Array.isArray(a) ? a.map((v, i) => mix(v, b[i], t)) : a + (b - a) * t);
 function phaseAt(z) {
@@ -215,11 +247,20 @@ function paletteAt(k) {
 const wrap = (v, m) => ((v % m) + m) % m;
 const css = (c, a = 1) => `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${a})`;
 let P = PAL[0], hudDark = null;
+// A patch's palette: the ground of its biome (and its clouds, for what flies by) under the sky of the moment.
+// Made anew when that changes: only while space turns into the last biome.
+const GROUND = ['grass', 'grassHi', 'tuft', 'soil', 'pit', 'pitWall', 'rock', 'bush', 'bushHi', 'wood', 'woodDark', 'flowerL', 'glowF', 'litK', 'clouds', 'cloudC'];
+let PATCH = [], patchSky = null;
+function patchPal(i, sky) {
+  if (patchSky !== sky) { patchSky = sky; PATCH = PAL.slice(0, PLAIN).map((frame) => { const out = { ...sky }; for (const k of GROUND) out[k] = frame[k]; return out; }); }
+  return PATCH[i];
+}
 
 const theme = {
   sky(hue, horY) {
     ctx.fillStyle = grad(0, horY, P.sky.map((c) => css(c))); ctx.fillRect(0, 0, W, horY + 1);
     ctx.fillStyle = css(P.fog); ctx.fillRect(0, horY, W, H - horY);
+    if (P.glitch > 0.01) shards(P.glitch);
     if (P.stars > 0.01) drawStars(P.stars, horY + (H - horY) * P.space);
     if (P.space > 0.01) {
       nebula(W * 0.22, horY - H * 0.16, W * 0.7, hsl(hue, 70, 35), 0.45 * P.space);
@@ -655,10 +696,85 @@ const BALL_ZC = CAM_BACK * CP + CAM_H * SP;   // depth of the ball's contact poi
 const PROJ_N = 8192, PROJ = Array.from({ length: PROJ_N }, () => [0, 0, 0]);
 let projI = 0;
 function proj(x, y, z) {
-  const dx = x + world.offAt(z) - camX, dy = y - camY - CAM_H, dz = z - camZ;   // x is across the road
-  const zc = dz * CP - dy * SP, yc = dy * CP + dz * SP, p = PROJ[projI = (projI + 1) & (PROJ_N - 1)];
+  let dx = x + world.offAt(z) - camX, dy = y - camY - CAM_H, dz = z - camZ;   // x is across the road
+  const bent = warpOn && z > warpFrom;
+  if (bent) {   // the road is bent here: the point is counted from the bent centre line
+    const i = Math.min(Math.floor(z) - warpBase, WARP_N - 2), t = z - warpBase - i, s = 1 - t, a = i * 9, b = a + 9, lx = dx + camX, h = y - camY;
+    dx = WF[a] * s + WF[b] * t + (WF[a + 3] * s + WF[b + 3] * t) * lx + (WF[a + 6] * s + WF[b + 6] * t) * h;
+    dy = WF[a + 1] * s + WF[b + 1] * t + (WF[a + 4] * s + WF[b + 4] * t) * lx + (WF[a + 7] * s + WF[b + 7] * t) * h;
+    dz = WF[a + 2] * s + WF[b + 2] * t + (WF[a + 5] * s + WF[b + 5] * t) * lx + (WF[a + 8] * s + WF[b + 8] * t) * h;
+  }
+  let zc = dz * CP - dy * SP;
+  const yc = dy * CP + dz * SP, p = PROJ[projI = (projI + 1) & (PROJ_N - 1)];
+  if (bent && zc < 0.5) zc = 0.5;   // a bent road never comes round behind the eye
   p[0] = W / 2 + f * dx / zc; p[1] = cy - f * yc / zc; p[2] = f / zc;
   return p;
+}
+
+// ---- Broken geometry ----
+// In the last biome the road ahead does not lie flat: it climbs and curls into a ring, winds off in a spiral, twists
+// like a ribbon, runs in tall waves. Only for the eye: the world (core.js) knows nothing of it. The bends belong to
+// the track (bendAt: every BEND_ROWS rows another figure), but a row is bent only as far as it is from the ball:
+// not at all up to WARP_D0 rows ahead — every obstacle is seen flat, on time, where it is — and fully from WARP_D1
+// on. So the figure hangs ahead and unrolls under the ball as it comes.
+// buildWarp lays the centre line out row by row from the camera: for each row boundary where the road centre is
+// (3 numbers), which way is across it (3) and which way is up from it (3), in the camera's space before its pitch;
+// proj places a point from these. A row turned so far that the eye sees it from below is drawn as bare earth.
+const WARP_D0 = 18, WARP_D1 = 32, BEND_ROWS = 56;
+const LIFT = 0.4;   // and over those rows the road tips up by this much (radians), towards the eye: what lies beyond is seen from above, not edge on
+const WARP_N = VIEW + VIEW_FAR + 4, WF = new Float64Array(WARP_N * 9), UNDER = new Uint8Array(WARP_N);
+let warpOn = false, warpBase = 0, warpFrom = Infinity, view = VIEW;
+const BEND = [0, 0, 0];   // radians a row: nose up, turn right, roll
+function bendAt(rz) {
+  const k = Math.floor(rz / BEND_ROWS), t = (rz + 0.5 - k * BEND_ROWS) / BEND_ROWS, e = clamp(Math.min(t, 1 - t) / 0.2, 0, 1), win = e * e * (3 - 2 * e);
+  const kind = hash(k, 1, 910), a = hash(k, 2, 911), side = hash(k, 3, 912) < 0.5 ? -1 : 1;
+  let p = 0, y = 0, r = 0;
+  if (kind < 0.25) { p = 0.2 + a * 0.08; y = side * (0.05 + 0.03 * hash(k, 4, 913)); }    // up and over in rings; a little sideways, so a coil clears the last one
+  else if (kind < 0.45) { p = 0.14 + a * 0.05; r = side * p * (0.7 + 0.3 * hash(k, 4, 913)); }   // a corkscrew: coils round a line running off ahead
+  else if (kind < 0.65) { y = side * (0.22 + a * 0.08); p = 0.02; }                       // a spiral climbing to one side
+  else if (kind < 0.85) r = side * (0.1 + a * 0.07);                                      // a twisted ribbon
+  else p = 0.26 * Math.sin((rz + 0.5) * Math.PI / 8);                                     // tall waves
+  BEND[0] = p * win; BEND[1] = y * win; BEND[2] = r * win;
+}
+function buildWarp() {
+  const b = world.ball;
+  view = VIEW + Math.round(VIEW_FAR * glitchAt(b.z + VIEW));
+  warpOn = false; warpFrom = Infinity;
+  if (glitchAt(b.z + view) <= 0) return;
+  warpBase = Math.floor(camZ);
+  let ax = -camX, ay = -CAM_H, az = warpBase - camZ, rx = 1, ry = 0, rz = 0, ux = 0, uy = 1, uz = 0, fx = 0, fy = 0, fz = 1;
+  for (let i = 0; i < WARP_N; i++) {
+    const o = i * 9, row = warpBase + i;
+    WF[o] = ax; WF[o + 1] = ay; WF[o + 2] = az; WF[o + 3] = rx; WF[o + 4] = ry; WF[o + 5] = rz; WF[o + 6] = ux; WF[o + 7] = uy; WF[o + 8] = uz;
+    const d = clamp((row + 0.5 - b.z - WARP_D0) / (WARP_D1 - WARP_D0), 0, 1), g = glitchAt(row), w = d * d * (3 - 2 * d) * g;
+    if (w > 0) {
+      if (warpFrom === Infinity) warpFrom = row;
+      bendAt(row);
+      const up = BEND[0] * w + LIFT * g * 6 * d * (1 - d) / (WARP_D1 - WARP_D0);   // (the slope of the same smooth step: LIFT in all)
+      let c = Math.cos(up), s = Math.sin(up), tx = fx, ty = fy, tz = fz;   // nose up: forward towards up
+      fx = tx * c + ux * s; fy = ty * c + uy * s; fz = tz * c + uz * s; ux = ux * c - tx * s; uy = uy * c - ty * s; uz = uz * c - tz * s;
+      c = Math.cos(BEND[1] * w); s = Math.sin(BEND[1] * w); tx = fx; ty = fy; tz = fz;       // turn: forward towards right
+      fx = tx * c + rx * s; fy = ty * c + ry * s; fz = tz * c + rz * s; rx = rx * c - tx * s; ry = ry * c - ty * s; rz = rz * c - tz * s;
+      c = Math.cos(BEND[2] * w); s = Math.sin(BEND[2] * w); tx = rx; ty = ry; tz = rz;       // roll: right towards up
+      rx = tx * c + ux * s; ry = ty * c + uy * s; rz = tz * c + uz * s; ux = ux * c - tx * s; uy = uy * c - ty * s; uz = uz * c - tz * s;
+    }
+    ax += fx; ay += fy; az += fz;
+  }
+  if (warpFrom === Infinity) return;
+  warpOn = true;
+  for (let i = 0; i < WARP_N - 1; i++) {   // seen from below: the eye (at 0, 0, 0) is under the middle of the row
+    const o = i * 9;
+    UNDER[i] = (WF[o] + WF[o + 9]) * (WF[o + 6] + WF[o + 15]) + (WF[o + 1] + WF[o + 10]) * (WF[o + 7] + WF[o + 16]) + (WF[o + 2] + WF[o + 11]) * (WF[o + 8] + WF[o + 17]) > 0 ? 1 : 0;
+  }
+}
+// a thing standing on a bent row leans with it: turn the canvas round its foot for as long as it is drawn
+function tilt(x, y, ang) { if (ang) { ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.translate(-x, -y); } }
+function untilt(ang) { if (ang) ctx.restore(); }
+// which way is up on the screen for something standing at (x, y, z); 0 where the road is not bent
+function upAngle(p, x, y, z) {
+  if (!warpOn || z <= warpFrom) return 0;
+  const px = p[0], py = p[1], q = proj(x, y + 0.5, z);
+  return Math.atan2(q[0] - px, py - q[1]);
 }
 
 // The canvas has at most MAX_PX pixels: a tablet at its full density costs two to three times a phone's frame for a
@@ -816,6 +932,27 @@ function drawWeather() {
   }
 }
 
+// The sky of the last biome is broken like glass: wedges run out from a point over the far end of the road, each one
+// a piece of another biome's sky, with a bright crack between two of them. They sway very slowly.
+const SHARD_SKY = [...Array(PLAIN).keys()].sort((a, b) => hash(a, 1, 920) - hash(b, 1, 920));
+let shardG = [], shardH = 0;
+function shards(a) {
+  if (shardH !== H) { shardH = H; shardG = SHARD_SKY.map((i) => grad(0, H, PAL[i].sky.map((c) => css(c)))); }
+  const t = now(), n = PLAIN + 2, cx = W * 0.5, cy0 = horY - H * 0.05, far = Math.hypot(W, H);
+  const at = (k) => (k + (hash(k % n, 2, 921) - 0.5) * 0.7) / n * Math.PI * 2 + 0.035 * Math.sin(t * 0.17 + k * 1.9);
+  for (let k = 0; k < n; k++) {
+    const a0 = at(k), a1 = k === n - 1 ? at(0) + Math.PI * 2 : at(k + 1);   // the last one closes the circle
+    ctx.globalAlpha = a * (0.5 + 0.14 * Math.sin(t * 0.4 + k * 2.3)); ctx.fillStyle = shardG[k % PLAIN];
+    ctx.beginPath(); ctx.moveTo(cx, cy0); ctx.lineTo(cx + Math.cos(a0) * far, cy0 + Math.sin(a0) * far);
+    ctx.lineTo(cx + Math.cos((a0 + a1) / 2) * far * 1.2, cy0 + Math.sin((a0 + a1) / 2) * far * 1.2); ctx.lineTo(cx + Math.cos(a1) * far, cy0 + Math.sin(a1) * far); ctx.fill();
+  }
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, 1.5 * dpr); ctx.globalAlpha = 0.3 * a;
+  ctx.beginPath();
+  for (let k = 0; k < n; k++) { const a0 = at(k); ctx.moveTo(cx, cy0); ctx.lineTo(cx + Math.cos(a0) * far, cy0 + Math.sin(a0) * far); }
+  ctx.stroke(); ctx.globalAlpha = 1;
+  halo(cx, cy0, Math.min(W, H) * 0.22, 'rgba(255,255,255,1)', 0.35 * a);
+}
+
 function nebula(x, y, r, color, a) {
   const g = ctx.createRadialGradient(x, y, 0, x, y, r);
   g.addColorStop(0, color); g.addColorStop(1, 'rgba(0,0,0,0)');
@@ -850,10 +987,6 @@ function starShape(x, y, r, flat, rot = 0) {
   ctx.closePath();
 }
 
-// what stands, walks and flies at a row: the biome that is closest there
-function themeAt(rz) {
-  return THEMES[Math.min(THEMES.length - 1, Math.round(phaseAt(rz)))];
-}
 
 // the road edge waves a little instead of following the lane grid; `edge` numbers the lane boundary
 const wave = (z, edge) => 0.09 * Math.sin(z * 1.3 + edge * 1.7) + 0.05 * Math.sin(z * 0.57 + edge * 2.9);
@@ -871,18 +1004,36 @@ function blob(pts) {
 // part: 'ground' (grass, pits, little things), 'objects' (ramps, obstacles) or both
 let rowTheme = 'farm';   // the biome of the row being drawn, for sprites that differ a little from biome to biome
 function drawRow(rz, part = 'all') {
+  const base = P, patch = patchAt(rz);   // a patch of the last biome: the row wears another biome's ground
+  if (patch >= 0) P = patchPal(patch, base);
+  drawRowAs(rz, part, patch, base);
+  P = base;
+}
+function drawRowAs(rz, part, patch, sky) {
   const track = world.track, row = track.get(rz), zA = Math.max(rz, camZ + 0.4), zB = rz + 1;
   if (zB <= zA) return;
   const next = track.get(rz + 1), prev = rz > 0 ? track.get(rz - 1) : null;
   const hA = world.hAt(zA), hB = next.h, slope = hB - row.h, dz = (zA + zB) / 2 - camZ;
-  const fog = clamp((dz - 12) / (VIEW - 12), 0, 1);
+  const fog = clamp((dz - 12) / (view - 12), 0, 1) * (1 - 0.35 * P.glitch);   // the far rings stay in sight
   const lit = slope * 20 * P.litK;   // uphill faces the camera and looks brighter
   const px = proj(0, hA, (zA + zB) / 2)[2];   // pixels per world unit at this row
   const zM = (zA + zB) / 2, hM = world.hAt(zM), zE = zB + 0.02, hE = world.hAt(zE);
-  const theme = themeAt(rz);
+  // what stands, walks and flies at a row: the biome that is closest there, or the one its patch is from
+  const theme = THEMES[patch >= 0 ? patch : Math.min(PLAIN - 1, Math.round(phaseAt(rz)))];
   rowTheme = theme;
+  if (warpOn && rz >= warpFrom && UNDER[rz - warpBase]) {   // turned over: bare earth, and nothing on it can be seen
+    for (let l = 0, from = -1; l <= LANES; l++) {
+      const on = l < LANES && row.road[l];
+      if (on && from < 0) from = l;
+      if (!on && from >= 0) {
+        quad(proj(from - HALF, hA, zA), proj(l - HALF, hA, zA), proj(l - HALF, hE, zE), proj(from - HALF, hE, zE), pal('soil', -3 + (rz % 2) * 2, fog));
+        from = -1;
+      }
+    }
+    return;
+  }
   if (part !== 'objects') {
-  drawSide(rz, fog, theme);
+  drawSide(rz, fog, theme, patch, sky);
   // grass over the whole road, holes included (the pits are dug into it below); outer edges wave
   for (let l = 0; l < LANES; l++) {
     if (!row.road[l]) continue;
@@ -905,7 +1056,15 @@ function drawRow(rz, part = 'all') {
   }
   // pits dug into the grass: a ragged opening, earthen walls going down into the dark
   for (let l = 0; l < LANES; l++) if (row.road[l] && !row.floor[l]) drawPit(rz, l, row, prev, next, fog, px);
-  if (theme !== 'tech') {   // faint dashes between the lanes: through a bend one can follow one's own lane ahead
+  if (patch >= 0 && zA === rz && patchAt(rz - 1) !== patch) {   // a seam where two patches meet: the colours split, as on a broken screen
+    const w = Math.max(1, px * 0.03);
+    for (let l = 0; l < LANES; l++) {
+      if (!row.road[l]) continue;
+      line(proj(l - HALF, hA + 0.01, rz), proj(l - HALF + 1, hA + 0.01, rz), '#3ff', w, 0.8 * (1 - fog));
+      line(proj(l - HALF, hA + 0.01, rz + 0.07), proj(l - HALF + 1, hA + 0.01, rz + 0.07), '#f3c', w, 0.8 * (1 - fog));
+    }
+  }
+  if (theme !== 'tech' && dz < VIEW) {   // faint dashes between the lanes: through a bend one can follow one's own lane ahead
     const z0 = Math.max(zA, rz + 0.15), z1 = rz + 0.7, a = 0.28 * (1 - fog);
     if (z1 > z0) {
       const h0 = world.hAt(z0) + 0.01, h1 = world.hAt(z1) + 0.01, w = Math.max(1, px * 0.025);
@@ -945,11 +1104,11 @@ function drawRow(rz, part = 'all') {
     if (!(o.hw > 0 && o.bottom > o.top)) continue;
     const pick = hash(rz, wall ? 0 : l, 7), seed = hash(rz, l, 8);
     const kinds = OBSTACLES[theme];
-    kinds[Math.floor(pick * kinds.length)](o, seed, fog, rz, l);
+    tilt(o.x, o.bottom, o.ang); kinds[Math.floor(pick * kinds.length)](o, seed, fog, rz, l); untilt(o.ang);
   }
   if (row.mover && rz + 0.5 > camZ + 0.9) {   // someone walks across the road
     const mx = world.moverX(rz), o = frameAt(mx, rz);
-    if (o.hw > 0 && o.bottom > o.top) MOVERS[theme](o, hash(rz, 3, 8), fog, rz, 0, Math.sign(row.mover.lane - row.mover.from), mx * 9);
+    if (o.hw > 0 && o.bottom > o.top) { tilt(o.x, o.bottom, o.ang); MOVERS[theme](o, hash(rz, 3, 8), fog, rz, 0, Math.sign(row.mover.lane - row.mover.from), mx * 9); untilt(o.ang); }
   }
   if (rz + LOW_Z0 > camZ + 0.5) for (const l of order) if (row.low[l]) drawLog(l, rz, row, fog, px);
   if (rz + 0.5 > camZ + 0.9) {
@@ -960,7 +1119,10 @@ function drawRow(rz, part = 'all') {
     for (const s of world.sky) if (s.z === rz && !s.got) drawStar(s.l, rz, 1 + FLY_H, fog);   // the trail of a flight
     if (flyShow > 0.01) drawFlightRow(rz, fog);
   }
-  drawFlyers(rz, fog, theme);
+  if (patch >= 0) {   // in the last biome anything may fly by
+    const i = Math.floor(hash(rz, 5, 304) * PLAIN);
+    P = patchPal(i, sky); drawFlyers(rz, fog, THEMES[i]);
+  } else drawFlyers(rz, fog, theme);
 }
 
 // A ramp must not read as one more thing in the way: a bright springboard, the same in every biome, glowing on
@@ -1260,10 +1422,16 @@ function drawLog(l, rz, row, fog, px) {
 
 const obstacleFrame = (l, rz) => frameAt(laneX(l), rz);
 function frameAt(xc, rz) {
-  const zc = rz + 0.5, base = world.hAt(zc);
-  const pf = proj(xc, base, rz + INSET + 0.1), pt = proj(xc, base + BOX_H, zc);
-  const hw = proj(xc + 0.42, base, rz + INSET + 0.1)[0] - pf[0];
-  return { x: pf[0], bottom: pf[1], top: pt[1], hw, pc: proj(xc, base, zc) };
+  const zc = rz + 0.5, base = world.hAt(zc), z0 = rz + INSET + 0.1;
+  const pf = proj(xc, base, z0);
+  if (warpOn && rz >= warpFrom) {   // on a bent row: the same box, measured along the row's own up and across (`ang`: how it leans)
+    const x = pf[0], y = pf[1], pu = proj(xc, base + BOX_H, z0), pr = proj(xc + 0.42, base, z0), pm = proj(xc, base, zc);
+    if ((pr[0] - x) * (pu[1] - y) - (pr[1] - y) * (pu[0] - x) >= 0) return { x, bottom: y, top: y, hw: 0, pc: pm, ang: 0 };   // seen from behind or edge on: nothing to draw
+    return { x, bottom: y, top: y - Math.hypot(pu[0] - x, pu[1] - y), hw: Math.hypot(pr[0] - x, pr[1] - y), pc: [x, y - Math.hypot(pm[0] - x, pm[1] - y), pm[2]], ang: Math.atan2(pu[0] - x, y - pu[1]) };
+  }
+  const pt = proj(xc, base + BOX_H, zc);
+  const hw = proj(xc + 0.42, base, z0)[0] - pf[0];
+  return { x: pf[0], bottom: pf[1], top: pt[1], hw, pc: proj(xc, base, zc), ang: 0 };
 }
 function shadowUnder(o, fog, k = 1) {
   ctx.fillStyle = `rgba(${P.shadow.map(Math.round)},${0.3 * (1 - fog)})`;
@@ -1932,10 +2100,13 @@ const SIDE = {
   alien: [crystal, mushroom, dome, rocket, crystal, mushroom],
 };
 const BIG = new Set([house, windmill, hauntedHouse, dome, rocket, barn, castle, factory, igloo, wreck, bronto]);
-function drawSide(rz, fog, th) {
+function drawSide(rz, fog, th, patch = -1, sky = P) {
   if (rz + 0.5 < camZ + 3) return;
+  const rowP = P, rowTh = th;
   for (const side of [-1, 1]) {
     if (hash(rz, side, 200) > 0.13) continue;
+    if (patch >= 0) { const i = Math.floor(hash(rz, side, 207) * PLAIN); th = THEMES[i]; P = patchPal(i, sky); }   // in the last biome every island is from anywhere
+    else { th = rowTh; P = rowP; }
     const z = rz + 0.5, r = 0.9 + hash(rz, side, 201) * 1.1;
     let edge = 2.5;   // how far the road reaches on this side around here
     for (let k = Math.max(0, rz - 3); k <= rz + 3; k++) {
@@ -1946,6 +2117,8 @@ function drawSide(rz, fog, th) {
     const y = world.hAt(z) - 0.5 + (hash(rz, side, 203) - 0.4) * 2.4 + Math.sin(now() * 0.6 + rz) * 0.07;
     const c = proj(x, y, z), sc = c[2];
     if (!(sc > 0) || c[0] < -1.6 * r * sc || c[0] > W + 1.6 * r * sc) continue;   // off the screen
+    const ang = upAngle(c, x, y, z);
+    tilt(c[0], c[1], ang);
     const rx = r * sc, ry = rx * 0.3, tip = (hash(rz, side, 204) - 0.5) * rx * 0.5, deep = rx * (0.7 + hash(rz, side, 205) * 0.5);
     if (rx < 40 * dpr) ctx.fillStyle = pal('soil', -4, fog);   // far away: no shading
     else {
@@ -1968,7 +2141,9 @@ function drawSide(rz, fog, th) {
       const u = sc * (BIG.has(it.fn) ? 1.9 : 1.5) * Math.min(1.2, r), bx = c[0] + it.dx * rx * 0.6, by = c[1] + it.dy * ry * 0.6;
       it.fn({ x: bx, bottom: by, top: by - 0.7 * u, hw: 0.42 * u, pc: [bx, by - 0.1 * u] }, hash(rz, side, 240 + it.k), fog, rz, side * 9 + it.k, side, 0);
     }
+    untilt(ang);
   }
+  P = rowP;
 }
 
 // ---- what flies by: (row, z, ground height, seed, direction, time, fog) ----
@@ -2561,10 +2736,11 @@ const OBSTACLES = {
 
 // every biome has everything it needs: a new one that is only half there must fail at once, not half a run in
 (function checkBiomes() {
+  if (THEMES.indexOf('glitch') !== GLITCH) throw new Error('biomes: glitch must be the last name in THEMES');
   if (PAL.length !== THEMES.length) throw new Error(`biomes: ${THEMES.length} names in THEMES, ${PAL.length} key frames in PAL`);
   PAL.forEach((f, i) => { for (const k in f) if (!(k in PAL[0])) throw new Error(`biomes: PAL[${i}].${k} is not in PAL[0]`); });
   for (const [name, table] of Object.entries({ MOVERS, SIDE, FLY, OBSTACLES })) {
-    for (const th of THEMES) if (!(typeof table[th] === 'function' || table[th]?.length > 0)) throw new Error(`biomes: no ${name}.${th}`);
+    for (const th of THEMES.slice(0, PLAIN)) if (!(typeof table[th] === 'function' || table[th]?.length > 0)) throw new Error(`biomes: no ${name}.${th}`);
   }
 })();
 
@@ -2942,9 +3118,26 @@ function drawStreaks() {
   ctx.globalAlpha = 1;
 }
 
+// The rows from lo to far, the farthest first. Where the road is bent, the farthest is not the last in line any
+// more (a ring comes back towards the eye): those rows go by how far their middle really is.
+const FAR_ROW = new Int32Array(WARP_N), FAR_Z = new Float64Array(WARP_N);
+function drawFar(lo, far) {
+  const from = warpOn ? Math.max(lo, warpFrom) : far + 1;
+  let n = 0;
+  for (let rz = from; rz <= far; rz++) {
+    const o = Math.min(rz - warpBase, WARP_N - 2) * 9, z = (WF[o + 2] + WF[o + 11]) * CP - (WF[o + 1] + WF[o + 10]) * SP;
+    let k = n++;
+    for (; k > 0 && FAR_Z[k - 1] < z; k--) { FAR_Z[k] = FAR_Z[k - 1]; FAR_ROW[k] = FAR_ROW[k - 1]; }
+    FAR_Z[k] = z; FAR_ROW[k] = rz;
+  }
+  for (let k = 0; k < n; k++) drawRow(FAR_ROW[k]);
+  for (let rz = Math.min(far, from - 1); rz >= lo; rz--) drawRow(rz);
+}
+
 function draw() {
   const hue = secHue(secOf(camZ + CAM_BACK));
   setPhase(camZ + CAM_BACK);
+  buildWarp();
   theme.sky(hue, horY);
   if (flyShow > 0.01) drawFlightSky(hue);
   ctx.save();
@@ -2952,10 +3145,12 @@ function draw() {
   if (shake > 0.01) { const k = shake * shake * 7 * dpr, t = now(); ctx.translate(k * (Math.sin(t * 61) + Math.sin(t * 37 + 2)) * 0.5, k * (Math.sin(t * 53 + 1) + Math.sin(t * 29 + 4)) * 0.5); }
   ctx.translate(kick.x, kick.y);
   if (zoom > 0.002) { const z = 1 + zoom, oy = H * 0.7; ctx.translate(W / 2, oy); ctx.scale(z, z); ctx.translate(-W / 2, -oy); }
-  const near = Math.max(0, Math.floor(camZ + 0.4)), far = Math.floor(camZ) + VIEW;
+  const near = Math.max(0, Math.floor(camZ + 0.4)), far = Math.floor(camZ) + view;
   const ballRow = world.state === 'fall' ? world.ball.fallRow : Math.floor(world.ball.z);
   if (world.state === 'fall') {   // falling into a pit: the near edge of the ground must hide the ball
-    for (let rz = far; rz >= near; rz--) { drawRow(rz); if (rz === ballRow) drawBall(); }
+    const lo = clamp(ballRow + 1, near, far + 1);
+    drawFar(lo, far);
+    for (let rz = lo - 1; rz >= near; rz--) { drawRow(rz); if (rz === ballRow) drawBall(); }
     if (ballRow < near) drawBall();
   } else {
     // The rows around the ball get all their ground first and the ball, its shadow and the obstacles on top:
@@ -2965,7 +3160,7 @@ function draw() {
     // (for the whole jump, not only its top: the order flipping half-way down made a tree jump in front of the ball)
     const b = world.ball, over = b.air && !b.fly;
     const split = Math.min(far, ballRow + 1);
-    for (let rz = far; rz > split; rz--) drawRow(rz);
+    drawFar(split + 1, far);
     for (let rz = split; rz >= near; rz--) drawRow(rz, 'ground');
     for (let rz = split; rz >= near; rz--) { drawRow(rz, 'objects'); if (rz === ballRow && !over) drawBall(); }
     if (ballRow < near || over) drawBall();

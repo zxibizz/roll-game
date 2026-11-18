@@ -53,15 +53,25 @@ Site: `https://roll.games.bubas.cc`.
   0.6 s or more (at the fastest downhill speed). The only obstacle on a zigzag is a
   log right across it here and there, in the middle of a stretch twice as long. The road changes shape often:
   every 60–120 rows, a little more often into a zigzag than into a split.
-- Nine biomes follow one another. The track is cut by time, not by length: a section lasts 5 s at its own speed
+- Nine biomes follow one another, and a tenth one made of them all (see below). The track is cut by time, not by length: a section lasts 5 s at its own speed
   (`SEC_T`; the speed steps up 3 % at each section start, from 9 to 24 rows a second), so a faster section is longer
   in rows, and a biome is 6 sections (`BIOME_SECS`) — half a minute at any speed. A biome stays as it is for most of
   that and turns into the next one over the last three quarters of a section (`BIOME_BLEND`). Space is reached
-  after 4 minutes (row 4276) and never ends. The walker of a biome crosses the road at least twice in it.
+  after 4 minutes (row 4276), the last biome half a minute later (row 4996), and that one never ends. The walker of a biome crosses the road at least twice in it.
   To add a biome: a name in `THEMES`, a key frame in `PAL` at the same place (hues blend the short way, layers
   like snow or bubbles it leaves out are off), and an entry under that name in
   `MOVERS`, `SIDE`, `FLY` and `OBSTACLES` in `client.js` (checked when the page starts); the lengths and speeds need
-  no change. Each has its own colours and sky, things on
+  no change. The last name stays `glitch`: the end of the world, where it all comes apart. It has nothing of its
+  own. Every dozen or two rows of its road are a patch of another biome (`patchAt`: that biome's ground, obstacles
+  and walker; a cyan and magenta seam between two patches), every island beside it and everything in its air is from
+  anywhere, and its sky is in shards, each a piece of another biome's sky, with a sun, a moon, a rainbow, northern
+  lights, a volcano and a city all at once. And its geometry is broken: the road ahead tips up into the sky and curls
+  into rings, a corkscrew, a spiral, a twisted ribbon or tall waves (`bendAt`, another figure every 56 rows; a
+  stretch turned over shows bare earth). That is for the eye only (`buildWarp`, `proj`): the world in `core.js`
+  knows nothing of it, the first 18 rows ahead of the ball are never bent, so every obstacle is seen flat and on
+  time, and the figure unrolls under the ball as it comes. 20 more rows are drawn there. Shots of it:
+  `~/scripts/roll-endgame/shots.py <url> <outdir> [z,...] [WxH]`, the cost of a frame: `perf.py`.
+  Each of the nine has its own colours and sky, things on
   the road, someone who walks across it, islands beside the road and things in the air:
 
   | Biome | On the road | Walks across | Islands | In the air, sky |
