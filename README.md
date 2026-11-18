@@ -33,12 +33,13 @@ Site: `https://roll.games.bubas.cc`.
   0.6 s or more (at the fastest downhill speed). The only obstacle on a zigzag is a
   log right across it here and there, in the middle of a stretch twice as long. The road changes shape often:
   every 60–120 rows, a little more often into a zigzag than into a split. Ramps are wooden.
-- Six biomes follow one another. The track is cut by time, not by length: a section lasts 5 s at its own speed
+- Nine biomes follow one another. The track is cut by time, not by length: a section lasts 5 s at its own speed
   (`SEC_T`; the speed steps up 3 % at each section start, from 9 to 24 rows a second), so a faster section is longer
   in rows, and a biome is 6 sections (`BIOME_SECS`) — half a minute at any speed. A biome stays as it is for most of
   that and turns into the next one over the last three quarters of a section (`BIOME_BLEND`). Space is reached
-  after 2.5 minutes (row 2139) and never ends. The walker of a biome crosses the road at least twice in it.
-  To add a biome: a name in `THEMES`, a key frame in `PAL` at the same place, and an entry under that name in
+  after 4 minutes (row 4276) and never ends. The walker of a biome crosses the road at least twice in it.
+  To add a biome: a name in `THEMES`, a key frame in `PAL` at the same place (hues blend the short way, layers
+  like snow or bubbles it leaves out are off), and an entry under that name in
   `MOVERS`, `SIDE`, `FLY` and `OBSTACLES` in `client.js` (checked when the page starts); the lengths and speeds need
   no change. Each has its own colours and sky, things on
   the road, someone who walks across it, islands beside the road and things in the air:
@@ -47,8 +48,11 @@ Site: `https://roll.games.bubas.cc`.
   |---|---|---|---|---|
   | Summer farm | rocks, bushes, leafy trees, firs, haystacks, sunflowers, scarecrows | a cow | trees, a house, a windmill, a barn, a cow | birds, balloons, butterflies, a rainbow |
   | Autumn | orange trees, pumpkins, haystacks, toadstools, scarecrows; fallen leaves | a fox | a house, a barn, pumpkins, toadstools | falling leaves, birds, balloons |
+  | Winter evening | snowmen (one arm waves), snowy firs, blocks of ice, a sled of presents, rocks under snow | a penguin sliding on its belly | a house with snow on the roof, an igloo, a skating rink, snowmen | bullfinches, a sleigh with reindeer; snowfall, northern lights, the moon |
   | Halloween night | pumpkins, graves, dead trees, a skeleton, a zombie | a ghost | a haunted house, dead trees, graves | bats, a witch; the moon |
   | Magic land (pink) | mint trees, lollipops, glowing mushrooms, crystals; sparkles | a unicorn | a castle with flags, lollipops, mushrooms | fairies, butterflies, balloons, a rainbow |
+  | Bottom of the sea | corals, big shells that open on a pearl, an anchor, a treasure chest; sand, shells, starfish | a crab, sideways | a sunken ship, kelp, corals, chests | fish, jellyfish, a turtle; light from the surface, bubbles |
+  | Dinosaurs | ferns, palms, dinosaur eggs (a baby looks out), a big bone | a triceratops | a brontosaurus eating a tree top, a nest, palms | pterodactyls, dragonflies; a smoking volcano |
   | Land of robots | robots, antenna masts, batteries; steel plates with neon seams | a rover with a beacon | a factory, a dish, robots, a rocket | drones, rockets; a city on the horizon |
   | Space | crystals, alien mushrooms | a flying saucer | crystals, a glass dome, a rocket | comets, rockets; nebulas, a ringed planet |
 
