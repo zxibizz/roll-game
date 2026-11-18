@@ -11,6 +11,7 @@ const BEST_KEY = 'roll.best';
 const SENS = 6;                     // world units per full screen-width drag
 const SLAB = 0.35, VIEW = 46;       // track thickness, rows drawn ahead
 const PITCH = 0.5;
+const CAM_FOLLOW = 0.6;              // how much of the ball's sideways move the camera repeats
 
 // mode: 'ready' | 'play' | 'pause' | 'over' (and 'shot' — frozen by the screenshot hook at the end);
 // the world has its own state inside a game
@@ -209,7 +210,9 @@ function follow(dt) {
     // a little higher when the road ahead climbs, to look over the crest
     camY = world.hAt(b.z) + Math.max(0, world.hAt(b.z + 6) - world.hAt(b.z)) * 0.3;
   }
-  camL += (b.x * 0.85 - camL) * Math.min(1, dt * 5);
+  // sideways the camera moves rigidly with the ball, part of the way: a lagging camera made the ball run
+  // past the finger on screen and drift back once the camera caught up
+  camL = b.x * CAM_FOLLOW;
   camX = world.offAt(b.z) + camL;   // the road bends: the camera goes along
 }
 
