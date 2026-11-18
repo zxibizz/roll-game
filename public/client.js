@@ -1,7 +1,7 @@
 // The page: draws the world from core.js in a hand-rolled perspective, reads the finger / mouse / keys and runs the
 // screens around the game: home, pause, results, settings. The road is grass and earth; the sky goes from day to
 // night to space with the distance. There are no words in the interface, only numbers and icons.
-import { World, VERSION, LANES, HALF, BIOME_SECS, secOf, secStart, secPos, R, INSET, BOX_H, RAMP_H, LOW_H, LOW_Z0, LOW_Z1, MAGNET_T, FLY_T, FLY_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
+import { World, VERSION, LANES, HALF, BIOME_SECS, secOf, secStart, secPos, R, INSET, BOX_H, RAMP_H, LOW_H, LOW_Z0, LOW_Z1, MAGNET_T, SHIELD_T, FLY_T, FLY_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
 import { initAudio, applyVolume, setHum, sfx, haptic, canHaptic } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -645,7 +645,7 @@ const STAR_PTS = Array.from({ length: 10 }, (_, k) => {
 function drawStar(l, rz, s, fog) {
   const zc = rz + 0.5, t = now(), b = world.ball;
   let wx = laneX(l), y = world.hAt(zc) + R + s - 1 + Math.sin(t * 3 + rz) * 0.04;
-  if (world.fx.magnet > 0 && !b.fly && s < FLY_H && zc - b.z < 3.5 && Math.abs(wx - b.x) <= 2.4) {   // a magnet draws it in
+  if (world.fx.magnet > 0 && !b.fly && s < FLY_H && zc - b.z < 3.5 && Math.abs(wx - b.x) <= 1.5) {   // a magnet draws it in from the lanes beside the ball
     const k = clamp(1 - (zc - b.z) / 3.5, 0, 1) ** 2;
     wx += (b.x - wx) * k; y += (b.y - y) * k;
   }
@@ -1772,7 +1772,7 @@ function drawBall() {
     }
   }
   ctx.globalAlpha = 1;
-  if (world.fx.shield) {   // a bubble round the ball
+  if (world.fx.shield > 0 && (world.fx.shield > 2 || Math.sin(now() * 18) > -0.3)) {   // a bubble round the ball; it blinks in its last two seconds
     const t = now(), rb = r * 1.42, g = ctx.createRadialGradient(px, py, rb * 0.55, px, py, rb);
     g.addColorStop(0, 'rgba(120,210,255,0)'); g.addColorStop(0.85, 'rgba(120,210,255,.28)'); g.addColorStop(1, 'rgba(200,240,255,.75)');
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(px, py, rb, 0, 7); ctx.fill();
@@ -1839,7 +1839,7 @@ function drawEffects() {
   const fx = world.fx, on = [];
   if (world.ball.fly) on.push(['fly', fx.fly / FLY_T]);
   if (fx.magnet > 0) on.push(['magnet', fx.magnet / MAGNET_T]);
-  if (fx.shield) on.push(['shield', 1]);
+  if (fx.shield > 0) on.push(['shield', fx.shield / SHIELD_T]);
   on.forEach(([kind, left], i) => {
     const r = 21 * dpr, x = 36 * dpr + i * 52 * dpr, y = 112 * dpr, c = BONUS_C[kind];
     ctx.fillStyle = 'rgba(20,30,60,.35)'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();

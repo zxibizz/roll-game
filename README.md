@@ -67,9 +67,12 @@ Site: `https://roll.games.bubas.cc`.
 - There are no words in the game, only numbers and icons, so there is nothing to translate.
 - Bonuses: a bubble with an icon lies on the track about every 100–150 rows, on the path or one lane off it, in a
   free stretch with time to come back. What is at work shows as icons in rings under the pause button.
-  - Magnet: for 8 s stars come to the ball from two lanes away on either side.
-  - Shield: a bubble round the ball; the next thing it hits flies apart instead, the bubble bursts, and nothing can
-    hit the ball for 0.7 s after. It does not save from rolling off where a lane ends.
+  - Magnet: for 8 s patches of stars lie on the road ahead — two or three adjacent lanes, about half a second
+    long, next to the path or over it but never centred on it, on one side and then the other, with time to swipe
+    over between them; and the stars of the lanes beside the ball come to it. Getting a patch whole takes a swipe.
+  - Shield: a bubble round the ball for four sections (20 s), the ring under the pause button runs down and the
+    bubble blinks in its last two seconds. The first thing the ball hits meanwhile flies apart instead, the bubble
+    bursts, and nothing can hit the ball for 0.7 s after. It does not save from rolling off where a lane ends.
   - Flight: a rest. For 7 s the ball grows wings and flies 2.2 above the road, over everything; the camera rises
     with it. The air has three lanes of its own (the one the flight started in, or the nearest of lanes 2–4, and
     the two beside it), whatever the road below is doing. The stars in the air lie in four long straight lines,

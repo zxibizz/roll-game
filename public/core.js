@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.13.0';
+export const VERSION = '0.13.1';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -36,10 +36,17 @@ const JUMP_VY = 7;               // vertical speed a ramp gives
 export const HOP_VY = 5.5, HOP_G = 22, DROP_VY = 16;
 const HOP_BUFFER = 0.15;         // a jump asked for this long before landing happens on landing
 // Bonuses lie on the track now and then (row.bonus), on the path or one lane off it:
-//   'magnet' — for MAGNET_T seconds stars come to the ball from two lanes away;
-//   'shield' — the next hit breaks the obstacle instead of the ball, and nothing can hit it for SHIELD_SAFE after;
+//   'magnet' — for MAGNET_T seconds patches of stars lie on the road ahead, two or three lanes wide, off to one
+//              side or the other of the path in turn, and stars come to the ball from the lanes beside it: a swipe
+//              over to each patch takes it all;
+//   'shield' — for SHIELD_T seconds (four sections) the next hit breaks the obstacle instead of the ball, and
+//              nothing can hit it for SHIELD_SAFE after;
 //   'fly'    — for FLY_T seconds the ball flies FLY_H above the road, over everything, in three lanes of its own,
 //              along a trail of stars in the air; a swipe down lands it early. It lands on the path by itself. Nothing can hit it for FLY_SAFE after it starts down.
+export const SHIELD_T = 4 * SEC_T;
+// a magnet's patch of stars: MAG_LEN seconds long, MAG_GAP seconds between two (time to swipe over), at most
+// MAG_W lanes wide
+const MAG_LEN = 0.55, MAG_GAP = 0.65, MAG_W = 3;
 export const MAGNET_T = 8, FLY_T = 7, FLY_H = 2.2, SHIELD_SAFE = 0.7, FLY_SAFE = 1.6;
 // a flight coming down heads for the path lane LAND_LOOK seconds ahead and wants LAND_AHEAD seconds of road there:
 // the way down and time to react
@@ -487,10 +494,12 @@ export class World {
     this.events = [];
     this.stars = 0;      // stars taken in this run
     // bonuses at work: seconds of magnet and of flight left, a shield in hand, seconds during which nothing can hit
-    this.fx = { magnet: 0, fly: 0, shield: false, safe: 0 };
+    this.fx = { magnet: 0, fly: 0, shield: 0, safe: 0 };
     this.sky = [];       // stars in the air along a flight: { l, z, got }
     // a flight: the row it started at, the middle one of its three lanes, the lane it started in, and whether it is
     // coming down in a hurry (a swipe down)
+    // a magnet: the row its patches start from, the row of the next patch, and how many have been laid
+    this.magFrom = 0; this.magNext = 0; this.magK = 0; this.magSide = 1;   // magSide: which side the last patch was on
     this.flyFrom = 0; this.flyLane = MID; this.flyStart = MID; this.fastLand = false;
     this.got = '';       // the bonus just taken ('bonus' event); popAt — where a shield broke something ('pop')
     this.popAt = null;
@@ -644,10 +653,38 @@ export class World {
   }
 
   // ---- bonuses ----
+  // A magnet at work lays patches of stars on the road ahead, as far as the ball will get while it lasts (and no
+  // farther than can be seen). A patch is up to MAG_W adjacent lanes off to the side of the path, centred two lanes
+  // from it where the road allows, and the next one is on the other side: getting it all takes a swipe each time. Stars only go on plain
+  // ground: not in or on an obstacle, not where someone walks across. The patches follow from the row the magnet
+  // was taken at and the track alone, so a restored run lays the same.
+  magnetFill(from = Math.floor(this.ball.z) + 1) {
+    const b = this.ball, t = this.track, to = Math.floor(b.z + Math.min(this.v * this.fx.magnet, 44));
+    while (this.magNext <= to) {
+      const z0 = this.magNext, v = speedOf(secOf(z0)), len = Math.max(4, Math.round(v * MAG_LEN));
+      const r = mulberry((this.seed * 131 + this.magFrom * 7 + this.magK * 977) >>> 0), side = -this.magSide;   // the other side from the last one
+      const goal = t.get(z0).goal, road = t.get(z0).road;
+      // the centre two lanes off the path, so the magnet (one lane each way) gets little of it from the path; on
+      // this patch's side if the road goes on there, then the other side, then one lane off
+      const centres = [side * 2, -side * 2, side, -side].map((d) => goal + d).filter((c) => road[c] && [c - 1, c, c + 1].filter((l) => road[l]).length >= 2);
+      const c = centres.length ? centres[0] : goal;
+      const w = MAG_W === 3 && r() < 0.75 ? 1 : 0;   // three lanes wide, now and then two
+      const d = Math.sign(c - goal) || 1, lanes = w ? [c - 1, c, c + 1] : [c, road[c + d] ? c + d : c - d];   // two: away from the path if the road is there
+      for (let z = Math.max(z0, from); z < z0 + len; z++) {
+        const row = t.get(z);
+        if (row.mover || row.ramp.some(Boolean)) continue;
+        for (const l of lanes) if (l >= 0 && l < LANES && row.road[l] && row.floor[l] && !row.block[l] && !row.low[l] && !(row.bonus && row.bonus.lane === l) && !row.star[l]) row.star[l] = 1;
+      }
+      this.magNext = z0 + len + Math.round(v * MAG_GAP); this.magK++; this.magSide = Math.sign(c - goal) || side;
+    }
+  }
+
+  startMagnet(from) { this.magFrom = from; this.magNext = from; this.magK = 0; this.magSide = 1; }
+
   take(kind) {
     this.got = kind; this.events.push('bonus');
-    if (kind === 'magnet') this.fx.magnet = MAGNET_T;
-    else if (kind === 'shield') this.fx.shield = true;
+    if (kind === 'magnet') { this.fx.magnet = MAGNET_T; this.startMagnet(Math.floor(this.ball.z) + 4); }
+    else if (kind === 'shield') this.fx.shield = SHIELD_T;
     else if (kind === 'fly' && !this.ball.fly) {
       const b = this.ball;
       b.fly = true; b.air = true; b.hop = false; b.hopQ = 0; b.vy = 0; b.airT = 0; b.fromRamp = true;
@@ -715,10 +752,10 @@ export class World {
   // The ball takes the stars it touches. They hang where a resting or a jumping ball's centre passes.
   takeStars() {
     const b = this.ball, lane = Math.floor(b.x + HALF), rz = Math.floor(b.z), mag = this.fx.magnet > 0 && !b.fly;
-    const wide = mag ? 2 : 1, reachX = mag ? 2.4 : STAR_X, reachZ = mag ? 0.9 : STAR_Z;
+    const reachX = mag ? 1.5 : STAR_X, reachZ = mag ? 0.9 : STAR_Z;   // a magnet reaches the lanes beside the ball
     for (let r = Math.max(0, rz - 1); r <= rz + 1; r++) {
       const row = this.track.get(r);
-      for (let l = Math.max(0, lane - wide); l <= Math.min(LANES - 1, lane + wide); l++) {
+      for (let l = Math.max(0, lane - 1); l <= Math.min(LANES - 1, lane + 1); l++) {
         const s = row.star[l];
         if (!s || Math.abs(b.x - laneX(l)) > reachX || Math.abs(b.z - r - 0.5) > reachZ) continue;
         if (!mag && Math.abs(b.y - (this.hAt(r + 0.5) + R + s - 1)) > STAR_Y) continue;   // a magnet reaches up and down too
@@ -733,7 +770,7 @@ export class World {
 
   // A run in progress as plain data, and back. The track is rebuilt from the seed, so only the ball is stored.
   toSave() {
-    return { v: SAVE_V, seed: this.seed, ball: { ...this.ball }, speed: this.v, sec: this.sec, stars: this.stars, fx: { ...this.fx }, flyFrom: this.flyFrom, flyLane: this.flyLane, flyStart: this.flyStart, fastLand: this.fastLand };
+    return { v: SAVE_V, seed: this.seed, ball: { ...this.ball }, speed: this.v, sec: this.sec, stars: this.stars, fx: { ...this.fx }, magFrom: this.magFrom, flyFrom: this.flyFrom, flyLane: this.flyLane, flyStart: this.flyStart, fastLand: this.fastLand };
   }
 
   static fromSave(o) {
@@ -744,7 +781,11 @@ export class World {
     // what is behind was taken or missed; so was the next row's star if the ball already reached it
     for (let r = 0; r <= Math.floor(b.z + 0.05); r++) { const row = w.track.get(r); row.star.fill(0); row.bonus = null; }
     const fx = o.fx || {}, sec = (x, max) => (x > 0 && x <= max ? x : 0);
-    w.fx = { magnet: sec(fx.magnet, MAGNET_T), fly: b.fly ? sec(fx.fly, FLY_T) : 0, shield: fx.shield === true, safe: sec(fx.safe, FLY_SAFE) };
+    w.fx = { magnet: sec(fx.magnet, MAGNET_T), fly: b.fly ? sec(fx.fly, FLY_T) : 0, shield: sec(fx.shield, SHIELD_T), safe: sec(fx.safe, FLY_SAFE) };
+    if (w.fx.magnet > 0) {   // the patches it laid ahead are laid again
+      w.startMagnet(clamp(Math.floor(o.magFrom) || 0, 0, Math.floor(b.z) + 4));
+      w.magnetFill(Math.floor(b.z) + 1);
+    }
     if (b.fly) {   // in the middle of a flight: the same trail of stars, less what is behind
       w.flyFrom = clamp(Math.floor(o.flyFrom) || 0, 0, Math.floor(b.z));
       w.flyLane = clamp(Math.floor(o.flyLane) || 0, 2, LANES - 3); w.flyStart = clamp(Math.floor(o.flyStart) || 0, 0, LANES - 1);
@@ -774,7 +815,8 @@ export class World {
       b.z += this.v * dt; b.roll += this.v * dt / R;
       steer(b, latOf(this.v), dt);
       if (b.hopQ > 0) b.hopQ = Math.max(0, b.hopQ - dt);
-      if (this.fx.magnet > 0 && !b.fly) this.fx.magnet = Math.max(0, this.fx.magnet - dt);   // it waits out a flight
+      if (this.fx.magnet > 0 && !b.fly) { this.fx.magnet = Math.max(0, this.fx.magnet - dt); this.magnetFill(); }   // it waits out a flight
+      if (this.fx.shield > 0) this.fx.shield = Math.max(0, this.fx.shield - dt);
       if (this.fx.safe > 0) {
         this.fx.safe = Math.max(0, this.fx.safe - dt);
         if (this.fx.safe === 0 && !b.fly && this.hit()) this.fx.safe = 0.05;   // not while the ball is inside something
@@ -817,10 +859,10 @@ export class World {
       }
       if (this.state === 'run') this.takeStars();
       const hit = this.state === 'run' && this.fx.safe <= 0 && !b.fly ? this.hit() : null;
-      if (hit && this.fx.shield) {   // the shield takes it: the thing is gone, the ball rolls on
+      if (hit && this.fx.shield > 0) {   // the shield takes it: the thing is gone, the ball rolls on
         const row = t.get(hit.rz);
         if (hit.kind === 'mover') row.mover = null; else row[hit.kind === 'low' ? 'low' : 'block'][hit.l] = false;
-        this.fx.shield = false; this.fx.safe = SHIELD_SAFE;
+        this.fx.shield = 0; this.fx.safe = SHIELD_SAFE;
         this.popAt = { x: hit.x, z: hit.rz + 0.5 }; this.events.push('pop');
       } else if (hit) { this.state = 'crash'; this.tOver = 0.9; this.events.push('crash'); }
       if (this.state === 'run' && b.z > START_OPEN) {
