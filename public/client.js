@@ -458,8 +458,9 @@ function hudStarAt() {
 function onEvent(e) {
   const b = world.ball, skin = theme.ball;
   if (e === 'section') {
-    sfx.section(); haptic('section');   // (no number on the screen: the owner found it not needed)
-    zoom = Math.max(zoom, 0.035); rush = 1; popEl($score);   // a push of speed: the view punches in, lines rush past
+    // (no number on the screen: the owner found it not needed; and the view no longer punches in with lines rushing
+    // past — on a phone that read as the picture shaking and the game stuttering)
+    sfx.section(); haptic('section'); popEl($score);
   } else if (e === 'star') {
     const run = sfx.star(b.x / HALF);
     gulp = 1;
@@ -491,26 +492,27 @@ function onEvent(e) {
     spray(30, b, () => ({ vx: rnd(-4, 4), vy: rnd(-1, 6), vz: world.v + rnd(-3, 3), g: 4, life: rnd(0.5, 1), size: rnd(0.012, 0.028), color: '#fff3b0' }));
   } else if (e === 'flyend') sfx.flyEnd();
   else if (e === 'jump') {   // it pushes off: stretched up, a puff of dust left on the ground
-    sfx.jump(); squash = Math.min(squash, -0.08); squashV = 0; kickCam(0, 60);
+    sfx.jump(); squash = Math.min(squash, -0.08); squashV = 0;
     if (!b.fromRamp || b.hop) {
       const dust = pal('soil', 18);
       spray(4, { x: b.x, y: b.y - R, z: b.z }, () => ({ vx: rnd(-1.4, 1.4), vy: rnd(0.2, 0.9), vz: world.v * 0.7 + rnd(-1, 1), g: 2, life: rnd(0.3, 0.5), size: rnd(0.06, 0.11), color: dust, grow: 1.5 }));
     } else {   // a ramp threw it: a burst of the ramp's colour, so it feels like a gift, not a bump
-      kickCam(0, 120); zoom = Math.max(zoom, 0.03);
       rings.push({ x: b.x, y: b.y - R, z: b.z, t: 0, s: 0.9, flat: true, c: `hsl(${RAMP_HUE + 12},100%,70%)` });
       spray(12, { x: b.x, y: b.y - R, z: b.z }, () => ({ vx: rnd(-2.5, 2.5), vy: rnd(1, 4), vz: world.v * 0.8 + rnd(-1, 2), g: 6, life: rnd(0.35, 0.6), size: rnd(0.015, 0.03), color: `hsl(${RAMP_HUE + rnd(0, 20)},100%,${rnd(65, 85)}%)` }));
     }
   } else if (e === 'boost') {   // a ramp passed under a jump threw the ball higher: sparks, no dust, no ring on the ground
-    sfx.jump(); zoom = Math.max(zoom, 0.03);
+    sfx.jump();
     spray(12, b, () => ({ vx: rnd(-2.5, 2.5), vy: rnd(-1, 3), vz: world.v * 0.8 + rnd(-1, 2), g: 6, life: rnd(0.35, 0.6), size: rnd(0.015, 0.03), color: `hsl(${RAMP_HUE + rnd(0, 20)},100%,${rnd(65, 85)}%)` }));
   } else if (e === 'drop') { sfx.drop(); squash = -0.2; squashV = 0; }   // slammed down: stretched along the way
   else if (e === 'move') sfx.move(Math.sign(b.tx - b.x));
-  else if (e === 'bump') { sfx.bump(world.side); haptic('land'); nudge = { dir: world.side, t: 0 }; kickCam(world.side * 110, 0); }
+  else if (e === 'bump') { sfx.bump(world.side); haptic('land'); nudge = { dir: world.side, t: 0 }; kickCam(world.side * 50, 0); }
   else if (e === 'land') {
     const k = world.impact;
     sfx.land(k); haptic('land');
-    squash = Math.max(squash, 0.35 * k); squashV = 0; shake = Math.max(shake, k > 0.7 ? 0.25 * k : 0);
-    kickCam(0, 120 + 200 * k);   // the whole view dips under the blow and comes back
+    // The ball squashes; the view itself only dips a little, and only on a hard landing. A whole picture jolted on
+    // every landing (up to 20 px, with a shake) read on a phone as the game stuttering.
+    squash = Math.max(squash, 0.35 * k); squashV = 0;
+    if (k > 0.5) kickCam(0, 70 * k);
     if (k > 0.45) rings.push({ x: b.x, y: b.y - R + 0.02, z: b.z, t: 0, s: 0.4 + 0.5 * k, flat: true, c: 'rgba(255,255,255,.8)' });
     const dust = pal('soil', 18);
     spray(Math.round(4 + 8 * k), { x: b.x, y: b.y - R, z: b.z }, () => ({ vx: rnd(-2.2, 2.2), vy: rnd(0.3, 1.6), vz: world.v * 0.6 + rnd(-1, 2), g: 3, life: rnd(0.3, 0.6), size: rnd(0.08, 0.16), color: dust, grow: 1.5 }));
@@ -2924,16 +2926,20 @@ function drawFlightRow(rz, fog) {
 
 // speed lines at the screen edges once the ball is fast
 function drawStreaks() {
-  const k = Math.max(clamp((world.v - 13) / 11, 0, 1), flyShow * 0.8, rush * 0.9);   // and all through a flight, and for a moment on a push of speed
+  const k = Math.max(clamp((world.v - 13) / 11, 0, 1), flyShow * 0.8, rush * 0.9);   // and all through a flight, more as it takes off
   if (k <= 0 || world.state !== 'run') return;
-  const c = theme.streak, cx = W / 2, R0 = Math.hypot(W, H) * 0.42, rr = mulberry((performance.now() / 50) | 0);
-  ctx.lineWidth = Math.max(1, 1.5 * dpr);
+  // Each line runs outwards along its own ray and fades in and out, then comes back on another ray. (They used to
+  // be thrown in new random places twenty times a second: that flickered like a shaking screen.)
+  const c = theme.streak, cx = W / 2, R0 = Math.hypot(W, H) * 0.42, t = performance.now() / 1000;
+  ctx.lineWidth = Math.max(1, 1.5 * dpr); ctx.strokeStyle = `rgb(${c})`;
   for (let n = 0; n < 14; n++) {
-    const ang = rr() * Math.PI * 2, r0 = R0 * (0.85 + rr() * 0.3), len = R0 * (0.15 + rr() * 0.25) * k;
-    ctx.strokeStyle = `rgba(${c},${0.08 + 0.18 * k * rr()})`;
+    const run = t * 1.6 + n / 14, lap = Math.floor(run), ph = run - lap;   // 0..1 along its way
+    const ang = hash(n, lap, 401) * Math.PI * 2, r0 = R0 * (0.75 + ph * 0.5), len = R0 * (0.15 + hash(n, lap, 402) * 0.25) * k;
+    ctx.globalAlpha = (0.1 + 0.16 * k * hash(n, lap, 403)) * Math.sin(Math.PI * ph);
     ctx.beginPath(); ctx.moveTo(cx + Math.cos(ang) * r0, horY + Math.sin(ang) * r0);
     ctx.lineTo(cx + Math.cos(ang) * (r0 + len), horY + Math.sin(ang) * (r0 + len)); ctx.stroke();
   }
+  ctx.globalAlpha = 1;
 }
 
 function draw() {
