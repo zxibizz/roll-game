@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.13.2';
+export const VERSION = '0.13.3';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -52,8 +52,9 @@ export const SAVE_V = 3;         // format of a saved run (World.toSave); bump w
 // Stars: runs of them lie along the guaranteed path, an arc of them hangs over most jumps, and now and then a lone
 // one sits off the path. A star is taken when the ball's centre is this close to it (sideways / along / up).
 const STAR_X = 0.5, STAR_Z = 0.55, STAR_Y = 0.75;
-// Lines of stars off the path: one starts in a free lane with SIDE_START a row and runs SIDE_LEN..2*SIDE_LEN-1 rows.
-const SIDE_START = 0.03, SIDE_LEN = 4;
+// Stars come in stretches with breaks between: a stretch lasts STAR_ON seconds (a line on the path, and lines in
+// some of the other lanes alongside, each lane with SIDE_P), a break STAR_OFF seconds with no stars at all.
+const STAR_ON = [1.2, 2], STAR_OFF = [2.5, 4.5], SIDE_P = 0.5;
 // Steering: the ball rolls along the middle of a lane, and a swipe sends it to the next one (World.move sets the
 // target `tx` to that lane's centre). One swipe is one lane. On the way there speeding up is limited (STEER_ACC, no jerks), slowing down is
 // not; close to the target the ball settles in at STEER_K per second and never steps past it.
@@ -156,8 +157,9 @@ export class Track {
     this.rs = mulberry((seed ^ 0x5bd1e995) >>> 0);   // stars draw from their own stream: the track stays the same
     this.rb = mulberry((seed ^ 0x2545f491) >>> 0);   // and so do bonuses
     this.bonusCool = 30; this.bonusIn = 0;           // rows until a bonus is due; rows until it is laid
-    this.starRun = 0; this.starCool = 4; this.starSkip = 0;
-    this.sideRun = Array(LANES).fill(0);   // rows left of a line of stars in each lane off the path
+    // stars: rows left of the stretch or of the break; rows to wait for a lane's line and rows of it
+    this.starOn = 0; this.starOff = 4; this.starSkip = 0;
+    this.sideWait = Array(LANES).fill(0); this.sideRun = Array(LANES).fill(0);
     this.rows = [];
     this.path = MID;
     this.crossB = 0; this.crossN = 0;   // the biome being laid and how many times its walker has crossed in it
@@ -235,6 +237,18 @@ export class Track {
     if (this.bonusCool <= 0 && (mode === 'normal' || mode === 'split')) {
       this.bonusIn = Math.max(3, Math.ceil(K * 0.6));   // far enough past the piece to get over to it
       this.gap += this.bonusIn; this.bonusCool = 60 + Math.floor(this.rb() * 60);
+    }
+  }
+
+  // a stretch of stars, len rows: the path's line, and lines in about half of the other lanes, each starting a
+  // little late or ending a little early
+  beginStars(len) {
+    const rs = this.rs;
+    this.starOn = len; this.starOff = 0;
+    for (let l = 0; l < LANES; l++) {
+      const on = rs() < SIDE_P;
+      this.sideWait[l] = Math.floor(rs() * len * 0.3);
+      this.sideRun[l] = on ? Math.max(3, Math.round(len * (0.5 + rs() * 0.5)) - this.sideWait[l]) : 0;
     }
   }
 
@@ -319,7 +333,6 @@ export class Track {
       // a jump, and the next swipe
       if (r() < 0.4 && S.steps > 0 && sec >= 1) { S.len = 2 * K + 3; S.logAt = K + 1; }
       S.next = S.steps-- <= 0 ? S.a : S.a === 1 ? 2 : S.a === 3 ? 2 : S.a + (r() < 0.5 ? -1 : 1);
-      this.starRun = Math.max(this.starRun, 10);   // stars show the way
     };
     if (S.mode === 'normal') {
       if (S.i >= S.len && !busy && !this.wave && !this.crossDue(true)) {
@@ -430,21 +443,22 @@ export class Track {
     }
     const goal = piece && this.rows.length ? this.rows[i - 1].goal : this.path;   // the path moves only after the piece
     if (!this.jump && !star[goal]) {
-      const rs = this.rs;
-      if (this.starSkip > 0) this.starSkip--;
-      else if (this.starRun > 0) {
-        if (!hidden && !low[goal]) star[goal] = 1;
-        if (--this.starRun === 0) this.starCool = 6 + Math.floor(rs() * 14);
-      } else if (--this.starCool <= 0) this.starRun = 3 + Math.floor(rs() * 4);
-      // lines of stars in the other lanes too, alongside the path's: a ball takes one lane of them, a magnet all.
-      // Only on plain ground: never in or on an obstacle, never where someone walks across.
-      for (let l = 0; l < LANES; l++) {
-        if (l === goal) continue;
-        if (this.sideRun[l] > 0) {
+      const rs = this.rs, v = speedOf(sec);
+      if (this.starOn > 0) {
+        this.starOn--;
+        if (this.starSkip > 0) this.starSkip--;
+        else if (!hidden && !low[goal]) star[goal] = 1;
+        // the lines in the other lanes, alongside the path's: a ball takes one lane of them, a magnet all.
+        // Only on plain ground: never in or on an obstacle, never where someone walks across.
+        for (let l = 0; l < LANES; l++) {
+          if (l === goal) continue;
+          if (this.sideWait[l] > 0) { this.sideWait[l]--; continue; }
+          if (this.sideRun[l] <= 0) continue;
           this.sideRun[l]--;
           if (road[l] && floor[l] && !block[l] && !low[l] && !hidden && !mover) star[l] = 1;
-        } else if (rs() < SIDE_START) this.sideRun[l] = SIDE_LEN + Math.floor(rs() * SIDE_LEN);
-      }
+        }
+        if (this.starOn === 0) this.starOff = Math.round(v * (STAR_OFF[0] + rs() * (STAR_OFF[1] - STAR_OFF[0])));
+      } else if (--this.starOff <= 0) this.beginStars(Math.round(v * (STAR_ON[0] + rs() * (STAR_ON[1] - STAR_ON[0]))));
     }
     let bonus = null;
     this.bonusCool--;

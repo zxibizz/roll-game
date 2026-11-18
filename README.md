@@ -30,7 +30,7 @@ Site: `https://roll.games.bubas.cc`.
 - The road is a strip of grass with wavy edges; it bends like a snake now and then (just the look: the ball keeps
   to the road on its own). Its shape changes in two ways. It widens from 5 to 7 lanes and splits: the centre lane
   becomes a gap between two 3-lane roads. Or it narrows to 3 lanes and zigzags, stepping one lane sideways every
-  0.6 s or more (at the fastest downhill speed) — a row of stars shows the way. The only obstacle on a zigzag is a
+  0.6 s or more (at the fastest downhill speed). The only obstacle on a zigzag is a
   log right across it here and there, in the middle of a stretch twice as long. The road changes shape often:
   every 60–120 rows, a little more often into a zigzag than into a split. Ramps are wooden.
 - Six biomes follow one another. The track is cut by time, not by length: a section lasts 5 s at its own speed
@@ -81,8 +81,9 @@ Site: `https://roll.games.bubas.cc`.
     stars, clouds (star dust where there are no clouds) rushing past well to the sides, sparks behind the wings,
     speed lines.
   - Stars are not spent on bonuses. A run saved mid-flight goes on mid-flight.
-- Stars: runs of them lie along the safe path, an arc hangs over most jumps, one hangs over most logs on the path,
-  and lines of them run in the other lanes too, alongside: a ball takes one lane of them, a magnet all. They add up over all runs and open ball colours
+- Stars come in stretches of 1.2–2 s with breaks of 2.5–4.5 s and no stars between. In a stretch a line lies on the
+  safe path and lines in about half of the other lanes alongside: a ball takes one lane of them, a magnet all. An
+  arc hangs over most jumps, and one hangs over most logs on the path. They add up over all runs and open ball colours
   (`SKINS` in `client.js`: 50, 150, 300, 500, 800, 1200, 1800). The score stays the distance.
 
 ## Screens

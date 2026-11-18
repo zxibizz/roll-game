@@ -747,18 +747,32 @@ test('with bonuses on the track both bots still get through, and use them', () =
   assert.ok(seen.bonus > 150 && seen.fly > 30 && seen.flyend >= seen.fly - 10, JSON.stringify(seen));
 });
 
-test('stars run in lines in the other lanes too: a ball keeping to the path takes about a third of them, a magnet all', () => {
-  let path = 0, all = 0, side = 0, rows = 0;
+test('stars come in stretches, lines on the path and in other lanes, with real breaks between', () => {
+  let path = 0, all = 0, starRows = 0, rows = 0, breaks = 0, shortBreaks = 0;
   for (let seed = 1; seed <= 10; seed++) {
     const t = new Track(seed);
+    let last = -1;
     for (let i = 20; i < 1500; i++) {
       const r = t.get(i);
       rows++;
-      r.star.forEach((x, l) => { if (x) { all++; if (l === r.goal) path++; else side++; } });
+      const flat = r.star.some((x) => x === 1);   // (arcs over jumps and stars over logs are not part of the stretches)
+      if (flat) {
+        starRows++;
+        if (last >= 0 && i - last > 3) {
+          // a jump or someone walking across interrupts a stretch: that is not a break
+          let within = false;
+          for (let k = last + 1; k < i; k++) { const q = t.get(k); if (q.mover || q.ramp.some(Boolean) || q.star.some((x) => x > 1)) within = true; }
+          if (!within) { breaks++; if ((i - last) / speedOf(r.sec) < 1.5) shortBreaks++; }
+        }
+        last = i;
+      }
+      r.star.forEach((x, l) => { if (x) { all++; if (l === r.goal) path++; } });
     }
   }
-  assert.ok(path / all > 0.25 && path / all < 0.45, `${path} on the path of ${all}`);
-  assert.ok(side / rows > 0.35 && side / rows < 0.8, `${(side / rows).toFixed(2)} stars off the path a row`);
+  assert.ok(starRows / rows > 0.2 && starRows / rows < 0.45, `stars in ${(100 * starRows / rows).toFixed(0)} % of rows`);
+  // (a stretch may still have a gap of a few rows: behind a crest, or while the path moves over)
+  assert.ok(breaks > 70 && shortBreaks < breaks * 0.25, `${breaks} breaks, ${shortBreaks} of them under 1.5 s`);
+  assert.ok(path / all > 0.25 && path / all < 0.5, `${path} on the path of ${all}`);
 });
 
 test('a magnet brings in the stars of every lane for 8 s: a few times what a ball on the path gets', () => {
@@ -775,7 +789,7 @@ test('a magnet brings in the stars of every lane for 8 s: a few times what a bal
     if (got.includes(null)) continue;
     ratio += got[1] / Math.max(1, got[0]); n++;
   }
-  assert.ok(n >= 10 && ratio / n > 1.8 && ratio / n < 3.5, `${(ratio / n).toFixed(1)} times the stars with a magnet`);
+  assert.ok(n >= 10 && ratio / n > 1.6 && ratio / n < 3.5, `${(ratio / n).toFixed(1)} times the stars with a magnet`);
   const w = flatWorld(300);
   for (let i = 30; i < 40; i++) for (let l = 1; l <= 5; l++) w.track.get(i).star[l] = 1;
   w.take('magnet');
