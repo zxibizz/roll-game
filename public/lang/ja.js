@@ -19,4 +19,10 @@ export default {
   "a11y.vibration": "バイブレーション",
   "a11y.done": "完了",
   "a11y.update": "アップデート",
+  "a11y.devBiome": "開発者向け：スタートするバイオーム",
+  "a11y.prevBiome": "前のバイオーム",
+  "a11y.nextBiome": "次のバイオーム",
+  "a11y.dev": "開発者向け",
+  "a11y.devStars": "スター",
+  "a11y.devBest": "ベスト記録",
 };

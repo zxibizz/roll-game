@@ -19,4 +19,10 @@ export default {
   "a11y.vibration": "Vibrazione",
   "a11y.done": "Fatto",
   "a11y.update": "Aggiorna",
+  "a11y.devBiome": "Per sviluppatori: il bioma da cui parte la corsa",
+  "a11y.prevBiome": "Bioma precedente",
+  "a11y.nextBiome": "Bioma successivo",
+  "a11y.dev": "Per sviluppatori",
+  "a11y.devStars": "Stelle",
+  "a11y.devBest": "Record",
 };

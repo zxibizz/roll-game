@@ -19,4 +19,10 @@ export default {
   "a11y.vibration": "진동",
   "a11y.done": "완료",
   "a11y.update": "업데이트",
+  "a11y.devBiome": "개발자용: 게임을 시작할 바이옴",
+  "a11y.prevBiome": "이전 바이옴",
+  "a11y.nextBiome": "다음 바이옴",
+  "a11y.dev": "개발자용",
+  "a11y.devStars": "별",
+  "a11y.devBest": "최고 기록",
 };

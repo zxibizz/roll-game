@@ -10,7 +10,6 @@ const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
 const $hud = $('hud'), $score = $('score'), $starN = $('starN'), $hudStars = $('hudStars'), $hint = $('hint');
 const $home = $('home'), $pause = $('pause'), $over = $('over'), $set = $('set');
-$('ver').textContent = 'v' + VERSION;   // small, on the home screen: which version runs
 
 const SLAB = 0.35, VIEW = 46;       // track thickness, rows drawn ahead
 const VIEW_FAR = 20;                // and this many more in the last biome, where the road ahead curls up into rings
@@ -372,6 +371,7 @@ function startGame() {
   bankRun();
   if (reloadWanted) { location.reload(); return; }
   world = new World(2 + ((Math.random() * 1e9) | 0));
+  if (save.devMode) world.skipTo(devBiome());   // (for developers: from a later biome)
   resetView(); setMode('play');
   save.runs++; persist();
   hintRow = -1; $hint.classList.remove('up');
@@ -399,7 +399,7 @@ function resume() {
 let banked = null;
 function bankRun() {
   if (banked || world.seed === 1) return banked;   // seed 1 is the scene behind the home screen
-  const s = world.score, isBest = s > save.best;
+  const s = world.score, isBest = !world.dev && s > save.best;   // a run from a later biome sets no record
   save.stars += world.stars;
   if (isBest) save.best = s;
   const fresh = openEarned();
@@ -617,7 +617,7 @@ function update(dt) {
   follow();
   if (world.state === 'run') {
     if (world.score !== shownScore) { shownScore = world.score; $score.textContent = shownScore; }   // not every frame: the HUD is laid out anew each time
-    if (!beatBest && save.best > 0 && world.score > save.best) {   // a new record, right now: confetti
+    if (!beatBest && !world.dev && save.best > 0 && world.score > save.best) {   // a new record, right now: confetti
       beatBest = true; $score.style.color = '#ffc107'; sfx.best(); popEl($score);
       const C = ['#ffd84a', '#ff6fa5', '#4fb4ff', '#7ee07e', '#ffffff'];
       spray(30, { x: b.x, y: b.y + 0.4, z: b.z + 0.8 }, (k) => ({ vx: rnd(-4, 4), vy: rnd(3, 7), vz: world.v + rnd(-1, 2), g: 9, life: rnd(0.7, 1.1), size: rnd(0.025, 0.045), color: C[k % C.length] }));
@@ -3263,8 +3263,52 @@ const $vol = $('volRange'), $music = $('musicRange'), $haptic = $('hapticSw');
 function openSettings() {
   $vol.value = Math.round(save.vol * 100); $music.value = Math.round(save.music * 100);
   $('hapticRow').hidden = !canHaptic(); $haptic.setAttribute('aria-checked', String(!!save.haptic));
+  $('btnDev').hidden = !save.devMode;
   $set.hidden = false;
 }
+// ---- For developers ----
+// Hidden from everyone else: seven quick taps on the version on the home screen turn developer mode on (it is kept),
+// seven more turn it off and put everything back to a normal run. Then the settings have one more line, which opens
+// a menu of its own: the biome a run starts at, the stars in the bank, the record.
+const $dev = $('dev');
+let verTaps = 0, verAt = 0;
+function showVer() { $('ver').textContent = 'v' + VERSION + (save.devMode ? ' <>' : ''); }
+showVer();
+$('ver').addEventListener('click', () => {
+  const t = performance.now();
+  verTaps = t - verAt < 1500 ? verTaps + 1 : 1; verAt = t;
+  if (verTaps < 7) return;
+  verTaps = 0; save.devMode = !save.devMode;
+  if (!save.devMode) save.dev = 0;
+  persist(); showVer(); sfx.tap(); popEl($('ver'));
+});
+function openDev() {
+  showDevBiome(); $('devStars').value = save.stars; $('devBest').value = save.best;
+  $set.hidden = true; $dev.hidden = false;
+}
+// a number typed in: a whole one, 0 or more; anything else leaves the value as it was
+const devNum = (el, was) => { const n = Math.floor(Number(el.value)); return el.value.trim() !== '' && Number.isFinite(n) && n >= 0 ? Math.min(n, 9999999) : was; };
+function applyDev() {
+  save.stars = devNum($('devStars'), save.stars); save.best = devNum($('devBest'), save.best);
+  $('devStars').value = save.stars; $('devBest').value = save.best;
+  openEarned();   // the balls the new bank reaches open at once, as after a run (and stay open)
+  persist(); if (mode === 'home') showHome();
+}
+function closeDev() { applyDev(); $dev.hidden = true; }
+on('btnDev', openDev);
+on('btnDevDone', closeDev);
+for (const id of ['devStars', 'devBest']) $(id).addEventListener('change', applyDev);
+$dev.addEventListener('click', (e) => { if (e.target === $dev) closeDev(); });
+// The biome a run starts at (save.dev, 0 — the first). Shown as its sky over its ground, numbered.
+const devBiome = () => clamp(Math.floor(save.dev) || 0, 0, THEMES.length - 1);
+function showDevBiome() {
+  const k = PAL[devBiome()], c = (v) => css(v), g = (v) => `hsl(${v[0]},${v[1]}%,${v[2]}%)`;
+  $('devBiome').style.background = `linear-gradient(${c(k.sky[0])}, ${c(k.sky[2])} 60%, ${g(k.grass)} 60%)`;
+  $('devBiome').firstChild.textContent = devBiome() + 1;
+}
+const turnDev = (d) => { save.dev = (devBiome() + d + THEMES.length) % THEMES.length; persist(); showDevBiome(); };
+on('devPrev', () => turnDev(-1));
+on('devNext', () => turnDev(1));
 on('btnSet', openSettings);
 on('btnPauseSet', openSettings);
 on('btnSetDone', () => { $set.hidden = true; });
@@ -3305,12 +3349,14 @@ addEventListener('keydown', (e) => {
   } else if (e.code === 'Space' || e.code === 'Enter') {
     if (e.target.closest('button')) return;   // the focused button gets its click
     if (!$langs.hidden) $langs.hidden = true;
+    else if (!$dev.hidden) closeDev();
     else if (!$set.hidden) $set.hidden = true;
     else if (steerable()) { if (e.code === 'Space') act(0, -1); }
     else if (mode === 'home' || (mode === 'over' && !$('overActs').classList.contains('wait'))) startGame();
     else if (mode === 'pause') resume();
   } else if (e.code === 'Escape' || e.code === 'KeyP') {
     if (!$langs.hidden) $langs.hidden = true;
+    else if (!$dev.hidden) closeDev();
     else if (!$set.hidden) $set.hidden = true;
     else if (mode === 'pause') resume(); else pause();
   }

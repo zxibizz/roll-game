@@ -19,4 +19,10 @@ export default {
   "a11y.vibration": "Vibración",
   "a11y.done": "Listo",
   "a11y.update": "Actualizar",
+  "a11y.devBiome": "Para desarrolladores: el bioma en el que empieza la partida",
+  "a11y.prevBiome": "Bioma anterior",
+  "a11y.nextBiome": "Bioma siguiente",
+  "a11y.dev": "Para desarrolladores",
+  "a11y.devStars": "Estrellas",
+  "a11y.devBest": "Récord",
 };

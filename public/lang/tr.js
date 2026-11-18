@@ -19,4 +19,10 @@ export default {
   "a11y.vibration": "Titreşim",
   "a11y.done": "Tamam",
   "a11y.update": "Güncelle",
+  "a11y.devBiome": "Geliştiriciler için: oyunun başladığı biyom",
+  "a11y.prevBiome": "Önceki biyom",
+  "a11y.nextBiome": "Sonraki biyom",
+  "a11y.dev": "Geliştiriciler için",
+  "a11y.devStars": "Yıldızlar",
+  "a11y.devBest": "Rekor",
 };

@@ -131,6 +131,16 @@
   .sw[aria-checked="true"] { background: #2b6fd6; }
   .sw[aria-checked="true"]::after { transform: translateX(22px); }
   .sl .gap { flex: 1; }
+  /* for developers: the biome a run starts at, a picture of its sky over its ground with its number */
+  #devRow { font-size: 26px; }
+  .dvl { font-size: 22px; color: rgba(29, 36, 51, .6); background: none; }
+  .dvn input { flex: 0 0 132px; height: 40px; padding: 0 10px; border-radius: 12px; border: 0; background: rgba(29, 36, 51, .08);
+    font: 700 18px system-ui, sans-serif; color: inherit; text-align: right; touch-action: manipulation; }
+  .ver { pointer-events: auto; padding: 10px 12px; margin: -10px -12px; user-select: none; -webkit-user-select: none; }
+  .dvb { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-size: 24px; background: rgba(29, 36, 51, .12); }
+  .dvb:active { transform: scale(.9); }
+  .biome { width: 58px; height: 40px; border-radius: 10px; display: grid; place-items: center; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .6); }
+  .biome b { font: 700 18px/1 system-ui, sans-serif; color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .6); }
 
   /* a tablet: the counters, the top bar and the cards grow with the screen (--ui, 1 to 1.5, set by the script);
      the language list stays as it is, it is tall already */
@@ -187,6 +197,7 @@
   <symbol id="i-hand" viewBox="0 0 24 24"><path d="M9 11.24V7.5a2.5 2.5 0 0 1 5 0v3.74a4.5 4.5 0 0 0 2-3.74 4.5 4.5 0 0 0-9 0c0 1.56.8 2.93 2 3.74zm9.84 4.63-4.54-2.26a1.5 1.5 0 0 0-.54-.11H13v-6a1.5 1.5 0 0 0-3 0v10.74l-3.43-.72a1.2 1.2 0 0 0-.22-.02c-.31 0-.59.13-.79.33l-.79.8 4.94 4.94c.27.27.65.44 1.06.44h6.79c.75 0 1.33-.55 1.44-1.28l.75-5.27a1.5 1.5 0 0 0-.84-1.59z"/></symbol>
   <symbol id="i-globe" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.93 6h-2.95a15.7 15.7 0 0 0-1.38-3.56A8.03 8.03 0 0 1 18.93 8zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14a8.2 8.2 0 0 1 0-4h3.38a16.5 16.5 0 0 0 0 4H4.26zm.81 2h2.95c.32 1.25.78 2.45 1.38 3.56A7.99 7.99 0 0 1 5.07 16zm2.95-8H5.07a7.99 7.99 0 0 1 4.33-3.56A15.7 15.7 0 0 0 8.02 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96zM14.34 14H9.66a14.7 14.7 0 0 1 0-4h4.68a14.7 14.7 0 0 1 0 4zm.26 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95a8.03 8.03 0 0 1-4.33 3.56zM16.36 14a16.5 16.5 0 0 0 0-4h3.38a8.2 8.2 0 0 1 0 4h-3.38z"/></symbol>
   <symbol id="i-update" viewBox="0 0 24 24"><path d="M5 20h14v-2H5zM19 9h-4V3H9v6H5l7 7z"/></symbol>
+  <symbol id="i-dev" viewBox="0 0 24 24"><path d="M9.4 16.6 4.8 12l4.6-4.6L8 6l-6 6 6 6zm5.2 0 4.6-4.6-4.6-4.6L16 6l6 6-6 6z"/></symbol>
   <symbol id="i-done" viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></symbol>
 </defs></svg>
 <canvas id="c"></canvas>
@@ -253,7 +264,20 @@
     <label class="sl"><svg><use href="#i-vol"/></svg><input type="range" id="volRange" min="0" max="100" step="5" aria-label="Volume" data-t-aria="a11y.volume"></label>
     <label class="sl"><svg><use href="#i-music"/></svg><input type="range" id="musicRange" min="0" max="100" step="5" aria-label="Music" data-t-aria="a11y.music"></label>
     <div class="sl" id="hapticRow"><svg><use href="#i-vibe"/></svg><span class="gap"></span><button class="sw" id="hapticSw" role="switch" aria-label="Vibration" data-t-aria="a11y.vibration"></button></div>
+    <button class="sl dvl" id="btnDev" aria-label="For developers" data-t-aria="a11y.dev" hidden><svg><use href="#i-dev"/></svg><span class="gap"></span><svg><use href="#i-right"/></svg></button>
     <button class="ob" id="btnSetDone" aria-label="Done" data-t-aria="a11y.done"><svg><use href="#i-done"/></svg></button>
+  </div>
+</section>
+<section id="dev" class="screen tint" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-label="For developers" data-t-aria="a11y.dev">
+    <div class="sl" id="devRow" role="group" aria-label="For developers: the biome a run starts at" data-t-aria="a11y.devBiome"><svg><use href="#i-play"/></svg><span class="gap"></span>
+      <button class="dvb" id="devPrev" aria-label="Previous biome" data-t-aria="a11y.prevBiome"><svg><use href="#i-left"/></svg></button>
+      <span class="biome" id="devBiome"><b></b></span>
+      <button class="dvb" id="devNext" aria-label="Next biome" data-t-aria="a11y.nextBiome"><svg><use href="#i-right"/></svg></button>
+    </div>
+    <label class="sl dvn"><svg><use href="#i-star"/></svg><span class="gap"></span><input type="number" id="devStars" min="0" max="9999999" step="1" inputmode="numeric" aria-label="Stars" data-t-aria="a11y.devStars"></label>
+    <label class="sl dvn"><svg><use href="#i-cup"/></svg><span class="gap"></span><input type="number" id="devBest" min="0" max="9999999" step="1" inputmode="numeric" aria-label="Record" data-t-aria="a11y.devBest"></label>
+    <button class="ob" id="btnDevDone" aria-label="Done" data-t-aria="a11y.done"><svg><use href="#i-done"/></svg></button>
   </div>
 </section>
 <section id="langs" class="screen tint" hidden>

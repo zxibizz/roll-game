@@ -19,4 +19,10 @@ export default {
   "a11y.vibration": "Wibracje",
   "a11y.done": "Gotowe",
   "a11y.update": "Aktualizuj",
+  "a11y.devBiome": "Dla programistów: biom, od którego zaczyna się gra",
+  "a11y.prevBiome": "Poprzedni biom",
+  "a11y.nextBiome": "Następny biom",
+  "a11y.dev": "Dla programistów",
+  "a11y.devStars": "Gwiazdki",
+  "a11y.devBest": "Rekord",
 };

@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.23.0';
+export const VERSION = '0.24.0';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -559,6 +559,18 @@ export class World {
     this.impact = 0;     // strength of the last landing
     this.side = 0;       // which way the last refused lane change went: -1 left, 1 right
     this.stats = { jumps: 0, hops: 0, vRatioMin: Infinity, vRatioMax: 0 };
+    this.dev = 0;        // the biome a developer's run started at (skipTo); 0 for a run from the start
+  }
+
+  // For developers: start at the beginning of biome b (BIOME_SECS sections each) instead of the start of the track,
+  // at that section's speed, on the path. Nothing can hit the ball for its first second there: it may land in the
+  // middle of a jump's wall.
+  skipTo(b) {
+    const s = Math.max(0, Math.floor(b) || 0) * BIOME_SECS;
+    if (!s) return;
+    const z = secStart(s) + 0.5, ball = this.ball;
+    ball.z = z; ball.x = ball.tx = laneX(this.track.get(Math.floor(z)).goal); ball.y = this.hAt(z) + R; ball.vy = 0;
+    this.v = speedOf(s); this.sec = s; this.dev = Math.floor(b); this.fx.safe = 1;
   }
 
   get score() { return Math.floor(this.ball.z); }
@@ -795,14 +807,14 @@ export class World {
 
   // A run in progress as plain data, and back. The track is rebuilt from the seed, so only the ball is stored.
   toSave() {
-    return { v: SAVE_V, seed: this.seed, ball: { ...this.ball }, speed: this.v, sec: this.sec, stars: this.stars, fx: { ...this.fx }, flyFrom: this.flyFrom, flyLane: this.flyLane, flyStart: this.flyStart, fastLand: this.fastLand };
+    return { v: SAVE_V, seed: this.seed, ball: { ...this.ball }, speed: this.v, sec: this.sec, stars: this.stars, fx: { ...this.fx }, flyFrom: this.flyFrom, flyLane: this.flyLane, flyStart: this.flyStart, fastLand: this.fastLand, dev: this.dev };
   }
 
   static fromSave(o) {
     if (!o || o.v !== SAVE_V || !Number.isFinite(o.seed) || !o.ball || !(o.ball.z >= 0 && o.ball.z < 2e5) || !(o.speed > 0 && o.speed < 100)) return null;
     const w = new this(o.seed), b = w.ball;
     for (const k in b) if (typeof o.ball[k] === typeof b[k] && (typeof b[k] !== 'number' || Number.isFinite(o.ball[k]))) b[k] = o.ball[k];
-    w.v = o.speed; w.sec = secOf(b.z); w.stars = Math.max(0, Math.floor(o.stars) || 0);
+    w.v = o.speed; w.sec = secOf(b.z); w.dev = Math.max(0, Math.floor(o.dev) || 0); w.stars = Math.max(0, Math.floor(o.stars) || 0);
     // what is behind was taken or missed; so was the next row's star if the ball already reached it
     for (let r = 0; r <= Math.floor(b.z + 0.05); r++) { const row = w.track.get(r); row.star.fill(0); row.bonus = null; }
     const fx = o.fx || {}, sec = (x, max) => (x > 0 && x <= max ? x : 0);

@@ -19,4 +19,10 @@ export default {
   "a11y.vibration": "振动",
   "a11y.done": "完成",
   "a11y.update": "更新",
+  "a11y.devBiome": "开发者：从哪个生物群系开始",
+  "a11y.prevBiome": "上一个生物群系",
+  "a11y.nextBiome": "下一个生物群系",
+  "a11y.dev": "开发者",
+  "a11y.devStars": "星星",
+  "a11y.devBest": "最高纪录",
 };

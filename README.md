@@ -53,7 +53,14 @@ Site: `https://roll.games.bubas.cc`.
   0.6 s or more (at the fastest downhill speed). The only obstacle on a zigzag is a
   log right across it here and there, in the middle of a stretch twice as long. The road changes shape often:
   every 60–120 rows, a little more often into a zigzag than into a split.
-- Nine biomes follow one another, and a tenth one made of them all (see below). The track is cut by time, not by length: a section lasts 5 s at its own speed
+- Nine biomes follow one another, and a tenth one made of them all (see below).
+- For developers, hidden from everyone else: seven quick taps on the version on the home screen turn developer mode
+  on (`save.devMode`, kept; the version shows `<>`), seven more turn it off and put the start back to the first
+  biome. Then the settings have one more line, `<>`, which opens a menu of its own (`#dev`): the biome a run starts
+  at — its sky over its ground and its number, arrows either side (`save.dev`, `World.skipTo`: the start of that
+  biome, its speed, on the path, a second in which nothing can hit; such a run banks its stars but sets no record) —
+  and the stars in the bank and the record, typed in (the balls the bank reaches open at once and stay open).
+  Check: `~/scripts/roll-dev/dev.py <url> <outdir> [WxH]`, the cards in landscape: `land.py <url> <out.png> [WxH]`. The track is cut by time, not by length: a section lasts 5 s at its own speed
   (`SEC_T`; the speed steps up 3 % at each section start, from 9 to 24 rows a second), so a faster section is longer
   in rows, and a biome is 6 sections (`BIOME_SECS`) — half a minute at any speed. A biome stays as it is for most of
   that and turns into the next one over the last three quarters of a section (`BIOME_BLEND`). Space is reached

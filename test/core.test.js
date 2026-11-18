@@ -1058,3 +1058,26 @@ test('bonuses never repeat back to back, and each kind comes once in every three
     for (let k = 0; k + 3 <= kinds.length; k += 3) assert.deepEqual([...kinds.slice(k, k + 3)].sort(), [...BONUS_KINDS].sort());
   }
 });
+
+test('a developer run starts at any biome, on the path at its speed, and the bot gets through', () => {
+  for (const b of [1, 5, 9]) {
+    for (let seed = 1; seed <= 15; seed++) {
+      const w = new GameWorld(seed);
+      w.track.noBonus = true;
+      w.skipTo(b);
+      const s = b * BIOME_SECS;
+      assert.equal(secOf(w.ball.z), s);
+      assert.equal(w.v, speedOf(s));
+      assert.equal(w.dev, b);
+      const end = w.ball.z + speedOf(s) * 20;
+      while (w.state === 'run' && w.ball.z < end) { w.auto(); w.step(1 / 60); w.events.length = 0; }
+      assert.equal(w.state, 'run', `biome ${b}, seed ${seed}: ${w.state} at ${w.ball.z.toFixed(1)}`);
+    }
+  }
+  const w = new GameWorld(3);
+  w.skipTo(0);
+  assert.equal(w.dev, 0);
+  assert.equal(w.ball.z, 2);
+  w.skipTo(4);
+  assert.equal(GameWorld.fromSave(JSON.parse(JSON.stringify(w.toSave()))).dev, 4);
+});

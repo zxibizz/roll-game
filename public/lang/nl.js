@@ -19,4 +19,10 @@ export default {
   "a11y.vibration": "Trillen",
   "a11y.done": "Klaar",
   "a11y.update": "Bijwerken",
+  "a11y.devBiome": "Voor ontwikkelaars: het bioom waarin een rit begint",
+  "a11y.prevBiome": "Vorig bioom",
+  "a11y.nextBiome": "Volgend bioom",
+  "a11y.dev": "Voor ontwikkelaars",
+  "a11y.devStars": "Sterren",
+  "a11y.devBest": "Record",
 };
