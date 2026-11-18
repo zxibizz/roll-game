@@ -785,9 +785,9 @@ test('the stars of a flight lie in four straight lines within three lanes, at an
     assert.ok(c >= 2 && c <= 4 && lanes.every((l) => Math.abs(l - c) <= 1), `seed ${seed}: lanes ${[...new Set(lanes)]} round ${c}`);
     assert.equal(turns, 3, `seed ${seed}: ${turns} turns`);
     assert.ok(lanes.every((l, i) => !i || Math.abs(l - lanes[i - 1]) <= 1));
-    assert.equal(lanes[0], clamp3(w.lane, c), 'the first line starts where the ball is');
+    assert.equal(lanes[0], w.lane, 'the first line starts where the ball is');
     // between two lines there is time for the swipe
-    w.sky.forEach((s, i) => { if (i && s.l !== w.sky[i - 1].l) assert.ok((s.z - w.sky[i - 1].z) / w.v >= 0.4, `seed ${seed}: ${s.z - w.sky[i - 1].z} rows between lines`); });
+    w.sky.forEach((s, i) => { if (i && s.l !== w.sky[i - 1].l) assert.ok((s.z - w.sky[i - 1].z) / speedOf(w.sec + 1) >= 0.4, `seed ${seed}: ${s.z - w.sky[i - 1].z} rows between lines`); });
     // and no swipe leaves the three lanes
     while (w.move(1));
     assert.equal(w.lane, c + 1);
@@ -795,7 +795,6 @@ test('the stars of a flight lie in four straight lines within three lanes, at an
     assert.equal(w.lane, c - 1);
   }
 });
-const clamp3 = (l, c) => Math.max(c - 1, Math.min(c + 1, l));
 
 test('a swipe down ends a flight: the ball goes over to the path and comes down fast, wherever it was', () => {
   const w = new GameWorld(3);
@@ -850,4 +849,24 @@ test('a run saved in the middle of a flight, with a magnet and a shield, goes on
   assert.equal(b.ball.x, a.ball.x);
   assert.equal(b.stars, a.stars);
   assert.deepEqual(b.fx, a.fx);
+});
+
+test('a flight taken in an outer lane of a wide road comes into its three lanes, and its trail is the same after a restore at another speed', () => {
+  const w = flatWorld(300);
+  for (let i = 0; i < 300; i++) { const r = w.track.get(i); r.road.fill(true); r.floor.fill(true); }
+  for (let n = 0; n < 40; n++) w.step(DT);
+  while (w.move(-1));
+  for (let n = 0; n < 40; n++) w.step(DT);
+  assert.equal(w.lane, 0);
+  w.take('fly');
+  assert.ok(w.flyLane === 2 && w.lane === 1 && w.sky[0].l === 1);
+  const trail = w.sky.map((s) => [s.l, s.z]);
+  for (let n = 0; n < 60; n++) w.step(DT);
+  w.v *= 0.7;                                       // slowed down since take-off
+  const b = World.fromSave(JSON.parse(JSON.stringify(w.toSave())));
+  assert.deepEqual(b.sky.map((s) => [s.l, s.z]), trail.filter(([, z]) => z + 0.5 > w.ball.z + 0.65));
+  assert.equal(w.move(1), true);
+  w.drop();
+  assert.equal(w.move(1), false);
+  assert.ok(!w.events.slice(-1).includes('bump'), 'no bump while it comes down');
 });

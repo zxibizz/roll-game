@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.12.1';
+export const VERSION = '0.12.2';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -37,7 +37,9 @@ const HOP_BUFFER = 0.15;         // a jump asked for this long before landing ha
 //   'fly'    — for FLY_T seconds the ball flies FLY_H above the road, over everything, in three lanes of its own,
 //              along a trail of stars in the air; a swipe down lands it early. It lands on the path by itself. Nothing can hit it for FLY_SAFE after it starts down.
 export const MAGNET_T = 8, FLY_T = 7, FLY_H = 2.2, SHIELD_SAFE = 0.7, FLY_SAFE = 1.6;
-const LAND_AHEAD = 1.3;          // seconds of road a flight wants ahead in its lane: the way down and time to react
+// a flight coming down heads for the path lane LAND_LOOK seconds ahead and wants LAND_AHEAD seconds of road there:
+// the way down and time to react
+const LAND_AHEAD = 1.3, LAND_LOOK = 0.5;
 const REACT = 0.6;               // seconds a player gets for one swipe, on top of the lane change itself
 const MAX_DT = 1 / 60;           // the world advances in steps no longer than this, however slow the frame
 export const SAVE_V = 2;         // format of a saved run (World.toSave); bump when it changes
@@ -549,7 +551,8 @@ export class World {
     if (this.state !== 'run') return false;
     const b = this.ball, to = this.lane + dir;
     if (b.fly) {   // in the air there are three lanes, whatever the road below is doing
-      const ok = this.fx.fly > 0 && Math.abs(to - this.flyLane) <= 1;
+      if (this.fx.fly <= 0) return false;   // coming down: it steers itself
+      const ok = Math.abs(to - this.flyLane) <= 1;
       if (ok) b.tx = laneX(to); else this.side = dir;
       this.events.push(ok ? 'move' : 'bump');
       return ok;
@@ -613,7 +616,9 @@ export class World {
       const b = this.ball;
       b.fly = true; b.air = true; b.hop = false; b.hopQ = 0; b.vy = 0; b.airT = 0; b.fromRamp = true;
       this.fx.fly = FLY_T;
-      this.flyFrom = Math.floor(b.z); this.flyLane = clamp(this.lane, 2, LANES - 3); this.flyStart = this.lane; this.fastLand = false;
+      this.flyFrom = Math.floor(b.z); this.flyLane = clamp(this.lane, 2, LANES - 3); this.fastLand = false;
+      // from an outer lane of a wide road it comes into the air's three lanes at once
+      this.flyStart = clamp(this.lane, this.flyLane - 1, this.flyLane + 1); b.tx = laneX(this.flyStart);
       this.sky = this.skyStars(this.flyFrom, this.flyStart);
       this.events.push('fly');
     }
@@ -624,9 +629,12 @@ export class World {
   // beside it). The same for the same track, starting row and lane.
   skyStars(from, lane) {
     const r = mulberry((this.seed * 31 + from) >>> 0), out = [], c = this.flyLane;
-    // (the lines end a little before the flight does, at whichever is slower: the speed now or the section's)
-    const n = Math.floor(FLY_T * Math.min(this.v, speedOf(Math.floor(from / SEC_ROWS)))) - 9, parts = 4, len = Math.floor(n / parts), rest = Math.ceil(this.v * 0.45);
-    const step = Math.max(1, Math.round(this.v / 9));   // about nine stars a second at any speed: a solid line
+    // Laid out from the section's speed, not the ball's at the moment (a flight settles at the section's speed, and
+    // a restored run must get the same trail): the lines end a little before the flight does, and the pause between
+    // two lines is long enough for a swipe even at the next section's speed.
+    const sec = Math.floor(from / SEC_ROWS), v = speedOf(sec);
+    const n = Math.floor(FLY_T * v) - 9, parts = 4, len = Math.floor(n / parts), rest = Math.ceil(speedOf(sec + 1) * 0.45);
+    const step = Math.max(1, Math.round(v / 9));   // about nine stars a second at any speed: a solid line
     let l = clamp(lane, c - 1, c + 1);
     for (let k = 0; k < parts; k++) {
       const z0 = from + 6 + k * len;
@@ -637,9 +645,9 @@ export class World {
   }
 
   // is there road under the ball from here to where it would touch down, and on for long enough to react after
-  canLand() {
+  canLand(ahead = LAND_AHEAD) {
     const b = this.ball, at = Math.floor(b.x + HALF), to = this.lane;
-    for (let r = Math.floor(b.z); r <= Math.floor(b.z + this.v * LAND_AHEAD); r++) {
+    for (let r = Math.floor(b.z); r <= Math.floor(b.z + this.v * ahead); r++) {
       const row = this.track.get(r);
       if (!row.road[at] || !row.floor[at] || !row.road[to] || !row.floor[to]) return false;
     }
@@ -663,8 +671,9 @@ export class World {
     }
     if (this.fx.fly > 0) return;
     // time is up, or a swipe down: over to the path, wherever the flight has been, and down where the road goes on
-    b.tx = laneX(t.get(Math.floor(b.z + this.v * 0.5)).goal);
-    if (Math.abs(b.tx - b.x) < 0.1 && this.canLand()) this.land(this.fastLand);
+    // (if no stretch of road is long enough for a while, a shorter one will do: the ball can't be hit after landing)
+    b.tx = laneX(t.get(Math.floor(b.z + this.v * LAND_LOOK)).goal);
+    if (Math.abs(b.tx - b.x) < 0.1 && this.canLand(this.fx.fly < -1.5 ? LAND_LOOK : LAND_AHEAD)) this.land(this.fastLand);
   }
 
   // The ball takes the stars it touches. They hang where a resting or a jumping ball's centre passes.
