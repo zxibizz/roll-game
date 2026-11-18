@@ -5,18 +5,25 @@ Site: `https://roll.games.bubas.cc`.
 
 ## How it plays
 
-- The ball rolls forward by itself along the middle of a lane. A swipe left or right (or ← → / A D) sends it to the
-  next lane, also in the air; swipes add up, so two quick ones cross two lanes. A short flick (6 % of the screen
-  width) is enough for the first lane; dragging on without lifting the finger takes 15 % for every further one.
-  A lane change takes about 0.15 s at the start and gets quicker with the speed.
+- The ball rolls forward by itself along the middle of a lane. One touch is one swipe, and one swipe is one move,
+  however long it is:
+  - left / right (← → / A D) — the next lane, also in the air. A lane change takes about 0.15 s at the start and
+    gets quicker with the speed;
+  - up (↑ / W / Space) — a jump: about 0.65 of a lane high, 0.43 s long, the same up and down a slope. It clears a
+    log and a short pit, not a rock or a bush. Asked for up to 0.15 s before landing, it happens on landing;
+  - down (↓ / S) — out of the air straight to the ground, also off a ramp.
+  A swipe counts as soon as the finger has gone 6 % of the screen width (18 px at least), without waiting for it
+  to lift.
 - There is no swiping off the road: at its edge the ball leans out, thuds and stays in its lane. It still falls
   where the lane itself ends — into the gap when the road splits, or off the outer lane when the road narrows.
 - The track is usually 5 lanes wide and comes in sections of 48 rows. Every section has its own colour and is 6 % faster
   (9 → 24 rows per second, the top speed from section 18). The first 8 rows of a section are free of obstacles; the first sections are sparse.
 - Hills: downhill speeds the ball up, uphill slows it down; on flat ground it settles back to the section's speed.
 - Ramps: a light tile with chevrons. Behind it a block wall or a gap spans the whole width — the only way over is to jump.
-  In the first two sections every lane has a ramp, later only the path lane is sure to have one. The ball can change
-  lanes in the air; its shadow shows where it lands.
+  In the first two sections every lane has a ramp, later every lane has one or has one right next to it. The ball
+  can change lanes in the air; its shadow shows where it lands.
+- Logs: a low barrier across a lane, sometimes across the whole road. The only way past is to jump (from section 1).
+  During the first five runs a hand shows the swipe up before a log in the ball's lane.
 - Falling into a pit or hitting an obstacle ends the run. The hit boxes are smaller than the drawn obstacles, with
   rounded corners, and a pit holds the ball until its centre is 0.2 of a lane past the rim, so changing lanes right
   past an obstacle is fine. The score is the number of rows covered;
@@ -28,11 +35,15 @@ Site: `https://roll.games.bubas.cc`.
   (from section 5) Halloween — pumpkins with flickering faces, gravestones, dead trees, a waving skeleton, a swaying
   zombie, fallen leaves and glowing toadstools; in space (from section 10) glowing crystals and alien mushrooms on
   teal grass under nebulas and a ringed planet. They all move in place only; the hit box is the same block.
-- Obstacles stay sparse all the way: their density barely grows, the speed alone makes later sections harder, and
-  there are empty stretches between patterns. Rows hidden behind a crest have no obstacles.
+- Obstacles come in waves — a line across the road, one to three rows deep — with free road in between: at least
+  0.6 s plus a lane change at the fastest downhill speed (10 rows at the start, 20 at the top speed). In a wave every
+  lane is free, has a free lane right next to it, or holds a log. So from any lane one swipe or one jump per wave is
+  enough, never two in a hurry. Lanes that end get the same warning, with no waves around.
+- Waves stay sparse all the way: the speed alone makes later sections harder. Rows hidden behind a crest have no
+  obstacles.
 - There are no words in the game, only numbers and icons, so there is nothing to translate.
 - Stars: runs of them lie along the safe path, an arc hangs over most jumps, and now and then a lone one sits off
-  the path (about 95 per 500 rows for a careful player). They add up over all runs and open ball colours
+  the path, and one hangs over most logs on the path (about 130 per 500 rows). They add up over all runs and open ball colours
   (`SKINS` in `client.js`: 50, 150, 300, 500, 800, 1200, 1800). The score stays the distance.
 
 ## Screens
@@ -66,12 +77,15 @@ Site: `https://roll.games.bubas.cc`.
 
 ## Track generator
 
-`public/core.js`, no DOM. A guaranteed path runs through every row; when it shifts by a lane, both lanes stay open for
-long enough to change lanes even at the fastest downhill speed. Obstacle patterns (scatter, walls, bridge, slalom,
-strips) fill only cells outside the path. Jumps are set pieces placed on flat ground after at least 6 flat rows: where the
-wall or the gap goes is computed from the ramp's physics with a ±25 % margin on the section's speed.
-The tests drive a bot along the path on 30 tracks up to the top speed and expect no deaths, and the same for a bot
-that steers with swipes only (`World.move`).
+`public/core.js`, no DOM. After every wave or jump the generator leaves K free rows (the time for one swipe at the
+fastest downhill speed) plus a few more, then lays the next wave: lanes are shut at random, any shut lane without a
+free neighbour is opened again, and the shut ones become rocks, pits or logs. A guaranteed path (`row.goal`) runs
+through every row and moves by at most one lane, right after a wave; stars lie along it. Jumps are set pieces placed
+on flat ground after at least 6 flat rows: where the wall or the gap goes is computed from the ramp's physics with a
+±25 % margin on the section's speed. The road widens and narrows over at least K rows with no waves.
+The tests drive two bots on 30–40 tracks up to the top speed and expect no deaths: one keeps to the path
+(`World.auto`), the other stays in whatever lane it is in and makes a single move — a swipe to the next lane or a
+jump — only when something is 0.75 s ahead.
 
 ## Layout
 

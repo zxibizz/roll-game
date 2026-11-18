@@ -1,7 +1,7 @@
 // The page: draws the world from core.js in a hand-rolled perspective, reads the finger / mouse / keys and runs the
 // screens around the game: home, pause, results, settings. The road is grass and earth; the sky goes from day to
 // night to space with the distance. There are no words in the interface, only numbers and icons.
-import { World, VERSION, LANES, HALF, SEC_ROWS, R, INSET, BOX_H, RAMP_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
+import { World, VERSION, LANES, HALF, SEC_ROWS, R, INSET, BOX_H, RAMP_H, LOW_H, LOW_Z0, LOW_Z1, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
 import { initAudio, applyVolume, setHum, sfx, haptic, canHaptic } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -45,7 +45,7 @@ let skinView = skinAt;                                                          
 let mode = 'home', world = new World(1), parts = [], rings = [], flash = null;
 let camZ = 0, camX = 0, camL = 0, camY = 0;   // camL: the camera across the road
 let nudge = null;   // a refused lane change: the ball leans towards the edge and comes back
-let shake = 0, squash = 0, hitStop = 0, count = 0, beatBest = false, overAnim = null, hintUntil = 0;
+let shake = 0, squash = 0, hitStop = 0, count = 0, beatBest = false, overAnim = null, hintUntil = 0, hintRow = -1;
 
 // ---- Colours ----
 let FOG = [5, 6, 13];
@@ -218,6 +218,7 @@ function startGame() {
   world = new World(2 + ((Math.random() * 1e9) | 0));
   resetView(); setMode('play');
   save.runs++; persist();
+  hintRow = -1; $hint.classList.remove('up');
   if (save.runs <= 3) { $hint.hidden = false; hintUntil = performance.now() + 4000; }   // a hand shows the swipe
 }
 
@@ -304,8 +305,9 @@ function onEvent(e) {
     $hudStars.classList.remove('pop'); void $hudStars.offsetWidth; $hudStars.classList.add('pop');
     spray(5, b, () => ({ vx: rnd(-1.6, 1.6), vy: rnd(1.5, 4), vz: world.v + rnd(-1, 1), g: 7, life: rnd(0.25, 0.45), size: rnd(0.02, 0.04), color: '#fff3b0' }));
   } else if (e === 'jump') sfx.jump();
-  else if (e === 'move') { sfx.move(); $hint.hidden = true; }
-  else if (e === 'bump') { sfx.bump(); haptic('land'); $hint.hidden = true; nudge = { dir: world.side, t: 0 }; }
+  else if (e === 'drop') sfx.drop();
+  else if (e === 'move') sfx.move();
+  else if (e === 'bump') { sfx.bump(); haptic('land'); nudge = { dir: world.side, t: 0 }; }
   else if (e === 'land') {
     const k = world.impact;
     sfx.land(k); haptic('land');
@@ -354,6 +356,13 @@ function update(dt) {
     if (!beatBest && save.best > 0 && world.score > save.best) { beatBest = true; $score.style.color = '#ffc107'; sfx.best(); }
   }
   if (!$hint.hidden && performance.now() > hintUntil) $hint.hidden = true;
+  if (save.runs <= 5 && $hint.hidden && !b.air && world.state === 'run') {   // first runs: a hand shows the swipe up before a log
+    for (let r = Math.floor(b.z + world.v * 0.3); r <= Math.floor(b.z + world.v * 0.6); r++) {
+      if (r <= hintRow || !world.track.get(r).low[world.lane]) continue;
+      hintRow = r; $hint.classList.add('up'); $hint.hidden = false; hintUntil = performance.now() + 500;
+      break;
+    }
+  }
   setHum(world.v / 24, world.state === 'run' && !b.air);
 }
 
@@ -532,6 +541,7 @@ function drawRow(rz, part = 'all') {
     const kinds = OBSTACLES[theme];
     kinds[Math.floor(pick * kinds.length)](o, seed, fog, rz, l);
   }
+  if (rz + LOW_Z0 > camZ + 0.5) for (const l of order) if (row.low[l]) drawLog(l, rz, row, fog, px);
   if (rz + 0.5 > camZ + 0.9) for (const l of order) if (row.star[l]) drawStar(l, rz, row.star[l], fog);
 }
 
@@ -654,7 +664,7 @@ function drawPit(rz, l, row, prev, next, fog, px) {
 function drawDecor(rz, row, zA, px, fog, theme) {
   const blades = [], bits = [];
   for (let l = 0; l < LANES; l++) {
-    if (!row.road[l] || !row.floor[l] || row.block[l] || row.ramp[l]) continue;
+    if (!row.road[l] || !row.floor[l] || row.block[l] || row.low[l] || row.ramp[l]) continue;
     for (let k = 0; k < 4; k++) {
       const z = rz + 0.08 + hash(rz, l, 2 * k + 1) * 0.84;
       if (z < zA) continue;
@@ -723,6 +733,36 @@ function glowBit(p, r, c, fog, cap) {
 }
 
 // where an obstacle sits on the screen: front-bottom centre, half width, top of the hit box, in pixels
+// A low barrier: a log lying across the lane, to jump over. Logs in neighbouring lanes join into one long trunk.
+function drawLog(l, rz, row, fog, px) {
+  const endL = !row.low[l - 1], endR = !row.low[l + 1];
+  const x0 = l - HALF + (endL ? 0.04 : 0), x1 = l - HALF + 1 - (endR ? 0.04 : 0), zf = rz + LOW_Z0, zb = rz + LOW_Z1;
+  const hf = world.hAt(zf), hb = world.hAt(zb), top = LOW_H;
+  const a = proj(x0, hf, zf), b = proj(x1, hf, zf);
+  ctx.fillStyle = `rgba(${P.shadow.map(Math.round)},${0.3 * (1 - fog)})`;   // shadow on the grass in front
+  path([proj(x0, hf, zf - 0.1), proj(x1, hf, zf - 0.1), b, a]); ctx.fill();
+  // the side facing the camera: bark, darker towards the ground
+  const at = proj(x0, hf + top * 0.8, zf), bt = proj(x1, hf + top * 0.8, zf);
+  const g = ctx.createLinearGradient(0, at[1], 0, a[1]);
+  g.addColorStop(0, pal('wood', -6, fog)); g.addColorStop(1, pal('woodDark', -8, fog));
+  ctx.fillStyle = g; path([a, b, bt, at]); ctx.fill();
+  // the rounded top
+  const c0 = proj(x0, hf + top, (zf + zb) / 2), c1 = proj(x1, hf + top, (zf + zb) / 2), d0 = proj(x0, hb + top * 0.8, zb), d1 = proj(x1, hb + top * 0.8, zb);
+  quad(at, bt, c1, c0, pal('wood', 6, fog)); quad(c0, c1, d1, d0, pal('wood', 14, fog));
+  const w = Math.max(1, px * 0.018);
+  for (let k = 0; k < 3; k++) {   // cracks in the bark
+    const t = 0.15 + hash(rz, l, 70 + k) * 0.7, len = 0.12 + hash(rz, l, 75 + k) * 0.2, y = hf + top * (0.25 + 0.2 * k);
+    line(proj(x0 + (x1 - x0) * t, y, zf), proj(x0 + (x1 - x0) * Math.min(1, t + len), y, zf), pal('woodDark', -14, fog), w, 0.7 * (1 - fog));
+  }
+  for (const [end, x] of [[endL, x0], [endR, x1]]) {   // the sawn ends with rings
+    if (!end) continue;
+    const e = proj(x, hf + top * 0.5, zf), r = (a[1] - at[1]) * 0.55;
+    ctx.fillStyle = pal('wood', 22, fog); ctx.beginPath(); ctx.ellipse(e[0], e[1], r * 0.45, r, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = pal('woodDark', 0, fog); ctx.lineWidth = w; ctx.globalAlpha = 0.7 * (1 - fog);
+    ctx.beginPath(); ctx.ellipse(e[0], e[1], r * 0.22, r * 0.5, 0, 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
+  }
+}
+
 function obstacleFrame(l, rz) {
   const xc = laneX(l), zc = rz + 0.5, base = world.hAt(zc);
   const pf = proj(xc, base, rz + INSET + 0.1), pt = proj(xc, base + BOX_H, zc);
@@ -1025,30 +1065,30 @@ function bigNumber(n, size, alpha) {
 
 // ---- Input ----
 // One finger steers: the first one down on the scene. Others are ignored, so a second touch can't jerk the ball.
-// A swipe sideways moves the ball one lane over. The first lane takes a short flick (SWIPE_NEAR of the screen width);
-// keeping the finger going, or bringing it back, without lifting it takes a longer way (SWIPE_FAR) for every further
-// lane, so a hand drifting after the flick changes nothing.
-const SWIPE_NEAR = 0.06, SWIPE_FAR = 0.15, SWIPE_MIN = 18;   // SWIPE_MIN: px, the least a flick takes on any screen
-let dragId = null, dragX = 0, dragAcc = 0, dragMoved = false;
-// during the 3-2-1 after a pause a swipe already counts: the ball sets off towards the chosen lane
+// A touch is one swipe and one swipe is one move, however long it is: sideways — the next lane, up — a jump,
+// down — out of the air straight to the ground. It counts as soon as the finger has gone SWIPE of the screen's
+// shorter side, without waiting for it to lift; the rest of the touch does nothing.
+const SWIPE = 0.06, SWIPE_MIN = 18;   // SWIPE: of the shorter side of the screen; SWIPE_MIN: px, the least on any screen
+let dragId = null, dragX = 0, dragY = 0, dragDone = false;
+// during the 3-2-1 after a pause a swipe already counts: the ball sets off towards the chosen lane or with a jump
 const steerable = () => mode === 'play' || mode === 'count';
+function act(dx, dy) {   // dx, dy: -1, 0 or 1; up is dy = -1
+  if (!steerable()) return;
+  if (dx) world.move(dx);
+  else if (dy < 0) world.jump();
+  else world.drop();
+  $hint.hidden = true;
+}
 addEventListener('pointerdown', (e) => {
   if (dragId !== null || e.target.closest('button, input, .card')) return;
-  dragId = e.pointerId; dragX = e.clientX; dragAcc = 0; dragMoved = false;
+  dragId = e.pointerId; dragX = e.clientX; dragY = e.clientY; dragDone = false;
 });
 addEventListener('pointermove', (e) => {
-  if (e.pointerId !== dragId) return;
-  dragAcc += e.clientX - dragX;
-  dragX = e.clientX;
-  if (!steerable()) { dragAcc = 0; return; }
-  // a fast swipe may arrive as a single event: take every lane its length is worth
-  for (;;) {
-    const need = Math.max(SWIPE_MIN, innerWidth * (dragMoved ? SWIPE_FAR : SWIPE_NEAR));
-    if (Math.abs(dragAcc) < need) break;
-    const dir = Math.sign(dragAcc);
-    dragAcc -= dir * need;
-    if (world.move(dir)) dragMoved = true; else { dragAcc = 0; break; }   // at the edge: the rest of the swipe is void
-  }
+  if (e.pointerId !== dragId || dragDone) return;
+  const dx = e.clientX - dragX, dy = e.clientY - dragY;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < Math.max(SWIPE_MIN, Math.min(innerWidth, innerHeight) * SWIPE)) return;
+  dragDone = true;
+  if (Math.abs(dx) >= Math.abs(dy)) act(Math.sign(dx), 0); else act(0, Math.sign(dy));
 });
 const dragEnd = (e) => { if (e.pointerId === dragId) dragId = null; };
 addEventListener('pointerup', dragEnd);
@@ -1086,13 +1126,17 @@ for (const [el, key] of [[$vol, 'vol'], [$music, 'music']]) {
 on('hapticSw', () => { save.haptic = !save.haptic; $haptic.setAttribute('aria-checked', String(save.haptic)); persist(); haptic('land'); });
 
 const KEYS = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1 };
+const KEYS_Y = { ArrowUp: -1, KeyW: -1, ArrowDown: 1, KeyS: 1 };
 addEventListener('keydown', (e) => {
   if (e.repeat || e.target.closest('input')) return;
   if (KEYS[e.code]) {
-    if (mode === 'home') turnSkin(KEYS[e.code]); else if (steerable()) world.move(KEYS[e.code]);
+    if (mode === 'home') turnSkin(KEYS[e.code]); else act(KEYS[e.code], 0);
+  } else if (KEYS_Y[e.code]) {
+    act(0, KEYS_Y[e.code]);
   } else if (e.code === 'Space' || e.code === 'Enter') {
     if (e.target.closest('button')) return;   // the focused button gets its click
     if (!$set.hidden) $set.hidden = true;
+    else if (steerable()) { if (e.code === 'Space') act(0, -1); }
     else if (mode === 'home' || (mode === 'over' && !$('overActs').classList.contains('wait'))) startGame();
     else if (mode === 'pause') resume();
   } else if (e.code === 'Escape' || e.code === 'KeyP') {
@@ -1140,7 +1184,7 @@ requestAnimationFrame(frame);
 window.__shot = (seed, z) => {
   world = new World(seed); setMode('shot');
   while (world.state === 'run' && world.ball.z < z) {
-    world.ball.tx = world.autoTarget(); world.step(1 / 60); world.events.length = 0;
+    world.auto(); world.step(1 / 60); world.events.length = 0;
   }
   follow();
   $hud.hidden = false; $score.textContent = world.score; $starN.textContent = world.stars; draw();

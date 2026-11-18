@@ -114,6 +114,8 @@
   /* first runs: a hand shows the swipe */
   #hint { position: fixed; left: 50%; top: 62%; font-size: 64px; color: #fff; pointer-events: none;
     filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .35)); animation: swipe 1.6s ease-in-out infinite; }
+  #hint.up { animation: swipe-up .5s ease-out infinite; }
+  @keyframes swipe-up { 0% { transform: translate(-50%, 40%); } 100% { transform: translate(-50%, -90%); } }
   @keyframes swipe { 0%, 100% { transform: translateX(-120%) rotate(-12deg); } 50% { transform: translateX(20%) rotate(12deg); } }
   @media (prefers-reduced-motion: reduce) { #home h1 span, #home .cta { animation: none; } }
 </style>

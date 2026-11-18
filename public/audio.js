@@ -172,6 +172,7 @@ export const sfx = {
   },
   move() { burst({ type: 'bandpass', f0: 500, f1: 900, q: 1, vol: 0.16, a: 0.02, dur: 0.1 }); },   // a lane change: a soft swish
   bump() { note(150, { vol: 0.25, dur: 0.1, to: 90 }); },                                          // no lane there
+  drop() { burst({ type: 'bandpass', f0: 1000, f1: 300, q: 1, vol: 0.3, a: 0.01, dur: 0.12 }); },   // thrown down out of the air
   jump() {
     burst({ type: 'bandpass', f0: 300, f1: 1100, q: 1.2, vol: 0.5, a: 0.05, dur: 0.32 });
     note(190, { type: 'triangle', vol: 0.16, dur: 0.2, to: 330, lp: 1200 });
