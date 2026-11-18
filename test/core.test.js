@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { World, Track, SEC_ROWS, LANES, MID, VERSION, HOP_VY, HOP_G, BOX_H, R, laneX, speedOf, fastOf, mulberry } from '../public/core.js';
+import { World, Track, SEC_ROWS, LANES, MID, VERSION, HOP_VY, HOP_G, BOX_H, R, CROSS_ROWS, laneX, speedOf, fastOf, mulberry } from '../public/core.js';
 
 const DT = 1 / 60;
 
@@ -207,6 +207,7 @@ function plainRoad(w, a, b) {
   for (let i = a; i <= b; i++) {
     const r = w.track.get(i);
     for (const l of [MID, MID + 1]) { r.road[l] = true; r.floor[l] = true; r.block[l] = false; r.ramp[l] = false; }
+    r.low.fill(false); r.mover = null;
   }
 }
 function rollAlong(w, x, rows) {
@@ -405,9 +406,9 @@ test('swiping at random never takes the ball off the side of the road', () => {
 });
 
 // ---- waves, jumping ----
-const shut = (r, l) => !r.road[l] || !r.floor[l] || r.block[l];           // no way through on the ground or by a jump
+const shut = (r, l) => !r.road[l] || !r.floor[l] || r.block[l] || (!!r.mover && r.mover.lane === l);           // no way through on the ground or by a jump
 const clear = (r, l) => l >= 0 && l < LANES && !shut(r, l) && !r.low[l];
-const busy = (r) => r.ramp.some(Boolean) || r.low.some(Boolean) || r.road.some((on, l) => on && shut(r, l));
+const busy = (r) => r.ramp.some(Boolean) || r.low.some(Boolean) || !!r.mover || r.road.some((on, l) => on && shut(r, l));
 
 test('in a wave every lane is free, has a free lane next to it, or can be jumped', () => {
   let waves = 0, hurdles = 0, lows = 0;
@@ -498,7 +499,7 @@ const flatWorld = (rows = 120) => {
   for (let i = 0; i < rows; i++) {
     const r = w.track.get(i);
     r.h = 0; r.road = r.road.map((_, l) => l >= 1 && l <= 5); r.floor = r.road.slice();
-    r.block.fill(false); r.low.fill(false); r.ramp.fill(false); r.star.fill(0);
+    r.block.fill(false); r.low.fill(false); r.ramp.fill(false); r.star.fill(0); r.mover = null;
   }
   return w;
 };
@@ -598,4 +599,52 @@ test('a ramp throws the ball the same whether it rolled onto it or jumped onto i
     }
   }
   assert.ok(tried > 100);
+});
+
+test('someone walks across the road now and then: it ends in a lane off the path with free lanes beside it, and is there when the ball is', () => {
+  let walkers = 0, early = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const t = new Track(seed);
+    for (let i = 0; i < SEC_ROWS * 20; i++) {
+      const r = t.get(i), m = r.mover;
+      if (!m) continue;
+      walkers++;
+      if (i < SEC_ROWS * 4) early++;
+      assert.ok(m.lane !== r.goal && r.road[m.lane] && r.road[m.from] && Math.abs(m.lane - m.from) >= 2, `seed ${seed} row ${i}`);
+      assert.ok(!r.block.some(Boolean) && !r.low.some(Boolean) && r.road.every((on, l) => !on || r.floor[l]), `seed ${seed} row ${i}: something else in the row`);
+      // a ball in the walker's lane is hit, a ball in the lane it came through is not
+      for (const [lane, fate] of [[m.lane, 'crash'], [m.lane + Math.sign(m.from - m.lane), 'run']]) {
+        const w = drive(seed, i - 5);
+        if (w.state !== 'run') continue;
+        w.ball.x = w.ball.tx = laneX(lane);   // put the ball into the lane just before the row
+        while (w.state === 'run' && w.ball.z < i + 2) w.step(DT);
+        assert.equal(w.state, fate, `seed ${seed} row ${i} lane ${lane}`);
+      }
+    }
+  }
+  assert.ok(walkers >= 60 && early >= 15, `${walkers} walkers on 20 tracks, ${early} in the first four sections`);
+});
+
+test('the road narrows to three lanes and zigzags: one lane at a time, with time for a swipe before every step', () => {
+  let zigs = 0, steps = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const t = new Track(seed);
+    let last = -100, prev = null;
+    for (let i = 0; i < SEC_ROWS * 20; i++) {
+      const r = t.get(i), lanes = r.road.flatMap((on, l) => (on ? [l] : []));
+      const narrow = lanes.length === 3 && lanes[2] - lanes[0] === 2;
+      if (narrow) {
+        assert.ok(!busy(r), `seed ${seed} row ${i}: an obstacle on the zigzag`);
+        if (!prev) { zigs++; last = i; }
+        else if (prev[0] !== lanes[0]) {
+          steps++;
+          assert.equal(Math.abs(prev[0] - lanes[0]), 1, `seed ${seed} row ${i}`);
+          assert.ok((i - last) / fastOf(r.sec) >= 0.6, `seed ${seed} row ${i}: only ${i - last} rows after the last step`);
+          last = i;
+        }
+      }
+      prev = narrow ? lanes : null;
+    }
+  }
+  assert.ok(zigs >= 20 && steps >= zigs * 2, `${zigs} zigzags, ${steps} steps`);
 });

@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.7.1';
+export const VERSION = '0.8.0';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -93,13 +93,22 @@ export function mulberry(seed) {
 // ramp is the way over it; every lane has a ramp or one next to it.
 // Lanes that end (the centre when the road splits, the outer ones when it narrows) get the same K rows of warning
 // with no waves around.
+// The road changes shape in two ways. normal → widen → split → close: it widens to 7 lanes and the centre turns into
+// a gap. normal → squeeze → zig: it narrows to 3 lanes (S.a .. S.a + 2) and steps one lane sideways every K rows or
+// more, a zigzag to follow; 'squeeze' is the wave-free warning before it.
 const ROAD_LANES = {
   normal: (l) => l >= 1 && l <= 5,
+  squeeze: (l) => l >= 1 && l <= 5,
+  zig: (l, S) => l >= S.a && l <= S.a + 2,
   widen: () => true,
   split: (l) => l !== MID,
   close: () => true,
 };
-const WAVES = ['blocks', 'pits', 'mixed', 'lows', 'hurdle'];
+// 'cross': something alive walks across the road (row.mover) and is in its lane just as the ball gets there
+const WAVES = ['blocks', 'pits', 'mixed', 'lows', 'hurdle', 'cross'];
+// the walker sets off two lanes away when the ball is CROSS_ROWS from it and stands in its lane from CROSS_END on:
+// by the time the ball is close, nothing moves any more
+export const CROSS_ROWS = 30, CROSS_END = 6;
 
 export class Track {
   constructor(seed) {
@@ -108,7 +117,9 @@ export class Track {
     this.starRun = 0; this.starCool = 4; this.starSkip = 0;
     this.rows = [];
     this.path = MID;
-    this.sh = { mode: 'normal', i: 0, len: START_OPEN + 60 };       // road shape: normal → widen → split → close
+    // road shape (see ROAD_LANES): i of len rows done; for a zigzag also a — its first lane, next — a after the
+    // coming step, steps — how many are left
+    this.sh = { mode: 'normal', i: 0, len: START_OPEN + 60, a: 2, next: 2, steps: 0 };
     this.cur = { kind: 'straight', i: 0, len: START_OPEN + 10, A: 0, n: 1 };   // bends of the road (just looks)
     this.gap = START_OPEN;     // free rows still to come before the next wave or jump may start
     this.wave = null;          // the wave being laid: { cells: per lane '' | 'block' | 'pit' | 'low', left: rows to go }
@@ -123,14 +134,19 @@ export class Track {
   }
 
   // A wave for the current road. Each stretch of road is filled on its own (two of them when the road is split).
-  makeWave(sec, road) {
-    const r = this.r, w = [3, 2, 2, sec >= 1 ? 2 : 0, sec >= 1 ? 1.5 : 0];
+  makeWave(sec, road, mode) {
+    const r = this.r, w = [3, 2, 2, sec >= 1 ? 2 : 0, sec >= 1 ? 1.5 : 0, mode === 'normal' ? 2.5 : 0];
     let x = r() * w.reduce((a, b) => a + b), kind = WAVES[0];
     for (let k = 0; k < w.length; k++) { x -= w[k]; if (x < 0) { kind = WAVES[k]; break; } }
     const cells = Array(LANES).fill('');
     if (kind === 'hurdle') {
       for (let l = 0; l < LANES; l++) if (road[l]) cells[l] = 'low';
       return { cells, left: 1 };
+    }
+    if (kind === 'cross') {
+      // the walker ends up in a lane off the path, coming from two lanes away; every other lane is free
+      const ls = [1, 2, 3, 4, 5].filter((l) => l !== this.path), lane = ls[Math.floor(r() * ls.length)];
+      return { cells, left: 1, mover: { lane, from: lane <= MID ? lane + 2 : lane - 2 } };
     }
     const p = Math.min(0.7, 0.58 + sec * 0.01), shut = Array(LANES).fill(false);
     for (let l = 0; l < LANES; l++) shut[l] = road[l] && l !== this.path && r() < p;
@@ -226,20 +242,35 @@ export class Track {
     return C.kind === 'snake' ? C.A * Math.sin(2 * Math.PI * C.n * t) * Math.sin(Math.PI * t) ** 2 : 0;
   }
 
-  // Advance the road shape by a row. The widening before a split and the narrowing after it last at least K rows
-  // and carry no waves: time to leave a lane that is about to end. The path is moved out of the way first
-  // (see gen), off the centre lane before a split, back inside lanes 1..5 before the road narrows.
-  shape(K, busy) {
+  // Advance the road shape by a row. Before a lane ends there are at least K rows with no waves: the widening
+  // before a split, the narrowing after it, the squeeze before a zigzag and every step of the zigzag last that
+  // long. The path is moved out of the way first (see gen). No lane ends on a row hidden behind a crest.
+  shape(K, busy, hidden) {
     const S = this.sh, r = this.r;
     S.i++;
+    const zigNext = () => {
+      S.i = 0; S.len = K + 2 + Math.floor(r() * 4);
+      S.next = S.steps-- <= 0 ? S.a : S.a === 1 ? 2 : S.a === 3 ? 2 : S.a + (r() < 0.5 ? -1 : 1);
+      this.starRun = Math.max(this.starRun, 10);   // stars show the way
+    };
     if (S.mode === 'normal') {
-      if (S.i >= S.len && !busy && !this.wave) { S.mode = 'widen'; S.i = 0; S.len = K + 3; }
+      if (S.i >= S.len && !busy && !this.wave) {
+        S.i = 0; S.len = K + 3;
+        S.mode = r() < 0.5 ? 'widen' : 'squeeze';
+      }
     } else if (S.mode === 'widen') {
-      if (S.i >= S.len && this.path !== MID) { S.mode = 'split'; S.i = 0; S.len = 24 + Math.floor(r() * 24); }
+      if (S.i >= S.len && this.path !== MID && !hidden) { S.mode = 'split'; S.i = 0; S.len = 24 + Math.floor(r() * 24); }
     } else if (S.mode === 'split') {
       if (S.i >= S.len && !this.wave) { S.mode = 'close'; S.i = 0; S.len = K + 3; }
-    } else if (S.i >= S.len && this.path >= 1 && this.path <= 5) {
-      S.mode = 'normal'; S.i = 0; S.len = 90 + Math.floor(r() * 110);
+    } else if (S.mode === 'squeeze') {
+      if (S.i >= S.len && this.path >= 2 && this.path <= 4 && !hidden) { S.mode = 'zig'; S.a = 2; S.steps = 3 + Math.floor(r() * 4); zigNext(); }
+    } else if (S.mode === 'zig') {
+      if (S.i >= S.len && this.path >= S.next && this.path <= S.next + 2 && !hidden) {
+        if (S.next === S.a) { S.mode = 'normal'; S.i = 0; S.len = 60 + Math.floor(r() * 90); }
+        else { S.a = S.next; zigNext(); }
+      }
+    } else if (S.i >= S.len && this.path >= 1 && this.path <= 5 && !hidden) {
+      S.mode = 'normal'; S.i = 0; S.len = 60 + Math.floor(r() * 90);
     }
     return S.mode;
   }
@@ -266,16 +297,20 @@ export class Track {
     const star = Array(LANES).fill(0);   // 0 — none, otherwise 1 + its height above the spot where a resting ball would be
     // the ground is flat at the start, under a jump and while one is waiting for flat ground
     const h = this.terrain(i < START_OPEN || !!this.jump || this.wantJump), off = this.curve();
-    const mode = this.shape(K, !!this.jump || this.wantJump);
-    const road = Array.from({ length: LANES }, (_, l) => ROAD_LANES[mode](l)), floor = road.slice();
+    // a row hidden behind a crest until the last moment gets no obstacles
+    const hidden = this.hidden(i, h, Math.max(5, Math.ceil(vhi * SEE_AHEAD) + 2));
+    const mode = this.shape(K, !!this.jump || this.wantJump, hidden);
+    const road = Array.from({ length: LANES }, (_, l) => ROAD_LANES[mode](l, this.sh)), floor = road.slice();
     // the shape needs the path somewhere else: move it at once, the shape waits K rows
     if (mode === 'widen' && this.path === MID) this.shift(r() < 0.5 ? -1 : 1);
     if (mode === 'close' && (this.path === 0 || this.path === LANES - 1)) this.shift(this.path === 0 ? 1 : -1);
-    // a row hidden behind a crest until the last moment gets no obstacles
-    const hidden = this.hidden(i, h, Math.max(5, Math.ceil(vhi * SEE_AHEAD) + 2));
+    if (mode === 'squeeze' || mode === 'zig') {   // into the lanes that are there both now and after the next step
+      const S = this.sh, a = mode === 'zig' ? S.a : 2, n = mode === 'zig' ? S.next : 2, lo = Math.max(a, n), hi = Math.min(a, n) + 2;
+      if (this.path < lo) this.shift(1); else if (this.path > hi) this.shift(-1);
+    }
     const open = i < START_OPEN || k < BREATH;   // nothing starts here
     if (!this.jump && !this.wave) {
-      if (mode === 'widen' || mode === 'close') this.gap = Math.max(this.gap, K);
+      if (mode !== 'normal' && mode !== 'split') this.gap = Math.max(this.gap, K);
       if (this.gap > 0) this.gap--;
       else if (!open && !hidden) {
         if (this.wantJump) {
@@ -284,12 +319,13 @@ export class Track {
           if (J) { this.jump = J; this.ji = 0; this.wantJump = false; J.arc = this.rs() < 0.75; }
         }
         if (!this.jump && (mode === 'normal' || mode === 'split')) {
-          this.wave = this.makeWave(sec, road);
+          this.wave = this.makeWave(sec, road, mode);
           this.wave.left = Math.min(this.wave.left, SEC_ROWS - k);   // the start of the next section stays free
         }
       }
     }
     let piece = false;   // this row belongs to a wave or a jump
+    let mover = null;
     if (this.jump) {
       const J = this.jump, j = this.ji++, d = j - J.rampAt - 1;
       piece = true;
@@ -313,6 +349,7 @@ export class Track {
           if (!road[l]) continue;
           if (W.cells[l] === 'block') block[l] = true; else if (W.cells[l] === 'pit') floor[l] = false; else if (W.cells[l] === 'low') low[l] = true;
         }
+        if (W.mover) mover = W.mover;
         if (low[this.path] && this.rs() < 0.8) star[this.path] = 1 + 0.55;   // a star over the barrier: jump here
       }
       if (--W.left <= 0 || hidden) { this.wave = null; this.rest(K, mode); }
@@ -327,10 +364,10 @@ export class Track {
       } else if (--this.starCool <= 0) this.starRun = 3 + Math.floor(rs() * 4);
       if (rs() < 0.06) {   // a lone star off the path: worth a detour, never inside an obstacle or over a pit
         const l = Math.floor(rs() * LANES);
-        if (road[l] && floor[l] && !block[l] && !low[l] && l !== goal && !hidden) star[l] = 1;
+        if (road[l] && floor[l] && !block[l] && !low[l] && l !== goal && !hidden && !mover) star[l] = 1;
       }
     }
-    this.rows.push({ road, floor, block, ramp, low, star, h, off, sec, goal });
+    this.rows.push({ road, floor, block, ramp, low, mover, star, h, off, sec, goal });
   }
 
   // Can the camera see the start of row i (height h) while the ball is still `ahead` rows before it?
@@ -404,18 +441,26 @@ export class World {
       || (fz < RIM_PIT && isPit && ground(lane, rz - 1)) || (fz > 1 - RIM_PIT && isPit && ground(lane, rz + 1));
   }
 
+  // Where the walker of row rz is across the road. It moves with the ball's approach, not with the clock, so it is
+  // in its lane in time at any speed.
+  moverX(rz) {
+    const m = this.track.get(rz).mover, t = clamp((CROSS_ROWS - (rz + 0.5 - this.ball.z)) / (CROSS_ROWS - CROSS_END), 0, 1);
+    return laneX(m.from) + (laneX(m.lane) - laneX(m.from)) * t;
+  }
+
   hit() {
     const b = this.ball;
     for (let rz = Math.floor(b.z - R); rz <= Math.floor(b.z + R); rz++) {
       if (rz < 0) continue;
       const row = this.track.get(rz);
+      // a block or a walker: a rectangle with rounded corners (the inner rectangle grown by CORNER) around xc
+      const box = (xc) => {
+        const w = 0.5 - INSET - CORNER, cx = clamp(b.x, xc - w, xc + w), cz = clamp(b.z, rz + INSET + CORNER, rz + 1 - INSET - CORNER);
+        return (cx - b.x) ** 2 + (cz - b.z) ** 2 < (R + CORNER) ** 2 && b.y - R < this.hAt(cz) + BOX_H;
+      };
+      if (row.mover && box(this.moverX(rz))) return true;
       for (let l = Math.floor(b.x + HALF - R); l <= Math.floor(b.x + HALF + R); l++) {
-        if (l < 0 || l >= LANES || !row.block[l]) continue;
-        // a rectangle with rounded corners: the inner rectangle grown by CORNER
-        const x0 = l - HALF + INSET + CORNER, x1 = l - HALF + 1 - INSET - CORNER, z0 = rz + INSET + CORNER, z1 = rz + 1 - INSET - CORNER;
-        const cx = clamp(b.x, x0, x1), cz = clamp(b.z, z0, z1);
-        if ((cx - b.x) ** 2 + (cz - b.z) ** 2 >= (R + CORNER) ** 2) continue;
-        if (b.y - R < this.hAt(cz) + BOX_H) return true;
+        if (l >= 0 && l < LANES && row.block[l] && box(laneX(l))) return true;
       }
       for (let l = Math.floor(b.x + HALF - R); l <= Math.floor(b.x + HALF + R); l++) {
         if (l < 0 || l >= LANES || !row.low[l]) continue;

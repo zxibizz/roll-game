@@ -155,6 +155,15 @@ const theme = {
       ctx.fillStyle = css(mix(P.sunC, [255, 255, 255], 0.5)); ctx.beginPath(); ctx.arc(sx, sy, sr, 0, 7); ctx.fill();
       ctx.restore();
     }
+    if (P.sunA > 0.5 && P.clouds > 0.5) {   // a rainbow by day
+      const rx = W * 0.16 - camX * 2 * dpr, ry = horY + H * 0.05, rr = Math.min(W, H) * 0.62, lw = rr * 0.022;
+      ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, horY); ctx.clip();
+      ctx.globalAlpha = 0.3 * (P.sunA - 0.5) * 2 * (P.clouds - 0.5) * 2; ctx.lineWidth = lw + 1;
+      [[0, 85, 62], [28, 95, 62], [52, 95, 62], [125, 60, 58], [205, 80, 62], [270, 60, 64]].forEach((c, k) => {
+        ctx.strokeStyle = hsl(c[0], c[1], c[2]); ctx.beginPath(); ctx.arc(rx, ry, rr - k * lw, Math.PI, 2 * Math.PI); ctx.stroke();
+      });
+      ctx.restore();
+    }
     if (P.clouds > 0.01) {   // clouds, above and below the horizon
       const rr = mulberry(3);
       for (let n = 0; n < 9; n++) {
@@ -481,6 +490,7 @@ function drawRow(rz, part = 'all') {
   const zM = (zA + zB) / 2, hM = world.hAt(zM), zE = zB + 0.02, hE = world.hAt(zE);
   const theme = themeAt(rz);
   if (part !== 'objects') {
+  drawSide(rz, fog, theme);
   // grass over the whole road, holes included (the pits are dug into it below); outer edges wave
   for (let l = 0; l < LANES; l++) {
     if (!row.road[l]) continue;
@@ -541,8 +551,13 @@ function drawRow(rz, part = 'all') {
     const kinds = OBSTACLES[theme];
     kinds[Math.floor(pick * kinds.length)](o, seed, fog, rz, l);
   }
+  if (row.mover && rz + 0.5 > camZ + 0.9) {   // someone walks across the road
+    const mx = world.moverX(rz), o = frameAt(mx, rz);
+    if (o.hw > 0 && o.bottom > o.top) MOVERS[theme](o, hash(rz, 3, 8), fog, rz, 0, Math.sign(row.mover.lane - row.mover.from), mx * 9);
+  }
   if (rz + LOW_Z0 > camZ + 0.5) for (const l of order) if (row.low[l]) drawLog(l, rz, row, fog, px);
   if (rz + 0.5 > camZ + 0.9) for (const l of order) if (row.star[l]) drawStar(l, rz, row.star[l], fog);
+  drawFlyers(rz, fog, theme);
 }
 
 // a star turns and bobs over the road (or hangs along the flight over a jump)
@@ -763,8 +778,9 @@ function drawLog(l, rz, row, fog, px) {
   }
 }
 
-function obstacleFrame(l, rz) {
-  const xc = laneX(l), zc = rz + 0.5, base = world.hAt(zc);
+const obstacleFrame = (l, rz) => frameAt(laneX(l), rz);
+function frameAt(xc, rz) {
+  const zc = rz + 0.5, base = world.hAt(zc);
   const pf = proj(xc, base, rz + INSET + 0.1), pt = proj(xc, base + BOX_H, zc);
   const hw = proj(xc + 0.42, base, rz + INSET + 0.1)[0] - pf[0];
   return { x: pf[0], bottom: pf[1], top: pt[1], hw, pc: proj(xc, base, zc) };
@@ -946,8 +962,332 @@ function mushroom(o, s, fog, rz, l) {
   for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.arc(o.x + (hash(rz, l, 80 + k) - 0.5) * o.hw * 1.2, cy - (0.1 + hash(rz, l, 84 + k) * 0.6) * H * 0.35, Math.max(1, o.hw * 0.07), 0, 7); ctx.fill(); }
 }
 
+// ---- more of the meadow: trees and a haystack ----
+const ell = (x, y, rx, ry, rot = 0) => { ctx.beginPath(); ctx.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), rot, 0, 7); ctx.fill(); };
+function crown(x, y, r, fog, dl = 0) {
+  if (r < 12 * dpr) { ctx.fillStyle = pal('bush', dl + 6, fog); ctx.beginPath(); ctx.arc(x, y, Math.max(0.1, r), 0, 7); ctx.fill(); return; }   // far away: no shading
+  const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.45, 0, x, y, r);
+  g.addColorStop(0, pal('bushHi', dl + 4, fog)); g.addColorStop(0.7, pal('bush', dl + 4, fog)); g.addColorStop(1, pal('bush', dl - 6, fog));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, Math.max(0.1, r), 0, 7); ctx.fill();
+}
+function tree(o, s, fog, rz, l) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * (1.8 + s * 0.5), w = o.hw, sway = Math.sin(now() * 1.2 + s * 30) * w * 0.04;
+  ctx.fillStyle = pal('woodDark', 0, fog);
+  ctx.beginPath(); ctx.moveTo(o.x - w * 0.2, o.bottom); ctx.lineTo(o.x - w * 0.11, o.bottom - H * 0.55); ctx.lineTo(o.x + w * 0.11, o.bottom - H * 0.55); ctx.lineTo(o.x + w * 0.2, o.bottom); ctx.fill();
+  const balls = [[-0.5, 0.5, 0.5], [0.5, 0.52, 0.48], [-0.22, 0.66, 0.52], [0.26, 0.68, 0.5], [0, 0.82, 0.5]];
+  for (const [dx, dy, r] of balls) crown(o.x + dx * w + sway * dy * 2, o.bottom - dy * H, r * w * 1.15, fog);
+  const kind = hash(rz, l, 14);   // apples, blossom or plain
+  if (kind < 0.7) {
+    ctx.fillStyle = kind < 0.35 ? hsl(2, 80, 55, fog) : hsl(335, 85, 86, fog);
+    for (let k = 0; k < 7; k++) {
+      const [dx, dy, r] = balls[k % 5], a = hash(rz, l, 80 + k) * 6.28, d = hash(rz, l, 90 + k) * 0.7;
+      ell(o.x + (dx + Math.cos(a) * r * d) * w + sway * dy * 2, o.bottom - dy * H + Math.sin(a) * r * d * w, w * 0.075, w * 0.075);
+    }
+  }
+}
+function pine(o, s, fog) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * (2 + s * 0.6), w = o.hw, sway = Math.sin(now() * 1.1 + s * 40) * w * 0.03;
+  ctx.fillStyle = pal('woodDark', -4, fog); ctx.fillRect(o.x - w * 0.09, o.bottom - H * 0.22, w * 0.18, H * 0.22);
+  for (let k = 0; k < 4; k++) {
+    const y0 = o.bottom - H * (0.14 + k * 0.2), y1 = y0 - H * 0.34, hw = w * (0.85 - k * 0.17), x = o.x + sway * k;
+    ctx.fillStyle = pal('bush', -5 + k * 3, fog); ctx.beginPath(); ctx.moveTo(x - hw, y0); ctx.lineTo(x, y1); ctx.lineTo(x + hw, y0); ctx.fill();
+    ctx.fillStyle = pal('bushHi', -8 + k * 3, fog); ctx.beginPath(); ctx.moveTo(x - hw, y0); ctx.lineTo(x, y1); ctx.lineTo(x - hw * 0.15, y0); ctx.fill();
+  }
+}
+function haystack(o, s, fog, rz, l) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * (0.95 + s * 0.2), w = o.hw * 0.95;
+  const g = ctx.createLinearGradient(o.x - w, 0, o.x + w, 0);
+  g.addColorStop(0, hsl(46, 80, 66, fog)); g.addColorStop(1, hsl(38, 70, 46, fog));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(o.x - w, o.bottom);
+  ctx.bezierCurveTo(o.x - w * 1.05, o.bottom - H * 1.25, o.x + w * 1.05, o.bottom - H * 1.25, o.x + w, o.bottom); ctx.fill();
+  ctx.strokeStyle = hsl(36, 65, 36, fog); ctx.lineWidth = Math.max(1, w * 0.04); ctx.globalAlpha = 0.6;
+  ctx.beginPath();
+  for (let k = 0; k < 7; k++) {
+    const x = o.x + (hash(rz, l, 70 + k) - 0.5) * w * 1.4, y = o.bottom - (0.15 + hash(rz, l, 78 + k) * 0.6) * H;
+    ctx.moveTo(x, y); ctx.lineTo(x + (hash(rz, l, 86 + k) - 0.5) * w * 0.3, y + H * 0.16);
+  }
+  ctx.stroke(); ctx.globalAlpha = 1;
+}
+
+// ---- who walks across the road: (frame, seed, fog, row, lane, facing -1 | 1, walk phase) ----
+function cow(o, s, fog, rz, l, dir = 1, walk = 0) {
+  shadowUnder(o, fog);
+  const u = o.hw / 5, x = o.x, by = o.bottom, bob = Math.abs(Math.sin(walk)) * u * 0.25;
+  const white = hsl(40, 25, 96, fog), dark = hsl(22, 28, 20, fog), pink = hsl(350, 75, 82, fog);
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = dark; ctx.lineWidth = Math.max(1, u * 0.35);   // tail
+  ctx.beginPath(); ctx.moveTo(x - dir * u * 3.8, by - u * 5.2 - bob);
+  ctx.quadraticCurveTo(x - dir * u * 5.2, by - u * 4.6, x - dir * u * 4.8 + Math.sin(now() * 3 + s * 9) * u * 0.6, by - u * 2.6); ctx.stroke();
+  for (const [lx, ph] of [[-2.7, 0], [-1.7, Math.PI], [1.7, Math.PI], [2.7, 0]]) {   // legs
+    const sw = Math.sin(walk + ph) * u * 0.8;
+    ctx.strokeStyle = white; ctx.lineWidth = Math.max(1, u * 0.95);
+    ctx.beginPath(); ctx.moveTo(x + lx * u, by - u * 3.4); ctx.lineTo(x + lx * u + sw, by - u * 0.6); ctx.stroke();
+    ctx.fillStyle = dark; ctx.fillRect(x + lx * u + sw - u * 0.5, by - u * 0.75, u, u * 0.75);
+  }
+  ctx.lineCap = 'butt';
+  ctx.fillStyle = pink; ell(x - dir * u * 1.3, by - u * 2.6 - bob, u * 0.9, u * 0.6);   // udder
+  ctx.fillStyle = white; ell(x, by - u * 4.4 - bob, u * 4, u * 2.1);
+  ctx.fillStyle = dark;   // patches
+  ell(x - dir * u * 1.6, by - u * 5.1 - bob, u * 1.3, u * 0.9, 0.3 * dir); ell(x + dir * u * 0.9, by - u * 3.7 - bob, u * 1, u * 0.7, -0.4 * dir);
+  ell(x - dir * u * 3.1, by - u * 3.9 - bob, u * 0.7, u * 0.9);
+  const hx = x + dir * u * 4.2, hy = by - u * 5.9 - bob + Math.sin(walk * 0.5) * u * 0.25;
+  ctx.fillStyle = hsl(40, 35, 80, fog);   // horns
+  for (const e of [-1, 1]) { ctx.beginPath(); ctx.moveTo(hx + e * u * 0.5, hy - u * 1.1); ctx.lineTo(hx + e * u * 1.1, hy - u * 2.1); ctx.lineTo(hx + e * u * 1, hy - u * 0.9); ctx.fill(); }
+  ctx.fillStyle = dark; ell(hx - u * 1.5, hy - u * 0.5, u * 0.7, u * 0.4, -0.5); ell(hx + u * 1.5, hy - u * 0.5, u * 0.7, u * 0.4, 0.5);   // ears
+  ctx.fillStyle = white; ell(hx, hy, u * 1.45, u * 1.35);
+  ctx.fillStyle = pink; ell(hx + dir * u * 0.3, hy + u * 0.75, u * 1.1, u * 0.7);
+  ctx.fillStyle = dark;
+  ell(hx + dir * u * 0.3 - u * 0.4, hy + u * 0.75, u * 0.14, u * 0.2); ell(hx + dir * u * 0.3 + u * 0.4, hy + u * 0.75, u * 0.14, u * 0.2);
+  ell(hx - u * 0.55 + dir * u * 0.2, hy - u * 0.3, u * 0.2, u * 0.26); ell(hx + u * 0.55 + dir * u * 0.2, hy - u * 0.3, u * 0.2, u * 0.26);
+}
+function ghost(o, s, fog, rz, l, dir = 1) {
+  const H = o.bottom - o.top, w = o.hw * 0.8, t = now(), x = o.x, y = o.bottom - H * 0.12 - (Math.sin(t * 2.5 + s * 9) + 1) * H * 0.07;
+  halo(x, y - H * 0.5, w * 2.6, 'rgba(190,220,255,1)', 0.3 * (1 - fog));
+  ctx.globalAlpha = 0.92 * (1 - fog * 0.7); ctx.fillStyle = '#f2f6ff';
+  ctx.beginPath(); ctx.arc(x, y - H * 0.75, w, Math.PI, 0); ctx.lineTo(x + w, y);
+  for (let k = 0; k < 4; k++) ctx.quadraticCurveTo(x + w - (k + 0.5) * w / 2, y - H * 0.16 + Math.sin(t * 5 + k) * H * 0.03, x + w - (k + 1) * w / 2, y);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#1b1830';
+  for (const e of [-1, 1]) ell(x + (e * 0.36 + dir * 0.18) * w, y - H * 0.8, w * 0.15, w * 0.22);
+  ell(x + dir * 0.18 * w, y - H * 0.55, w * 0.16, w * 0.2 + Math.sin(t * 3 + s * 5) * w * 0.05);
+  ctx.globalAlpha = 1;
+}
+function saucer(o, s, fog, rz, l, dir = 1) {
+  shadowUnder(o, fog, 0.8);
+  const H = o.bottom - o.top, w = o.hw * 1.1, t = now(), x = o.x, y = o.bottom - H * 0.5 - Math.sin(t * 3 + s * 9) * H * 0.06;
+  ctx.fillStyle = `rgba(120,255,220,${0.16 * (1 - fog)})`;   // a beam down to the grass
+  ctx.beginPath(); ctx.moveTo(x - w * 0.3, y); ctx.lineTo(x + w * 0.3, y); ctx.lineTo(x + w * 0.7, o.bottom); ctx.lineTo(x - w * 0.7, o.bottom); ctx.fill();
+  const g = ctx.createRadialGradient(x - w * 0.2, y - H * 0.42, 0, x, y - H * 0.25, w * 0.55);
+  g.addColorStop(0, hsl(170, 90, 88, fog)); g.addColorStop(1, hsl(185, 70, 50, fog));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y - H * 0.08, w * 0.5, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = hsl(265, 25, 62, fog); ell(x, y, w, H * 0.17);
+  ctx.fillStyle = hsl(265, 30, 42, fog); ell(x, y + H * 0.06, w * 0.7, H * 0.09);
+  for (let k = 0; k < 5; k++) {
+    ctx.fillStyle = hsl((k * 70 + t * 120) % 360, 95, 68, fog); ell(x + (k - 2) * w * 0.38, y + Math.abs(k - 2) * -H * 0.025 + H * 0.02, w * 0.07, w * 0.07);
+  }
+}
+const MOVERS = { meadow: cow, spooky: ghost, alien: saucer };
+
+// ---- buildings for the islands ----
+function house(o, s, fog) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * 1.25, w = o.hw * 1.15, x = o.x, by = o.bottom, wallH = H * 0.55, lit = P.glowF > 0.25;
+  ctx.fillStyle = hsl(30, 30, 55, fog); ctx.fillRect(x + w * 0.35, by - H * 1.05, w * 0.22, H * 0.4);   // chimney and smoke
+  for (let k = 0; k < 3; k++) {
+    const a = (now() * 0.35 + k / 3 + s) % 1;
+    ctx.fillStyle = `rgba(255,255,255,${0.5 * (1 - a) * (1 - fog)})`; ell(x + w * (0.46 + a * 0.5), by - H * (1.1 + a * 0.6), w * (0.1 + a * 0.16), w * (0.1 + a * 0.16));
+  }
+  ctx.fillStyle = hsl(42, 55, 88, fog); ctx.fillRect(x - w * 0.8, by - wallH, w * 1.6, wallH);
+  ctx.fillStyle = hsl(s < 0.5 ? 6 : 212, 65, 52, fog);
+  ctx.beginPath(); ctx.moveTo(x - w, by - wallH); ctx.lineTo(x, by - H); ctx.lineTo(x + w, by - wallH); ctx.fill();
+  ctx.fillStyle = hsl(25, 45, 34, fog); ctx.fillRect(x - w * 0.55, by - wallH * 0.62, w * 0.36, wallH * 0.62);
+  ctx.fillStyle = lit ? hsl(48, 100, 68, fog * 0.5) : hsl(200, 70, 72, fog); ctx.fillRect(x + w * 0.1, by - wallH * 0.72, w * 0.42, wallH * 0.38);
+}
+function windmill(o, s, fog) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * 1.9, w = o.hw * 0.75, x = o.x, by = o.bottom;
+  ctx.fillStyle = hsl(40, 35, 90, fog);
+  ctx.beginPath(); ctx.moveTo(x - w * 0.6, by); ctx.lineTo(x - w * 0.34, by - H * 0.72); ctx.lineTo(x + w * 0.34, by - H * 0.72); ctx.lineTo(x + w * 0.6, by); ctx.fill();
+  ctx.fillStyle = hsl(8, 60, 48, fog); ctx.beginPath(); ctx.moveTo(x - w * 0.45, by - H * 0.72); ctx.lineTo(x, by - H * 0.92); ctx.lineTo(x + w * 0.45, by - H * 0.72); ctx.fill();
+  ctx.fillStyle = hsl(25, 45, 34, fog); ctx.fillRect(x - w * 0.14, by - H * 0.2, w * 0.28, H * 0.2);
+  const hy = by - H * 0.7, a0 = now() * 0.9 + s * 6, L = H * 0.48;
+  for (let k = 0; k < 4; k++) {   // sails
+    const a = a0 + k * Math.PI / 2, c = Math.cos(a), sn = Math.sin(a), px = -sn * L * 0.16, py = c * L * 0.16;
+    ctx.strokeStyle = hsl(25, 40, 32, fog); ctx.lineWidth = Math.max(1, w * 0.07); ctx.beginPath(); ctx.moveTo(x, hy); ctx.lineTo(x + c * L, hy + sn * L); ctx.stroke();
+    ctx.fillStyle = hsl(45, 50, 82, fog);
+    ctx.beginPath(); ctx.moveTo(x + c * L * 0.3, hy + sn * L * 0.3); ctx.lineTo(x + c * L, hy + sn * L); ctx.lineTo(x + c * L + px, hy + sn * L + py); ctx.lineTo(x + c * L * 0.3 + px, hy + sn * L * 0.3 + py); ctx.fill();
+  }
+}
+function hauntedHouse(o, s, fog) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * 1.9, w = o.hw, x = o.x, by = o.bottom, f = fog * 0.6;
+  ctx.fillStyle = hsl(265, 22, 16, f);
+  ctx.beginPath(); ctx.moveTo(x - w * 0.75, by); ctx.lineTo(x - w * 0.68, by - H * 0.5); ctx.lineTo(x + w * 0.72, by - H * 0.54); ctx.lineTo(x + w * 0.75, by); ctx.fill();
+  ctx.fillRect(x + w * 0.2, by - H * 0.82, w * 0.4, H * 0.4);
+  ctx.fillStyle = hsl(280, 25, 9, f);
+  ctx.beginPath(); ctx.moveTo(x - w * 0.9, by - H * 0.48); ctx.lineTo(x - w * 0.2, by - H * 0.8); ctx.lineTo(x + w * 0.25, by - H * 0.52); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x + w * 0.1, by - H * 0.8); ctx.lineTo(x + w * 0.4, by - H * 1.08); ctx.lineTo(x + w * 0.7, by - H * 0.8); ctx.fill();
+  const fl = 0.7 + 0.3 * Math.sin(now() * 9 + s * 30) * Math.sin(now() * 5.3 + s * 7);
+  ctx.fillStyle = `rgba(255,205,80,${fl * (1 - fog)})`;
+  ctx.fillRect(x - w * 0.5, by - H * 0.38, w * 0.24, H * 0.14); ctx.fillRect(x + w * 0.3, by - H * 0.7, w * 0.2, H * 0.12); ctx.fillRect(x + w * 0.05, by - H * 0.22, w * 0.22, H * 0.22);
+}
+function dome(o, s, fog) {
+  shadowUnder(o, fog);
+  const H = (o.bottom - o.top) * 1.2, w = o.hw, x = o.x, by = o.bottom;
+  ctx.fillStyle = hsl(250, 20, 40, fog); ctx.fillRect(x - w, by - H * 0.14, w * 2, H * 0.14);
+  const g = ctx.createRadialGradient(x - w * 0.35, by - H * 0.6, 0, x, by - H * 0.14, w);
+  g.addColorStop(0, `rgba(210,255,250,${0.85 * (1 - fog)})`); g.addColorStop(1, `rgba(70,200,210,${0.5 * (1 - fog)})`);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, by - H * 0.14, w * 0.92, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = hsl(140, 60, 45, fog); ell(x - w * 0.25, by - H * 0.2, w * 0.2, H * 0.12); ell(x + w * 0.3, by - H * 0.22, w * 0.16, H * 0.16);
+  ctx.strokeStyle = hsl(250, 15, 70, fog); ctx.lineWidth = Math.max(1, w * 0.05); ctx.beginPath(); ctx.moveTo(x, by - H * 0.14 - w * 0.92); ctx.lineTo(x, by - H * 1.25); ctx.stroke();
+  ctx.fillStyle = `rgba(255,90,90,${(Math.sin(now() * 4 + s * 9) > 0 ? 1 : 0.25) * (1 - fog)})`; ell(x, by - H * 1.25, w * 0.09, w * 0.09);
+}
+function rocket(o, s, fog, rz, l, dir = 1, walk = 0, flame = false) {
+  if (!flame) shadowUnder(o, fog, 0.6);
+  const H = (o.bottom - o.top) * 1.8, w = o.hw * 0.42, x = o.x, by = o.bottom - H * 0.12;
+  ctx.fillStyle = hsl(5, 75, 52, fog);
+  for (const e of [-1, 1]) { ctx.beginPath(); ctx.moveTo(x + e * w * 0.8, by - H * 0.3); ctx.lineTo(x + e * w * 1.9, by + H * 0.12); ctx.lineTo(x + e * w * 0.8, by); ctx.fill(); }
+  if (flame) {
+    const fl = 0.3 + Math.sin(now() * 40) * 0.06;
+    ctx.fillStyle = hsl(40, 100, 60, fog); ctx.beginPath(); ctx.moveTo(x - w * 0.6, by); ctx.lineTo(x, by + H * fl); ctx.lineTo(x + w * 0.6, by); ctx.fill();
+  }
+  const g = ctx.createLinearGradient(x - w, 0, x + w, 0);
+  g.addColorStop(0, hsl(220, 15, 96, fog)); g.addColorStop(1, hsl(220, 15, 70, fog));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x - w, by); ctx.lineTo(x - w, by - H * 0.55);
+  ctx.quadraticCurveTo(x - w, by - H * 0.85, x, by - H); ctx.quadraticCurveTo(x + w, by - H * 0.85, x + w, by - H * 0.55); ctx.lineTo(x + w, by); ctx.fill();
+  ctx.fillStyle = hsl(5, 75, 52, fog); ctx.beginPath(); ctx.moveTo(x - w * 0.72, by - H * 0.78); ctx.quadraticCurveTo(x, by - H * 1.08, x + w * 0.72, by - H * 0.78); ctx.fill();
+  ctx.fillStyle = hsl(195, 85, 70, fog); ell(x, by - H * 0.52, w * 0.45, w * 0.45);
+}
+
+// ---- islands floating beside the road, with something of the place on each ----
+const SIDE = {
+  meadow: [tree, tree, pine, house, windmill, cow, haystack, tree, bush, pine],
+  spooky: [deadTree, hauntedHouse, pumpkin, grave, deadTree, hauntedHouse, pumpkin, skeleton],
+  alien: [crystal, mushroom, dome, rocket, crystal, mushroom],
+};
+const BIG = new Set([house, windmill, hauntedHouse, dome, rocket]);
+function drawSide(rz, fog, th) {
+  if (rz + 0.5 < camZ + 3) return;
+  for (const side of [-1, 1]) {
+    if (hash(rz, side, 200) > 0.13) continue;
+    const z = rz + 0.5, r = 0.9 + hash(rz, side, 201) * 1.1;
+    let edge = 2.5;   // how far the road reaches on this side around here
+    for (let k = Math.max(0, rz - 3); k <= rz + 3; k++) {
+      const road = world.track.get(k).road;
+      for (let l = 0; l < LANES; l++) if (road[l]) edge = Math.max(edge, side * (laneX(l) + side * 0.5));
+    }
+    const x = side * (edge + 0.5 + r + hash(rz, side, 202) ** 2 * 4);
+    const y = world.hAt(z) - 0.5 + (hash(rz, side, 203) - 0.4) * 2.4 + Math.sin(now() * 0.6 + rz) * 0.07;
+    const c = proj(x, y, z), sc = c[2];
+    if (!(sc > 0) || c[0] < -1.6 * r * sc || c[0] > W + 1.6 * r * sc) continue;   // off the screen
+    const rx = r * sc, ry = rx * 0.3, tip = (hash(rz, side, 204) - 0.5) * rx * 0.5, deep = rx * (0.7 + hash(rz, side, 205) * 0.5);
+    if (rx < 40 * dpr) ctx.fillStyle = pal('soil', -4, fog);   // far away: no shading
+    else {
+      const g = ctx.createLinearGradient(0, c[1], 0, c[1] + deep);
+      g.addColorStop(0, pal('soil', 4, fog)); g.addColorStop(1, pal('soil', -14, fog));
+      ctx.fillStyle = g;
+    }
+    ctx.beginPath(); ctx.moveTo(c[0] - rx, c[1]);
+    ctx.quadraticCurveTo(c[0] - rx * 0.55, c[1] + deep * 0.7, c[0] + tip, c[1] + deep); ctx.quadraticCurveTo(c[0] + rx * 0.6, c[1] + deep * 0.65, c[0] + rx, c[1]); ctx.fill();
+    ctx.fillStyle = pal('grass', -4, fog); ell(c[0], c[1], rx, ry);
+    ctx.fillStyle = pal('grass', 5, fog); ell(c[0], c[1] - ry * 0.12, rx * 0.93, ry * 0.82);
+    const kinds = SIDE[th], n = 1 + Math.floor(hash(rz, side, 206) * 2.6), items = [];
+    for (let k = 0; k < n; k++) {
+      const fn = kinds[Math.floor(hash(rz, side, 210 + k) * kinds.length)];
+      if (BIG.has(fn) && items.some((it) => BIG.has(it.fn))) continue;
+      items.push({ fn, dx: n === 1 ? 0 : (k / (n - 1) - 0.5) * 1.2 + (hash(rz, side, 220 + k) - 0.5) * 0.2, dy: (hash(rz, side, 230 + k) - 0.5) * 0.9, k });
+    }
+    items.sort((a, b) => a.dy - b.dy);
+    for (const it of items) {
+      const u = sc * (BIG.has(it.fn) ? 1.9 : 1.5) * Math.min(1.2, r), bx = c[0] + it.dx * rx * 0.6, by = c[1] + it.dy * ry * 0.6;
+      it.fn({ x: bx, bottom: by, top: by - 0.7 * u, hw: 0.42 * u, pc: [bx, by - 0.1 * u] }, hash(rz, side, 240 + it.k), fog, rz, side * 9 + it.k, side, 0);
+    }
+  }
+}
+
+// ---- what flies by: (row, z, ground height, seed, direction, time, fog) ----
+const airSpot = (x, y, z, size) => {
+  const p = proj(x, y, z), u = p[2] * size;
+  return { x: p[0], bottom: p[1], top: p[1] - 0.7 * u, hw: 0.42 * u, pc: [p[0], p[1]], u };
+};
+// over the road and far out of sight, then in again from the other side
+const across = (s, dir, t, speed, span = 50) => wrap(s * span + dir * t * speed, span) - span / 2;
+function birds(rz, z, base, s, dir, t, fog) {
+  const x0 = across(s, dir, t, 1.8), y0 = base + 2.4 + s * 2.6;
+  ctx.strokeStyle = hsl(220, 25, 24, fog); ctx.lineCap = 'round';
+  for (let k = 0; k < 5; k++) {
+    const row = Math.ceil(k / 2), e = k % 2 ? 1 : -1;
+    const p = proj(x0 - dir * row * 0.55, y0 + Math.sin(t * 2 + k) * 0.08, z + e * row * 0.45), u = p[2] * 0.26, flap = Math.sin(t * 9 + k * 1.7) * 0.6;
+    if (!(u > 0)) continue;
+    ctx.lineWidth = Math.max(1, u * 0.16); ctx.beginPath();
+    ctx.moveTo(p[0] - u, p[1] - u * flap); ctx.quadraticCurveTo(p[0] - u * 0.5, p[1] - u * (0.35 + flap * 0.3), p[0], p[1]);
+    ctx.quadraticCurveTo(p[0] + u * 0.5, p[1] - u * (0.35 + flap * 0.3), p[0] + u, p[1] - u * flap); ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
+}
+function balloon(rz, z, base, s, dir, t, fog) {
+  const o = airSpot(dir * (5 + s * 7) + Math.sin(t * 0.25 + s * 9) * 0.8, base + 1.6 + s * 4 + Math.sin(t * 0.7 + s * 20) * 0.3, z, 2.2), u = o.u;
+  if (!(u > 0)) return;
+  const x = o.x, y = o.bottom, r = u * 0.42, hue = Math.floor(s * 6) * 60;
+  ctx.strokeStyle = hsl(30, 30, 30, fog); ctx.lineWidth = Math.max(1, u * 0.012);
+  ctx.beginPath(); ctx.moveTo(x - r * 0.55, y - r * 1.3); ctx.lineTo(x - r * 0.2, y - r * 0.32); ctx.moveTo(x + r * 0.55, y - r * 1.3); ctx.lineTo(x + r * 0.2, y - r * 0.32); ctx.stroke();
+  ctx.fillStyle = hsl(28, 50, 40, fog); ctx.fillRect(x - r * 0.24, y - r * 0.34, r * 0.48, r * 0.34);
+  const cy0 = y - r * 1.9;
+  ctx.fillStyle = hsl(hue, 80, 60, fog); ctx.beginPath(); ctx.arc(x, cy0, r, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x - r * 0.86, cy0 + r * 0.5); ctx.lineTo(x - r * 0.3, y - r * 0.6); ctx.lineTo(x + r * 0.3, y - r * 0.6); ctx.lineTo(x + r * 0.86, cy0 + r * 0.5); ctx.fill();
+  ctx.fillStyle = hsl(hue + 180, 20, 97, fog); ell(x, cy0, r * 0.62, r); ctx.fillStyle = hsl(hue + 50, 85, 62, fog); ell(x, cy0, r * 0.26, r);
+}
+function butterflies(rz, z, base, s, dir, t, fog) {
+  for (let k = 0; k < 3; k++) {
+    const h = hash(rz, k, 310), ph = t * (1.1 + h) + h * 30;
+    const p = proj((h - 0.5) * 6 + Math.sin(ph) * 0.5, base + 0.55 + h * 0.6 + Math.sin(ph * 1.7) * 0.15, z + Math.cos(ph * 0.8) * 0.4), u = p[2] * 0.1;
+    if (!(u > 0)) continue;
+    const c = FLOWERS[1 + Math.floor(h * 5)], open = Math.abs(Math.sin(t * 11 + h * 20));
+    ctx.fillStyle = hsl(c[0], c[1], c[2], fog);
+    for (const e of [-1, 1]) { ell(p[0] + e * u * 0.55 * open, p[1] - u * 0.3, u * 0.6 * open + 0.3, u * 0.75, e * 0.4); ell(p[0] + e * u * 0.4 * open, p[1] + u * 0.4, u * 0.4 * open + 0.3, u * 0.5, -e * 0.4); }
+    ctx.fillStyle = hsl(25, 30, 20, fog); ell(p[0], p[1], Math.max(0.5, u * 0.1), u * 0.7);
+  }
+}
+function cloudlet(rz, z, base, s, dir, t, fog) {
+  const p = proj(dir * (5.5 + s * 6) + Math.sin(t * 0.2 + s * 9) * 1.5, base - 0.5 + s * 3, z), u = p[2] * (1 + s);
+  if (!(u > 0)) return;
+  ctx.globalAlpha = 0.8 * (1 - fog) * P.clouds; ctx.fillStyle = css(P.cloudC);
+  for (let k = 0; k < 4; k++) ell(p[0] + (k - 1.5) * u * 0.42, p[1] - (k % 2) * u * 0.16, u * 0.4, u * 0.25);
+  ctx.globalAlpha = 1;
+}
+function bats(rz, z, base, s, dir, t, fog) {
+  const x0 = across(s, dir, t, 2.6), y0 = base + 1.8 + s * 2.4;
+  ctx.fillStyle = hsl(275, 30, 10, fog * 0.6);
+  for (let k = 0; k < 4; k++) {
+    const p = proj(x0 - dir * k * 0.6 + Math.sin(t * 3 + k * 2) * 0.2, y0 + Math.sin(t * 4 + k * 1.3) * 0.25, z + (k % 2) * 0.5), u = p[2] * 0.3, flap = Math.sin(t * 14 + k * 2) * 0.55;
+    if (!(u > 0)) continue;
+    ctx.beginPath(); ctx.moveTo(p[0], p[1] - u * 0.2);
+    for (const e of [1, -1]) { ctx.lineTo(p[0] + e * u * 0.5, p[1] - u * (0.5 + flap)); ctx.lineTo(p[0] + e * u, p[1] - u * flap * 0.6); ctx.lineTo(p[0] + e * u * 0.6, p[1] + u * 0.1); ctx.lineTo(p[0] + e * u * 0.3, p[1] - u * 0.05); ctx.lineTo(p[0], p[1] + u * 0.25); }
+    ctx.fill();
+  }
+}
+function witch(rz, z, base, s, dir, t, fog) {
+  const p = proj(across(s, dir, t, 3.2, 60), base + 3.5 + s * 2 + Math.sin(t * 1.5) * 0.3, z), u = p[2] * 0.5, x = p[0], y = p[1];
+  if (!(u > 0)) return;
+  ctx.strokeStyle = hsl(30, 40, 25, fog * 0.6); ctx.lineWidth = Math.max(1, u * 0.1); ctx.beginPath(); ctx.moveTo(x - dir * u * 1.5, y + u * 0.1); ctx.lineTo(x + dir * u * 1.3, y - u * 0.1); ctx.stroke();
+  ctx.fillStyle = hsl(40, 60, 40, fog * 0.6); ctx.beginPath(); ctx.moveTo(x - dir * u * 1.4, y + u * 0.1); ctx.lineTo(x - dir * u * 2.2, y - u * 0.2); ctx.lineTo(x - dir * u * 2.2, y + u * 0.45); ctx.fill();
+  ctx.fillStyle = hsl(275, 30, 10, fog * 0.6);
+  ctx.beginPath(); ctx.moveTo(x - dir * u * 0.5, y); ctx.lineTo(x + dir * u * 0.1, y - u * 1.1); ctx.lineTo(x + dir * u * 0.5, y); ctx.fill();   // cloak
+  ell(x + dir * u * 0.12, y - u * 1.2, u * 0.3, u * 0.3);
+  ctx.beginPath(); ctx.moveTo(x - dir * u * 0.45, y - u * 1.38); ctx.lineTo(x + dir * u * 0.7, y - u * 1.38); ctx.lineTo(x + dir * u * 0.05, y - u * 2.3); ctx.fill();   // hat
+}
+function comet(rz, z, base, s, dir, t, fog) {
+  const k = (t * 0.22 + s) % 1, p = proj(dir * (14 - k * 28), base + 9 - k * 6, z + 6), u = p[2];
+  if (!(u > 0)) return;
+  const tx = p[0] + dir * u * 3.2, ty = p[1] - u * 0.7, g = ctx.createLinearGradient(p[0], p[1], tx, ty);
+  g.addColorStop(0, `rgba(200,240,255,${0.9 * (1 - fog)})`); g.addColorStop(1, 'rgba(200,240,255,0)');
+  ctx.strokeStyle = g; ctx.lineWidth = Math.max(1, u * 0.16); ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(tx, ty); ctx.stroke(); ctx.lineCap = 'butt';
+  halo(p[0], p[1], u * 0.5, 'rgba(255,255,255,1)', 0.9 * (1 - fog));
+}
+function rocketFly(rz, z, base, s, dir, t, fog) {
+  const k = (t * 0.12 + s) % 1, o = airSpot(dir * (-9 + k * 14), base + 0.5 + k * 9, z, 1.5);
+  if (!(o.u > 0)) return;
+  ctx.save(); ctx.translate(o.x, o.bottom); ctx.rotate(dir * 0.6); ctx.translate(-o.x, -o.bottom);
+  rocket(o, s, fog, rz, 0, dir, 0, true);
+  ctx.restore();
+}
+const FLY = {
+  meadow: [birds, balloon, butterflies, cloudlet, birds, balloon, butterflies],
+  // nothing here looks like what walks across the road: a ghost or a saucer is always the real thing
+  spooky: [bats, witch, bats],
+  alien: [comet, rocketFly, comet],
+};
+function drawFlyers(rz, fog, th) {
+  if (hash(rz, 5, 300) > 0.09 || rz + 0.5 < camZ + 2) return;
+  const kinds = FLY[th], s = hash(rz, 5, 302);
+  kinds[Math.floor(hash(rz, 5, 301) * kinds.length)](rz, rz + 0.5, world.hAt(rz + 0.5), s, hash(rz, 5, 303) < 0.5 ? -1 : 1, now(), fog);
+}
+
 const OBSTACLES = {
-  meadow: [rock, bush, rock, bush],
+  meadow: [rock, bush, tree, pine, haystack, tree],
   spooky: [pumpkin, grave, deadTree, skeleton, zombie],
   alien: [crystal, mushroom],
 };

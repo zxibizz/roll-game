@@ -29,12 +29,23 @@ Site: `https://roll.games.bubas.cc`.
   past an obstacle is fine. The score is the number of rows covered;
   the best score is kept on the device.
 - The road is a strip of grass with wavy edges; it bends like a snake now and then (just the look: the ball keeps
-  to the road on its own). Sometimes it widens from 5 to 7 lanes and splits: the centre lane becomes a gap between
-  two 3-lane roads, and the safe path moves to one side beforehand. Holes are pits with ragged edges; ramps are wooden.
-- What stands on the road follows the sky: rocks and bushes of different shapes by day and at sunset; at night
+  to the road on its own). Its shape changes in two ways. It widens from 5 to 7 lanes and splits: the centre lane
+  becomes a gap between two 3-lane roads. Or it narrows to 3 lanes and zigzags, stepping one lane sideways every
+  0.6 s or more (at the fastest downhill speed) — a row of stars shows the way, and there are no obstacles on the
+  zigzag. Holes are pits with ragged edges; ramps are wooden.
+- Someone walks across the road now and then: a cow by day, a ghost at night, a small flying saucer in space. It
+  sets off when the ball is 24 rows away and is in its lane exactly when the ball gets there, so what is seen coming
+  is what will be there; every other lane is free. It cannot be jumped.
+- What stands on the road follows the sky: rocks, bushes, leafy trees (apples, blossom), firs and haystacks by day
+  and at sunset; at night
   (from section 5) Halloween — pumpkins with flickering faces, gravestones, dead trees, a waving skeleton, a swaying
   zombie, fallen leaves and glowing toadstools; in space (from section 10) glowing crystals and alien mushrooms on
   teal grass under nebulas and a ringed planet. They all move in place only; the hit box is the same block.
+- Around the road: islands float beside it with trees, firs, a house with a smoking chimney, a windmill, a grazing
+  cow, haystacks (at night a haunted house, dead trees, pumpkins, graves, ghosts; in space crystals, a glass dome, a
+  rocket). In the air: flocks of birds, hot-air balloons, butterflies and small clouds by day, a rainbow in the sky;
+  bats, a witch on a broom and ghosts at night; flying saucers, comets and rockets in space. All of it is looks
+  only and is placed by the row number, so it is the same every time for the same track.
 - Obstacles come in waves — a line across the road, one to three rows deep — with free road in between: at least
   0.6 s plus a lane change at the fastest downhill speed (10 rows at the start, 20 at the top speed). In a wave every
   lane is free, has a free lane right next to it, or holds a log. So from any lane one swipe or one jump per wave is
