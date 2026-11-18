@@ -1,7 +1,7 @@
 // The page: draws the world from core.js in a hand-rolled perspective, reads the finger / mouse / keys and runs the
 // screens around the game: home, pause, results, settings. The road is grass and earth; the sky goes from day to
 // night to space with the distance. There are no words in the interface, only numbers and icons.
-import { World, VERSION, LANES, HALF, SEC_ROWS, R, INSET, BOX_H, RAMP_H, LOW_H, LOW_Z0, LOW_Z1, MAGNET_T, FLY_T, FLY_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
+import { World, VERSION, LANES, HALF, BIOME_SECS, secOf, secStart, secPos, R, INSET, BOX_H, RAMP_H, LOW_H, LOW_Z0, LOW_Z1, MAGNET_T, FLY_T, FLY_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
 import { initAudio, applyVolume, setHum, sfx, haptic, canHaptic } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -119,14 +119,16 @@ const PAL = [
     sunA: 0, sunH: -0.05, sunC: [255, 140, 90], sunR: 0.09, clouds: 0, cloudC: [60, 72, 130], glow: 0.6, rainbow: 0, city: 0,
   },
 ];
-// a biome lasts BIOME_LEN sections: it stays as it is for most of them and turns into the next one over the last
-// BIOME_BLEND
-const BIOME_LEN = 3, BIOME_BLEND = 0.75;
+// a biome is BIOME_SECS sections (core.js: sections are equal in time, so it is half a minute at any speed);
+// it stays as it is for most of that and turns into the next one over its last BIOME_BLEND sections. The last
+// biome never ends. To add a biome: a name in THEMES, a key frame in PAL at the same place, and an entry under that
+// name in MOVERS, SIDE, FLY and OBSTACLES (checked at start, see checkBiomes) — nothing else counts biomes.
+const BIOME_BLEND = 0.75;
 const THEMES = ['farm', 'autumn', 'spooky', 'magic', 'tech', 'alien'];
 
 const mix = (a, b, t) => (Array.isArray(a) ? a.map((v, i) => mix(v, b[i], t)) : a + (b - a) * t);
 function phaseAt(z) {
-  const s = Math.max(0, z / SEC_ROWS), i = Math.floor(s / BIOME_LEN), t = clamp((s - i * BIOME_LEN - (BIOME_LEN - BIOME_BLEND)) / BIOME_BLEND, 0, 1);
+  const s = secPos(z) / BIOME_SECS, i = Math.floor(s), t = clamp(((s - i) * BIOME_SECS - (BIOME_SECS - BIOME_BLEND)) / BIOME_BLEND, 0, 1);
   return Math.min(PAL.length - 1, i + t * t * (3 - 2 * t));
 }
 function paletteAt(k) {
@@ -582,7 +584,7 @@ function drawRow(rz, part = 'all') {
     }
   }
   if (dz < 22) drawDecor(rz, row, zA, px, fog, theme);
-  if (rz > 0 && rz % SEC_ROWS === 0 && zA === rz) {   // section start line, like chalk on the grass
+  if (rz > 0 && secStart(secOf(rz)) === rz && zA === rz) {   // section start line, like chalk on the grass
     ctx.globalAlpha = 0.6 * (1 - fog);
     const h2 = world.hAt(rz + 0.12);
     for (let l = 0; l < LANES; l++) {
@@ -1714,6 +1716,14 @@ const OBSTACLES = {
   alien: [crystal, mushroom, meteor],
 };
 
+// every biome has everything it needs: a new one that is only half there must fail at once, not half a run in
+(function checkBiomes() {
+  if (PAL.length !== THEMES.length) throw new Error(`biomes: ${THEMES.length} names in THEMES, ${PAL.length} key frames in PAL`);
+  for (const [name, table] of Object.entries({ MOVERS, SIDE, FLY, OBSTACLES })) {
+    for (const th of THEMES) if (!(typeof table[th] === 'function' || table[th]?.length > 0)) throw new Error(`biomes: no ${name}.${th}`);
+  }
+})();
+
 function drawBall() {
   const b = world.ball, T = theme.ball;
   if (world.state === 'crash' || world.state === 'over') return;
@@ -1890,7 +1900,7 @@ function drawStreaks() {
 }
 
 function draw() {
-  const hue = secHue(Math.floor(Math.max(0, camZ + CAM_BACK) / SEC_ROWS));
+  const hue = secHue(secOf(camZ + CAM_BACK));
   setPhase(camZ + CAM_BACK);
   theme.sky(hue, horY);
   if (flyShow > 0.01) drawFlightSky(hue);

@@ -1,13 +1,17 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.12.2';
+export const VERSION = '0.13.0';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
 // and then splits: the centre lane (MID) turns into a gap between two 3-lane roads. Slots outside the road are void.
 export const LANES = 7, HALF = LANES / 2, MID = 3;
-export const SEC_ROWS = 48;      // rows per section; the speed steps up at each section start
+// The track is cut into sections and biomes by time, not by length. A section lasts SEC_T seconds at its own speed
+// and the speed steps up at each section start, so a faster section is longer in rows (secStart, secOf). A biome is
+// BIOME_SECS sections: half a minute whatever the speed. Nothing here knows how many biomes the page draws (THEMES
+// in client.js): they are counted off for ever, and the last drawn one simply never ends.
+export const SEC_T = 5, BIOME_SECS = 6;
 export const BREATH = 8;         // obstacle-free rows at the start of every section
 export const START_OPEN = 16;    // obstacle-free, flat rows at the very start
 export const R = 0.22;           // ball radius (lane width = 1)
@@ -20,7 +24,7 @@ export const BOX_H = 0.7;        // block height: too tall to jump over
 // A low barrier (a log across the lane): the only way past is to jump. It lies in the middle of its row.
 export const LOW_H = 0.25, LOW_Z0 = 0.38, LOW_Z1 = 0.62;
 export const RAMP_H = 0.3;       // ramp height at its far edge
-const V0 = 9, VMUL = 1.06, VMAX = 24;
+const V0 = 9, VMUL = 1.03, VMAX = 24;   // rows a second: at the start, times this every section, at most
 export const G = 30;             // gravity, rows/s²
 const DRIVE = 2;                 // how fast the speed returns to the section's speed
 const GS = 16;                   // how much a slope speeds up / slows down the ball
@@ -42,7 +46,7 @@ export const MAGNET_T = 8, FLY_T = 7, FLY_H = 2.2, SHIELD_SAFE = 0.7, FLY_SAFE =
 const LAND_AHEAD = 1.3, LAND_LOOK = 0.5;
 const REACT = 0.6;               // seconds a player gets for one swipe, on top of the lane change itself
 const MAX_DT = 1 / 60;           // the world advances in steps no longer than this, however slow the frame
-export const SAVE_V = 2;         // format of a saved run (World.toSave); bump when it changes
+export const SAVE_V = 3;         // format of a saved run (World.toSave); bump when it changes
 // Stars: runs of them lie along the guaranteed path, an arc of them hangs over most jumps, and now and then a lone
 // one sits off the path. A star is taken when the ball's centre is this close to it (sideways / along / up).
 const STAR_X = 0.5, STAR_Z = 0.55, STAR_Y = 0.75;
@@ -78,7 +82,25 @@ const SEE_AHEAD = 0.6;           // seconds of warning: an obstacle must be visi
 const LEAD = 6;                  // flat rows needed before a jump, so the speed is predictable
 const SPEED_TOL = 0.25;          // speed spread the jump planner allows for
 
-export const speedOf = (s) => Math.min(VMAX, V0 * Math.pow(VMUL, s));
+export const speedOf = (s) => Math.min(VMAX, V0 * Math.pow(VMUL, Math.max(0, s)));
+const SEC_AT = [0], ROW_SEC = [];   // the first row of each section; the section of each row (both filled as far as asked)
+export function secStart(s) {
+  for (s = Math.min(s, 1e5); SEC_AT.length <= s;) SEC_AT.push(SEC_AT[SEC_AT.length - 1] + Math.round(SEC_T * speedOf(SEC_AT.length - 1)));
+  return SEC_AT[Math.max(0, Math.floor(s) || 0)];
+}
+export function secOf(z) {   // the section row (or point) z lies in
+  const i = clamp(Math.floor(z) || 0, 0, 1e6);   // (a bound, so that a wild z cannot fill the memory)
+  for (let n = ROW_SEC.length ? ROW_SEC[ROW_SEC.length - 1] : 0; ROW_SEC.length <= i;) {
+    if (ROW_SEC.length >= secStart(n + 1)) n++;
+    ROW_SEC.push(n);
+  }
+  return ROW_SEC[i];
+}
+// the same with the part of the section already behind: 2.5 is half-way through section 2
+export function secPos(z) {
+  const s = secOf(z), a = secStart(s);
+  return s + clamp((z - a) / (secStart(s + 1) - a), 0, 1);
+}
 export const fastOf = (s) => speedOf(s) + GS * SMAX / DRIVE + 0.5;   // the fastest the ball gets downhill in section s
 export const latOf = (v) => 6 + v * 0.3;         // max sideways speed at forward speed v
 export const laneX = (l) => l - HALF + 0.5;
@@ -133,6 +155,7 @@ export class Track {
     this.starRun = 0; this.starCool = 4; this.starSkip = 0;
     this.rows = [];
     this.path = MID;
+    this.crossB = 0; this.crossN = 0;   // the biome being laid and how many times its walker has crossed in it
     // road shape (see ROAD_LANES): i of len rows done; for a zigzag also a — its first lane, next — a after the
     // coming step, steps — how many are left, logAt — the row of this stretch with a log across, or -1
     this.sh = { mode: 'normal', i: 0, len: START_OPEN + 60, a: 2, next: 2, steps: 0, logAt: -1 };
@@ -149,11 +172,24 @@ export class Track {
     return this.rows[Math.max(0, i)];
   }
 
+  // The walker is the biome's own sight, to be met at least twice a biome: once by the middle of it and once more
+  // by the end. When it is behind (none a sixth of the way in, one half-way in), the next wave on a normal road
+  // is a crossing, and a jump waits for it. The road keeps its normal shape for it too, and from a third of the way
+  // in already (`early`): a zigzag that starts later than that could last to the end of a short biome. A road
+  // that is waiting like that gets its crossing with the very next wave.
+  crossDue(early) {
+    const at = secPos(this.rows.length) / BIOME_SECS, b = Math.floor(at);
+    if (b !== this.crossB) { this.crossB = b; this.crossN = 0; }
+    return this.crossN < (at - b > (early ? 0.33 : 0.5) ? 2 : at - b > 0.17 ? 1 : 0);
+  }
+
   // A wave for the current road. Each stretch of road is filled on its own (two of them when the road is split).
   makeWave(sec, road, mode) {
     const r = this.r, w = [3.5, 2, sec >= 1 ? 2.5 : 0, sec >= 1 ? 1.5 : 0, mode === 'normal' ? 3 : 0];
     let x = r() * w.reduce((a, b) => a + b), kind = WAVES[0];
     for (let k = 0; k < w.length; k++) { x -= w[k]; if (x < 0) { kind = WAVES[k]; break; } }
+    if (mode === 'normal' && this.crossDue(this.sh.i >= this.sh.len)) kind = 'cross';
+    if (kind === 'cross') this.crossN++;
     const cells = Array(LANES).fill('');
     if (kind === 'hurdle') {
       for (let l = 0; l < LANES; l++) if (road[l]) cells[l] = 'low';
@@ -281,7 +317,7 @@ export class Track {
       this.starRun = Math.max(this.starRun, 10);   // stars show the way
     };
     if (S.mode === 'normal') {
-      if (S.i >= S.len && !busy && !this.wave) {
+      if (S.i >= S.len && !busy && !this.wave && !this.crossDue(true)) {
         S.i = 0; S.len = K + 3;
         S.mode = r() < 0.45 ? 'widen' : 'squeeze';
       }
@@ -317,7 +353,7 @@ export class Track {
   }
 
   gen() {
-    const i = this.rows.length, r = this.r, sec = Math.floor(i / SEC_ROWS), k = i % SEC_ROWS;
+    const i = this.rows.length, r = this.r, sec = secOf(i), k = i - secStart(sec);
     // free rows are counted for the next section's speed: the next wave may already lie there
     const v = speedOf(sec), vhi = fastOf(sec), vK = fastOf(sec + 1), K = Math.ceil(vK * (REACT + shiftTime(vK)));
     const block = Array(LANES).fill(false), ramp = Array(LANES).fill(false), low = Array(LANES).fill(false);
@@ -340,7 +376,7 @@ export class Track {
       if (mode !== 'normal' && mode !== 'split') this.gap = Math.max(this.gap, K);
       if (this.gap > 0) this.gap--;
       else if (!open && !hidden) {
-        if (this.wantJump) {
+        if (this.wantJump && !this.crossDue()) {
           // flat ground for a while, a normal road: build the jump; otherwise carry on with waves and try later
           if (this.flatRun >= LEAD && this.ter.kind === 'flat' && mode === 'normal') {
             const J = this.planJump(v, sec);
@@ -350,7 +386,7 @@ export class Track {
         }
         if (!this.jump && (mode === 'normal' || mode === 'split')) {
           this.wave = this.makeWave(sec, road, mode);
-          this.wave.left = Math.min(this.wave.left, SEC_ROWS - k);   // the start of the next section stays free
+          this.wave.left = Math.min(this.wave.left, secStart(sec + 1) - i);   // the start of the next section stays free
         }
       }
     }
@@ -632,7 +668,7 @@ export class World {
     // Laid out from the section's speed, not the ball's at the moment (a flight settles at the section's speed, and
     // a restored run must get the same trail): the lines end a little before the flight does, and the pause between
     // two lines is long enough for a swipe even at the next section's speed.
-    const sec = Math.floor(from / SEC_ROWS), v = speedOf(sec);
+    const sec = secOf(from), v = speedOf(sec);
     const n = Math.floor(FLY_T * v) - 9, parts = 4, len = Math.floor(n / parts), rest = Math.ceil(speedOf(sec + 1) * 0.45);
     const step = Math.max(1, Math.round(v / 9));   // about nine stars a second at any speed: a solid line
     let l = clamp(lane, c - 1, c + 1);
@@ -704,7 +740,7 @@ export class World {
     if (!o || o.v !== SAVE_V || !Number.isFinite(o.seed) || !o.ball || !(o.ball.z >= 0 && o.ball.z < 2e5) || !(o.speed > 0 && o.speed < 100)) return null;
     const w = new this(o.seed), b = w.ball;
     for (const k in b) if (typeof o.ball[k] === typeof b[k] && (typeof b[k] !== 'number' || Number.isFinite(o.ball[k]))) b[k] = o.ball[k];
-    w.v = o.speed; w.sec = Math.floor(b.z / SEC_ROWS); w.stars = Math.max(0, Math.floor(o.stars) || 0);
+    w.v = o.speed; w.sec = secOf(b.z); w.stars = Math.max(0, Math.floor(o.stars) || 0);
     // what is behind was taken or missed; so was the next row's star if the ball already reached it
     for (let r = 0; r <= Math.floor(b.z + 0.05); r++) { const row = w.track.get(r); row.star.fill(0); row.bonus = null; }
     const fx = o.fx || {}, sec = (x, max) => (x > 0 && x <= max ? x : 0);
@@ -729,7 +765,7 @@ export class World {
   tick(dt) {
     const b = this.ball, t = this.track;
     if (this.state === 'run') {
-      const sec = Math.floor(b.z / SEC_ROWS), target = speedOf(sec), rowPrev = Math.floor(b.z);
+      const sec = secOf(b.z), target = speedOf(sec), rowPrev = Math.floor(b.z);
       if (!b.air) {
         const s = t.get(rowPrev + 1).h - t.get(rowPrev).h;
         this.v = Math.max(2.5, this.v + (DRIVE * (target - this.v) - GS * s) * dt);

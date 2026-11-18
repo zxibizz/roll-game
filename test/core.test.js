@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { World as GameWorld, Track, SEC_ROWS, LANES, MID, VERSION, HOP_VY, HOP_G, BOX_H, R, CROSS_ROWS, FLY_T, FLY_H, MAGNET_T, laneX, speedOf, fastOf, mulberry } from '../public/core.js';
+import { World as GameWorld, Track, secStart, secOf, secPos, BIOME_SECS, SEC_T, LANES, MID, VERSION, HOP_VY, HOP_G, BOX_H, R, CROSS_ROWS, FLY_T, FLY_H, MAGNET_T, laneX, speedOf, fastOf, mulberry } from '../public/core.js';
 
 // Most tests look at the road and the ball alone: their world has no bonuses lying on it (the road is the same).
 class World extends GameWorld {
@@ -20,7 +20,7 @@ function drive(seed, rows) {
 test('a bot on the guaranteed path survives up to the top speed on 30 tracks', () => {
   let jumps = 0, vMin = Infinity, vMax = 0;
   for (let seed = 1; seed <= 30; seed++) {
-    const w = drive(seed, SEC_ROWS * 22);
+    const w = drive(seed, secStart(38));
     assert.equal(w.state, 'run', `seed ${seed} died at row ${w.score}`);
     jumps += w.stats.jumps;
     vMin = Math.min(vMin, w.stats.vRatioMin); vMax = Math.max(vMax, w.stats.vRatioMax);
@@ -32,7 +32,7 @@ test('a bot on the guaranteed path survives up to the top speed on 30 tracks', (
 
 test('every row keeps its goal lane open', () => {
   const t = new Track(42);
-  for (let i = 0; i < SEC_ROWS * 25; i++) {
+  for (let i = 0; i < secStart(38); i++) {
     const r = t.get(i);
     const lanes = r.road.flatMap((on, l) => (on ? [l] : []));
     const wall = lanes.every((l) => r.block[l]), gap = lanes.every((l) => !r.floor[l]);
@@ -45,7 +45,7 @@ test('jump set pieces always have a ramp on the path lane', () => {
   let pieces = 0;
   for (let seed = 1; seed <= 8; seed++) {
     const t = new Track(seed);
-    for (let i = 1; i < SEC_ROWS * 25; i++) {
+    for (let i = 1; i < secStart(38); i++) {
       const r = t.get(i);
       if (!r.ramp.some(Boolean)) continue;
       pieces++;
@@ -71,7 +71,7 @@ test('skipping a ramp means hitting the wall or falling into the gap', () => {
   // find a set piece where only some lanes have ramps and drive straight down a lane without one
   for (let seed = 1; seed < 200; seed++) {
     const t = new Track(seed);
-    for (let i = 1; i < SEC_ROWS * 6; i++) {
+    for (let i = 1; i < secStart(6); i++) {
       const r = t.get(i);
       const lane = r.ramp.indexOf(false);
       if (!r.ramp.some(Boolean) || lane < 0) continue;
@@ -107,7 +107,7 @@ test('rolling onto a ramp from the side does not launch the ball', () => {
     for (let seed = 1; seed <= 120; seed++) {
       const t = new Track(seed);
       let i = 20, l = -1;
-      for (; i < SEC_ROWS * 10; i++) {
+      for (; i < secStart(10); i++) {
         const r = t.get(i);
         l = r.ramp.findIndex((x, k) => x && k + 1 < LANES && !r.ramp[k + 1] && r.floor[k + 1]);
         if (l >= 0) break;
@@ -140,7 +140,7 @@ test('rows hidden behind a crest have no obstacles', () => {
   let hiddenRows = 0;
   for (let seed = 1; seed <= 20; seed++) {
     const t = new Track(seed);
-    for (let i = 30; i < SEC_ROWS * 20; i++) {
+    for (let i = 30; i < secStart(38); i++) {
       const r = t.get(i);
       const ahead = Math.max(5, Math.ceil(fastOf(r.sec) * 0.6) + 2);
       if (!t.hidden(i, r.h, ahead)) continue;
@@ -156,7 +156,7 @@ test('the road splits now and then, and the path never runs into the gap or off 
   for (let seed = 1; seed <= 20; seed++) {
     const t = new Track(seed);
     let inSplit = false;
-    for (let i = 0; i < SEC_ROWS * 20; i++) {
+    for (let i = 0; i < secStart(38); i++) {
       const r = t.get(i), split = !r.road[MID] && r.road[0];
       if (split && !inSplit) splits++;
       inSplit = split;
@@ -248,7 +248,7 @@ test('stars lie only where the ball can be: on ground without obstacles, or in t
   let ground = 0, air = 0;
   for (let seed = 1; seed <= 10; seed++) {
     const t = new Track(seed);
-    for (let i = 0; i < SEC_ROWS * 20; i++) {
+    for (let i = 0; i < secStart(38); i++) {
       const r = t.get(i);
       r.star.forEach((s, l) => {
         if (!s) return;
@@ -265,7 +265,7 @@ test('stars lie only where the ball can be: on ground without obstacles, or in t
 test('a bot on the path picks up most of the stars along it, the arcs over jumps included', () => {
   let got = 0, onPath = 0, arcs = 0, arcGot = 0;
   for (let seed = 1; seed <= 10; seed++) {
-    const w = new World(seed), rows = SEC_ROWS * 20, t = w.track;
+    const w = new World(seed), rows = secStart(38), t = w.track;
     const before = [];
     for (let i = 0; i < rows; i++) {
       const r = t.get(i);
@@ -320,7 +320,7 @@ test('a broken or outdated save is refused', () => {
 test('a slow frame is split into equal steps: the run goes the same at 20 frames a second', () => {
   for (const seed of [2, 3, 4]) {
     const w = new World(seed);
-    while (w.state === 'run' && w.ball.z < SEC_ROWS * 12) { w.auto(); w.step(1 / 20); }
+    while (w.state === 'run' && w.ball.z < secStart(12)) { w.auto(); w.step(1 / 20); }
     assert.equal(w.state, 'run', `seed ${seed} died at row ${w.score}`);
   }
 });
@@ -328,7 +328,7 @@ test('a slow frame is split into equal steps: the run goes the same at 20 frames
 test('landing after a jump is reported with its strength', () => {
   const w = new World(3);
   let lands = 0;
-  while (w.state === 'run' && w.ball.z < SEC_ROWS * 20) {
+  while (w.state === 'run' && w.ball.z < secStart(38)) {
     w.auto(); w.step(DT);
     if (w.events.includes('land')) { lands++; assert.ok(w.impact > 0 && w.impact <= 1); }
     w.events.length = 0;
@@ -363,7 +363,7 @@ test('a swipe towards a lane that ends before the ball would get there is refuse
   let seen = 0;
   for (let seed = 1; seed <= 40 && seen < 6; seed++) {
     const t = new Track(seed);
-    for (let i = 20; i < SEC_ROWS * 12; i++) {
+    for (let i = 20; i < secStart(12); i++) {
       if (!(t.get(i).road[0] && !t.get(i + 1).road[0] && t.get(i + 1).road[1])) continue;   // the road narrows after row i
       for (const back of [0.5, 1.5, 3]) {
         const w = drive(seed, i + 1 - back);
@@ -397,7 +397,7 @@ test('swiping at random never takes the ball off the side of the road', () => {
   for (let seed = 1; seed <= 20; seed++) {
     const w = new World(seed), rnd = mulberry(seed);
     let n = 0;
-    while (w.state === 'run' && w.ball.z < SEC_ROWS * 14) {
+    while (w.state === 'run' && w.ball.z < secStart(14)) {
       if (n++ % 12 === 0) { const d = rnd() < 0.5 ? -1 : 1; for (let k = 1 + Math.floor(rnd() * 3); k > 0; k--) w.move(d); }   // 1–3 swipes at once
       const lane = w.lane, rz = Math.floor(w.ball.z);
       assert.ok(lane >= 0 && lane < LANES);
@@ -423,7 +423,7 @@ test('in a wave every lane is free, has a free lane next to it, or can be jumped
   let waves = 0, hurdles = 0, lows = 0;
   for (let seed = 1; seed <= 20; seed++) {
     const t = new Track(seed);
-    for (let i = 0; i < SEC_ROWS * 20; i++) {
+    for (let i = 0; i < secStart(38); i++) {
       const r = t.get(i), lanes = r.road.flatMap((on, l) => (on ? [l] : []));
       if (!busy(r) || r.ramp.some(Boolean)) continue;
       if (lanes.every((l) => r.block[l]) || lanes.every((l) => !r.floor[l])) continue;   // a jump set piece
@@ -443,7 +443,7 @@ test('between two waves there is time for a swipe: at least 0.6 s at the fastest
   for (let seed = 1; seed <= 20; seed++) {
     const t = new Track(seed);
     let last = -100, lastCells = '';
-    for (let i = 0; i < SEC_ROWS * 22; i++) {
+    for (let i = 0; i < secStart(38); i++) {
       const r = t.get(i);
       if (!busy(r)) continue;
       const cells = r.road.map((on, l) => (!on ? ' ' : r.block[l] ? '#' : r.low[l] ? '=' : !r.floor[l] ? 'o' : '.')).join('');
@@ -462,7 +462,7 @@ test('a ramp is never more than one lane away', () => {
   let pieces = 0;
   for (let seed = 1; seed <= 20; seed++) {
     const t = new Track(seed);
-    for (let i = 0; i < SEC_ROWS * 20; i++) {
+    for (let i = 0; i < secStart(38); i++) {
       const r = t.get(i);
       if (!r.ramp.some(Boolean)) continue;
       pieces++;
@@ -499,7 +499,7 @@ test('one move per obstacle is enough from any lane, up to the top speed', () =>
   for (let seed = 1; seed <= 40; seed++) {
     const w = new World(seed), rnd = mulberry(seed * 77);
     for (let k = Math.floor(rnd() * 5) - 2; k !== 0; k -= Math.sign(k)) w.move(Math.sign(k));   // start in any of the five lanes
-    while (w.state === 'run' && w.ball.z < SEC_ROWS * 22) { lazy(w); w.step(DT); }
+    while (w.state === 'run' && w.ball.z < secStart(38)) { lazy(w); w.step(DT); }
     assert.equal(w.state, 'run', `seed ${seed}: ${w.state} at row ${Math.floor(w.ball.z)} in lane ${w.lane}`);
   }
 });
@@ -596,7 +596,7 @@ test('a ramp throws the ball the same whether it rolled onto it or jumped onto i
   let tried = 0;
   for (let seed = 1; seed <= 12; seed++) {
     const t = new Track(seed);
-    for (let i = 20; i < SEC_ROWS * 14; i++) {
+    for (let i = 20; i < secStart(14); i++) {
       if (!t.get(i).ramp.some(Boolean)) continue;
       for (const back of [0.2, 1.5, 3, 4.5]) {     // on the ramp, and one to three rows before it
         const w = drive(seed, i + 0.5 - back);
@@ -615,11 +615,11 @@ test('someone walks across the road now and then: it ends in a lane off the path
   let walkers = 0, early = 0;
   for (let seed = 1; seed <= 20; seed++) {
     const t = new Track(seed);
-    for (let i = 0; i < SEC_ROWS * 20; i++) {
+    for (let i = 0; i < secStart(38); i++) {
       const r = t.get(i), m = r.mover;
       if (!m) continue;
       walkers++;
-      if (i < SEC_ROWS * 4) early++;
+      if (i < secStart(4)) early++;
       assert.ok(m.lane !== r.goal && r.road[m.lane] && r.road[m.from] && Math.abs(m.lane - m.from) >= 2, `seed ${seed} row ${i}`);
       assert.ok(!r.block.some(Boolean) && !r.low.some(Boolean) && r.road.every((on, l) => !on || r.floor[l]), `seed ${seed} row ${i}: something else in the row`);
       // a ball in the walker's lane is hit, a ball in the lane it came through is not
@@ -635,12 +635,38 @@ test('someone walks across the road now and then: it ends in a lane off the path
   assert.ok(walkers >= 45 && early >= 12, `${walkers} walkers on 20 tracks, ${early} in the first four sections`);
 });
 
+test('sections and biomes are cut by time: a section takes SEC_T seconds at any speed, a biome half a minute, however many biomes there are', () => {
+  for (let s = 0; s < BIOME_SECS * 12; s++) {
+    const rows = secStart(s + 1) - secStart(s);
+    assert.ok(Math.abs(rows / speedOf(s) - SEC_T) < 0.06, `section ${s}: ${rows} rows at ${speedOf(s).toFixed(2)}`);
+    assert.equal(secOf(secStart(s)), s);
+    assert.equal(secOf(secStart(s + 1) - 1), s);
+    assert.ok(speedOf(s + 1) >= speedOf(s));
+  }
+  assert.equal(secOf(0), 0);
+  assert.equal(secOf(-3), 0);
+  assert.ok(Math.abs(secPos(secStart(7) + (secStart(8) - secStart(7)) / 2) - 7.5) < 0.02);
+  // the bot's own clock, far past the six biomes the page has now
+  const w = new World(3), t = [];
+  while (w.state === 'run' && w.ball.z < secStart(BIOME_SECS * 9)) { const b = Math.floor(secOf(w.ball.z) / BIOME_SECS); t[b] = (t[b] || 0) + DT; w.auto(); w.step(DT); }
+  assert.equal(w.state, 'run');
+  t.forEach((x, b) => assert.ok(Math.abs(x - SEC_T * BIOME_SECS) < 1.5, `biome ${b}: ${x.toFixed(1)} s`));
+});
+
+test('the walker of a biome crosses the road at least twice in every biome', () => {
+  for (let seed = 1; seed <= 300; seed++) {
+    const t = new Track(seed), n = Array(9).fill(0);
+    for (let i = 0; i < secStart(BIOME_SECS * 9); i++) if (t.get(i).mover) n[Math.floor(secOf(i) / BIOME_SECS)]++;
+    n.forEach((x, b) => assert.ok(x >= 2, `seed ${seed} biome ${b}: ${x}`));
+  }
+});
+
 test('the road narrows to three lanes and zigzags: one lane at a time, with time for a swipe before every step', () => {
   let zigs = 0, steps = 0, logs = 0;
   for (let seed = 1; seed <= 20; seed++) {
     const t = new Track(seed);
     let last = -100, lastLog = -100, prev = null;
-    for (let i = 0; i < SEC_ROWS * 20; i++) {
+    for (let i = 0; i < secStart(38); i++) {
       const r = t.get(i), lanes = r.road.flatMap((on, l) => (on ? [l] : []));
       const narrow = lanes.length === 3 && lanes[2] - lanes[0] === 2;
       if (narrow) {
@@ -677,7 +703,7 @@ test('the ball has weight in a lane change: it speeds up, is fastest about half-
 test('there are no pits on the track: every road cell has ground', () => {
   for (let seed = 1; seed <= 20; seed++) {
     const t = new Track(seed);
-    for (let i = 0; i < SEC_ROWS * 22; i++) {
+    for (let i = 0; i < secStart(38); i++) {
       const r = t.get(i);
       assert.ok(r.road.every((on, l) => !on || r.floor[l]), `seed ${seed} row ${i}`);
     }
@@ -690,7 +716,7 @@ test('bonuses lie on the track: all three kinds, on the path or next to it, in a
   let n = 0, off = 0;
   for (let seed = 1; seed <= 20; seed++) {
     const t = new Track(seed);
-    for (let i = 0; i < SEC_ROWS * 20; i++) {
+    for (let i = 0; i < secStart(38); i++) {
       const r = t.get(i), bo = r.bonus;
       if (!bo) continue;
       n++; kinds[bo.kind] = (kinds[bo.kind] || 0) + 1;
@@ -700,7 +726,7 @@ test('bonuses lie on the track: all three kinds, on the path or next to it, in a
       for (let k = -Math.ceil(fastOf(r.sec) * 0.3); k <= free; k++) assert.ok(!busy(t.get(i + k)), `seed ${seed} row ${i}: something ${k} rows from a bonus`);
     }
   }
-  assert.ok(n >= 100 && n <= 260 && off > n * 0.25 && off < n * 0.65, `${n} bonuses, ${off} off the path`);
+  assert.ok(n >= 200 && n <= 500 && off > n * 0.25 && off < n * 0.65, `${n} bonuses, ${off} off the path`);
   for (const k of ['magnet', 'shield', 'fly']) assert.ok(kinds[k] > n * 0.2, `${k}: ${kinds[k]} of ${n}`);
 });
 
@@ -709,7 +735,7 @@ test('with bonuses on the track both bots still get through, and use them', () =
   for (let seed = 1; seed <= 30; seed++) {
     for (const bot of ['path', 'lazy']) {
       const w = new GameWorld(seed);
-      while (w.state === 'run' && w.ball.z < SEC_ROWS * 22) {
+      while (w.state === 'run' && w.ball.z < secStart(38)) {
         if (bot === 'path') w.auto(); else lazy(w);
         w.step(DT);
         for (const e of w.events) if (e in seen) seen[e]++;
@@ -817,7 +843,7 @@ test('a flight ends on the road even when nobody steers and the road below narro
   let tried = 0;
   for (let seed = 1; seed <= 30 && tried < 12; seed++) {
     const t = new Track(seed);
-    for (let i = 60; i < SEC_ROWS * 12; i++) {
+    for (let i = 60; i < secStart(12); i++) {
       if (!(t.get(i - 1).road[1] && !t.get(i).road[1] && t.get(i).road[2])) continue;   // lane 1 ends at row i
       const w = drive(seed, i - 12);
       if (w.state !== 'run' || w.ball.air) continue;
@@ -837,11 +863,11 @@ test('a flight ends on the road even when nobody steers and the road below narro
 });
 
 test('a run saved in the middle of a flight, with a magnet and a shield, goes on the same', () => {
-  const a = new GameWorld(9);
+  const a = new World(9);   // no bonuses on the track: the flight is the one taken here
   while (a.ball.z < 200) { a.auto(); a.step(DT); }
   a.take('magnet'); a.take('shield'); a.take('fly');
   for (let n = 0; n < 90; n++) { a.auto(); a.step(DT); }
-  const b = GameWorld.fromSave(JSON.parse(JSON.stringify(a.toSave())));
+  const b = World.fromSave(JSON.parse(JSON.stringify(a.toSave())));
   assert.ok(b && b.ball.fly && b.fx.shield && b.fx.magnet > 0 && b.fx.fly > 0 && b.sky.length > 0);
   for (let n = 0; n < 900; n++) { a.auto(); a.step(DT); b.auto(); b.step(DT); }
   assert.equal(b.state, 'run');

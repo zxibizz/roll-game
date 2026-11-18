@@ -15,8 +15,8 @@ Site: `https://roll.games.bubas.cc`.
   to lift.
 - There is no swiping off the road: at its edge the ball leans out, thuds and stays in its lane. It still falls
   where the lane itself ends — into the gap when the road splits, or off the outer lane when the road narrows.
-- The track is usually 5 lanes wide and comes in sections of 48 rows. Every section has its own colour and is 6 % faster
-  (9 → 24 rows per second, the top speed from section 18). The first 8 rows of a section are free of obstacles; the first sections are sparse.
+- The track is usually 5 lanes wide and comes in sections of 5 seconds each (45 rows at the start, 120 at the top speed).
+  Every section has its own colour and is 3 % faster (9 → 24 rows per second, the top speed from section 35). The first 8 rows of a section are free of obstacles; the first sections are sparse.
 - Hills: downhill speeds the ball up, uphill slows it down; on flat ground it settles back to the section's speed.
 - Ramps: a light tile with chevrons. Behind it a wall of obstacles spans the whole width — the only way over is to jump.
   In the first two sections every lane has a ramp, later every lane has one or has one right next to it. The ball
@@ -33,9 +33,14 @@ Site: `https://roll.games.bubas.cc`.
   0.6 s or more (at the fastest downhill speed) — a row of stars shows the way. The only obstacle on a zigzag is a
   log right across it here and there, in the middle of a stretch twice as long. The road changes shape often:
   every 60–120 rows, a little more often into a zigzag than into a split. Ramps are wooden.
-- Six biomes follow one another with the distance, three sections (144 rows) each: a biome stays as it is for most
-  of that and turns into the next one over the last three quarters of a section (`PAL`, `BIOME_LEN`, `BIOME_BLEND`,
-  `THEMES` in `client.js`). Space is reached at 720 rows. Each has its own colours and sky, things on
+- Six biomes follow one another. The track is cut by time, not by length: a section lasts 5 s at its own speed
+  (`SEC_T`; the speed steps up 3 % at each section start, from 9 to 24 rows a second), so a faster section is longer
+  in rows, and a biome is 6 sections (`BIOME_SECS`) — half a minute at any speed. A biome stays as it is for most of
+  that and turns into the next one over the last three quarters of a section (`BIOME_BLEND`). Space is reached
+  after 2.5 minutes (row 2139) and never ends. The walker of a biome crosses the road at least twice in it.
+  To add a biome: a name in `THEMES`, a key frame in `PAL` at the same place, and an entry under that name in
+  `MOVERS`, `SIDE`, `FLY` and `OBSTACLES` in `client.js` (checked when the page starts); the lengths and speeds need
+  no change. Each has its own colours and sky, things on
   the road, someone who walks across it, islands beside the road and things in the air:
 
   | Biome | On the road | Walks across | Islands | In the air, sky |
