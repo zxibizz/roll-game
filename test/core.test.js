@@ -201,3 +201,38 @@ test('following a moving finger the ball stays close behind it, so little is lef
   }
   assert.ok(lag < 0.25, `the ball fell ${lag.toFixed(2)} lanes behind the finger`);
 });
+
+// a stretch of plain road from row a to row b in lanes MID and MID + 1, everything else as generated
+function plainRoad(w, a, b) {
+  for (let i = a; i <= b; i++) {
+    const r = w.track.get(i);
+    for (const l of [MID, MID + 1]) { r.road[l] = true; r.floor[l] = true; r.block[l] = false; r.ramp[l] = false; }
+  }
+}
+function rollAlong(w, x, rows) {
+  w.ball.x = w.ball.tx = x;
+  while (w.state === 'run' && w.ball.z < rows) { w.ball.tx = x; w.step(1 / 60); }
+  return w.state;
+}
+
+test('the ball rolls along the rim of a pit, and drops in when it goes over', () => {
+  const edge = laneX(MID) + 0.5;   // the border between the lane and the pit next to it
+  for (const [into, falls] of [[0.15, false], [0.32, true]]) {
+    const w = new World(3);
+    plainRoad(w, 0, 60);
+    for (let i = 30; i <= 34; i++) w.track.get(i).floor[MID + 1] = false;
+    rollAlong(w, edge - 0.6, 20);
+    assert.equal(rollAlong(w, edge + into, 50) !== 'run', falls, `${into} into the pit`);
+  }
+});
+
+test('the ball may brush past an obstacle', () => {
+  const edge = laneX(MID) + 0.5;
+  for (const [x, hits] of [[edge - 0.05, false], [edge + 0.12, true]]) {
+    const w = new World(3);
+    plainRoad(w, 0, 60);
+    w.track.get(40).block[MID + 1] = true;
+    rollAlong(w, edge - 0.6, 20);
+    assert.equal(rollAlong(w, x, 50) === 'crash' || w.state === 'over', hits, `ball at ${(x - edge).toFixed(2)} from the lane border`);
+  }
+});

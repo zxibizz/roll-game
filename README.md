@@ -12,7 +12,9 @@ Site: `https://roll.games.bubas.cc`.
 - Ramps: a light tile with chevrons. Behind it a block wall or a gap spans the whole width — the only way over is to jump.
   In the first two sections every lane has a ramp, later only the path lane is sure to have one. The ball can be steered
   in the air; its shadow shows where it lands.
-- Falling into a hole or off the edge, or hitting a block ends the run. The score is the number of rows covered;
+- Falling into a pit or off the edge, or hitting an obstacle ends the run. The ball still rolls on the rim of a pit
+  until its centre is 0.2 of a lane past the edge (0.12 at the road edge), and the hit boxes are smaller than the
+  drawn obstacles, with rounded corners, so brushing past is fine. The score is the number of rows covered;
   the best score is kept on the device (`localStorage`, key `roll.best`).
 - The road is a strip of grass with wavy edges; it bends like a snake now and then (just the look: the ball keeps
   to the road on its own). Sometimes it widens from 5 to 7 lanes and splits: the centre lane becomes a gap between

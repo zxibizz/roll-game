@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.4.4';
+export const VERSION = '0.4.5';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -11,7 +11,11 @@ export const SEC_ROWS = 48;      // rows per section; the speed steps up at each
 export const BREATH = 8;         // obstacle-free rows at the start of every section
 export const START_OPEN = 16;    // obstacle-free, flat rows at the very start
 export const R = 0.22;           // ball radius (lane width = 1)
-export const INSET = 0.1;        // gap between a block and its cell border
+export const INSET = 0.2;        // gap between an obstacle's hit box and its cell border (it is drawn bigger)
+const CORNER = 0.15;             // the hit box has rounded corners: brushing past an obstacle is fine
+// Near a pit the ball still rolls on the rim until its centre is this far past the edge of the ground;
+// at the road edge (void) a little less, about as much as the drawn edge waves.
+export const RIM_PIT = 0.2, RIM_EDGE = 0.12;
 export const BOX_H = 0.7;        // block height
 export const RAMP_H = 0.3;       // ramp height at its far edge
 const V0 = 9, VMUL = 1.06, VMAX = 24;
@@ -300,10 +304,21 @@ export class World {
   // surface under (x, z) including ramps, or null over a hole or off the track
   groundAt(x, z) {
     const lane = Math.floor(x + HALF), rz = Math.floor(z);
-    if (lane < 0 || lane >= LANES || rz < 0) return null;
+    if (rz < 0) return null;
     const row = this.track.get(rz);
-    if (!row.floor[lane]) return null;
-    return this.hAt(z) + (row.ramp[lane] ? RAMP_H * (z - rz) : 0);
+    if (lane >= 0 && lane < LANES && row.floor[lane]) return this.hAt(z) + (row.ramp[lane] ? RAMP_H * (z - rz) : 0);
+    return this.onRim(lane, rz, x + HALF - lane, z - rz) ? this.hAt(z) : null;
+  }
+
+  // Is a point over a pit or the void still close enough to the ground next to it to hold the ball?
+  // fx, fz: where it is inside its cell, 0..1.
+  onRim(lane, rz, fx, fz) {
+    const t = this.track, row = t.get(rz);
+    const isPit = lane >= 0 && lane < LANES && row.road[lane];
+    const ground = (l, r) => l >= 0 && l < LANES && r >= 0 && t.get(r).floor[l];
+    const rimFor = (l, r) => (isPit && t.get(r).road[l] ? RIM_PIT : RIM_EDGE);   // pit rim or road edge
+    return (fx < rimFor(lane - 1, rz) && ground(lane - 1, rz)) || (fx > 1 - rimFor(lane + 1, rz) && ground(lane + 1, rz))
+      || (fz < RIM_PIT && isPit && ground(lane, rz - 1)) || (fz > 1 - RIM_PIT && isPit && ground(lane, rz + 1));
   }
 
   hit() {
@@ -313,9 +328,10 @@ export class World {
       const row = this.track.get(rz);
       for (let l = Math.floor(b.x + HALF - R); l <= Math.floor(b.x + HALF + R); l++) {
         if (l < 0 || l >= LANES || !row.block[l]) continue;
-        const x0 = l - HALF + INSET, x1 = l - HALF + 1 - INSET, z0 = rz + INSET, z1 = rz + 1 - INSET;
+        // a rectangle with rounded corners: the inner rectangle grown by CORNER
+        const x0 = l - HALF + INSET + CORNER, x1 = l - HALF + 1 - INSET - CORNER, z0 = rz + INSET + CORNER, z1 = rz + 1 - INSET - CORNER;
         const cx = clamp(b.x, x0, x1), cz = clamp(b.z, z0, z1);
-        if ((cx - b.x) ** 2 + (cz - b.z) ** 2 >= R * R) continue;
+        if ((cx - b.x) ** 2 + (cz - b.z) ** 2 >= (R + CORNER) ** 2) continue;
         if (b.y - R < this.hAt(cz) + BOX_H) return true;
       }
     }

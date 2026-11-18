@@ -331,40 +331,8 @@ function drawRow(rz, part = 'all') {
     if (zA === rz && (!prev || !prev.road[l]))
       quad(proj(xl(rz), hA, rz), proj(xr(rz), hA, rz), proj(xr(rz), hA - SLAB, rz), proj(xl(rz), hA - SLAB, rz), pal('soil', 0, fog));
   }
-  // pits with ragged edges: inset from the grass around them, open towards other holes and the road edge
-  for (let l = 0; l < LANES; l++) {
-    if (!row.road[l] || row.floor[l]) continue;
-    const grass = (dl, drow) => {
-      const rr = drow < 0 ? prev : drow > 0 ? next : row, ll = l + dl;
-      return !!rr && ll >= 0 && ll < LANES && rr.road[ll] && rr.floor[ll];
-    };
-    const hole = (dl, drow) => {
-      const rr = drow < 0 ? prev : drow > 0 ? next : row, ll = l + dl;
-      return !!rr && ll >= 0 && ll < LANES && rr.road[ll] && !rr.floor[ll];
-    };
-    const inL = grass(-1, 0), inR = grass(1, 0), inN = grass(0, -1), inF = grass(0, 1);
-    // towards another pit the shape reaches a little past the border, so neighbouring pits merge without seams
-    const outL = hole(-1, 0) ? 0.08 : 0, outR = hole(1, 0) ? 0.08 : 0, outN = hole(0, -1) ? 0.08 : 0, outF = hole(0, 1) ? 0.08 : 0;
-    const pts = [];
-    // eight points round the cell: corners and side middles, pulled in where there is grass
-    for (const [u, w, k] of [[0, 0, 0], [0.5, 0, 1], [1, 0, 2], [1, 0.5, 3], [1, 1, 4], [0.5, 1, 5], [0, 1, 6], [0, 0.5, 7]]) {
-      const j = (n) => 0.03 + hash(rz * 3 + w * 2, l * 3 + u * 2, n) * 0.09;
-      let uu = u, ww = w;
-      if (u === 0) uu += inL ? j(1) : -outL; if (u === 1) uu -= inR ? j(2) : -outR;
-      if (w === 0) ww += inN ? j(3) : -outN; if (w === 1) ww -= inF ? j(4) : -outF;
-      if (u === 0.5 && (w === 0 ? inN : inF)) uu += (hash(rz, l, 30 + k) - 0.5) * 0.2;
-      if (w === 0.5 && (u === 0 ? inL : inR)) ww += (hash(rz, l, 30 + k) - 0.5) * 0.2;
-      const z = rz + ww;
-      if (z < camZ + 0.4) continue;
-      pts.push(proj(l - HALF + uu, world.hAt(z), z));
-    }
-    if (pts.length < 3) continue;
-    const top = Math.min(...pts.map((p) => p[1])), bot = Math.max(...pts.map((p) => p[1]));
-    const g = ctx.createLinearGradient(0, top, 0, Math.max(top + 1, bot));
-    // the earthen far wall shows only where grass goes on behind the pit; a long gap stays one dark chasm
-    g.addColorStop(0, inF ? pal('pitWall', 0, fog) : pal('pit', 0, fog)); g.addColorStop(0.45, pal('pit', inF ? 4 : 0, fog)); g.addColorStop(1, pal('pit', 0, fog));
-    ctx.fillStyle = g; blob(pts); ctx.fill();
-  }
+  // pits dug into the grass: a ragged opening, earthen walls going down into the dark
+  for (let l = 0; l < LANES; l++) if (row.road[l] && !row.floor[l]) drawPit(rz, l, row, prev, next, fog, px);
   if (dz < 22) drawDecor(rz, row, zA, px, fog, theme);
   if (rz > 0 && rz % SEC_ROWS === 0 && zA === rz) {   // section start line, like chalk on the grass
     ctx.globalAlpha = 0.6 * (1 - fog);
@@ -403,6 +371,99 @@ function drawRow(rz, part = 'all') {
     const kinds = OBSTACLES[theme];
     kinds[Math.floor(pick * kinds.length)](o, seed, fog, rz, l);
   }
+}
+
+const PIT_DEPTH = 0.8;
+// One pit cell. Towards grass its edge sits a varying, ragged distance in from the cell border (about the rim the
+// ball can still roll on); towards another pit it reaches past the border, so pits merge; towards the void it stays
+// on the border. Inside: a dark bottom, the far wall with layers of earth and roots, side walls in shadow, and grass
+// hanging over the rim.
+function drawPit(rz, l, row, prev, next, fog, px) {
+  const kind = (dl, dr) => {
+    const rr = dr < 0 ? prev : dr > 0 ? next : row, ll = l + dl;
+    return !rr || ll < 0 || ll >= LANES || !rr.road[ll] ? 'void' : rr.floor[ll] ? 'grass' : 'pit';
+  };
+  const side = { L: kind(-1, 0), R: kind(1, 0), N: kind(0, -1), F: kind(0, 1) };
+  // sideways the edge sits well in from the grass; along the road only a little, or a pit far ahead would be a slit
+  const amp = 0.07 + hash(rz, l, 90) * 0.13, ampZ = 0.02 + hash(rz, l, 94) * 0.05, rough = 0.02 + hash(rz, l, 91) * 0.08;
+  const bite = Math.floor(hash(rz, l, 92) * 16);
+  const off = (s, k) => side[s] === 'grass' ? (s === 'N' || s === 'F' ? ampZ : amp) + (hash(rz * 5 + k, l, 93) - 0.5) * 2 * rough + (k === bite ? 0.07 : 0)
+    : side[s] === 'pit' ? -0.08 : 0;
+  // walk round the cell, four points a side: near (w = 0), right, far, left
+  const ring = [];
+  for (let k = 0; k < 4; k++) ring.push([k / 4, 0, 'N', k], [1, k / 4, 'R', 4 + k], [1 - k / 4, 1, 'F', 8 + k], [0, 1 - k / 4, 'L', 12 + k]);
+  ring.sort((a, b) => a[3] - b[3]);
+  const pts = ring.map(([u, w, s, k]) => {
+    let uu = u, ww = w;
+    if (u === 0) uu += off('L', k); if (u === 1) uu -= off('R', k);
+    if (w === 0) ww += off('N', k); if (w === 1) ww -= off('F', k);
+    if (k % 4) {   // points along a side wander a little, so no two pits look alike
+      const t = (hash(rz, l, 100 + k) - 0.5) * 0.12;
+      if (s === 'N' || s === 'F') uu += t; else ww += t;
+    }
+    return { x: l - HALF + uu, z: rz + ww, s };
+  }).filter((p) => p.z > camZ + 0.4);
+  if (pts.length < 3) return;
+  const top = (p) => proj(p.x, world.hAt(p.z), p.z), down = (p) => proj(p.x, world.hAt(p.z) - PIT_DEPTH, p.z);
+  const open = pts.map(top);
+  const yTop = Math.min(...open.map((q) => q[1])), yBot = Math.max(...open.map((q) => q[1]));
+  ctx.save();
+  blob(open); ctx.clip();
+  ctx.fillStyle = pal('pit', -2, fog); ctx.fillRect(Math.min(...open.map((q) => q[0])) - 2, yTop - 2, W, yBot - yTop + 4);
+  const wall = (edge, light) => {   // a wall below one edge of the opening, its top lit, its foot in the dark
+    if (edge.length < 2) return;
+    const a = edge.map(top), b = edge.map(down).reverse();
+    const y0 = Math.min(...a.map((q) => q[1])), y1 = Math.max(...b.map((q) => q[1]));
+    const g = ctx.createLinearGradient(0, y0, 0, Math.max(y0 + 1, y1));
+    g.addColorStop(0, pal('soil', light, fog)); g.addColorStop(0.18, pal('pitWall', light - 8, fog)); g.addColorStop(0.5, pal('pit', 2, fog)); g.addColorStop(1, pal('pit', -3, fog));
+    ctx.fillStyle = g; path([...a, ...b]); ctx.fill();
+    return a;
+  };
+  const camAcross = camX - world.offAt(rz + 0.5);
+  const far = pts.filter((p) => p.s === 'F' || (p.z - rz > 0.6 && side.F === 'grass'));
+  if (side.F === 'grass') {
+    const a = wall(far.sort((p, q) => p.x - q.x), -4);
+    if (a) {   // layers of earth and a few roots on the far wall
+      ctx.globalAlpha = 0.5 * (1 - fog); ctx.strokeStyle = pal('soil', -10, fog); ctx.lineWidth = Math.max(1, px * 0.012);
+      for (const d of [0.16, 0.36]) {
+        ctx.beginPath();
+        far.forEach((p, i) => { const q = proj(p.x, world.hAt(p.z) - d - (hash(rz, i, 110) - 0.5) * 0.04, p.z); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+        ctx.stroke();
+      }
+      ctx.strokeStyle = pal('woodDark', -8, fog); ctx.lineWidth = Math.max(1, px * 0.01);
+      for (let k = 0; k < 3; k++) {
+        const p = far[Math.floor(hash(rz, l, 120 + k) * far.length)], q0 = top(p), q1 = proj(p.x + (hash(rz, l, 125 + k) - 0.5) * 0.15, world.hAt(p.z) - 0.18 - hash(rz, l, 128 + k) * 0.2, p.z);
+        ctx.beginPath(); ctx.moveTo(q0[0], q0[1]); ctx.quadraticCurveTo(q0[0] + (q1[0] - q0[0]) * 1.4, (q0[1] + q1[1]) / 2, q1[0], q1[1]); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+  const leftX = Math.min(...pts.filter((p) => p.s === 'L').map((p) => p.x)), rightX = Math.max(...pts.filter((p) => p.s === 'R').map((p) => p.x));
+  if (side.L === 'grass' && camAcross > leftX) wall(pts.filter((p) => p.s === 'L').sort((p, q) => q.z - p.z), -8);
+  if (side.R === 'grass' && camAcross < rightX) wall(pts.filter((p) => p.s === 'R').sort((p, q) => q.z - p.z), -8);
+  ctx.restore();
+  // the rim: a dark lip and grass hanging over it, only where the pit meets grass
+  const cx = open.reduce((s2, q) => s2 + q[0], 0) / open.length, cy = open.reduce((s2, q) => s2 + q[1], 0) / open.length;
+  ctx.globalAlpha = 1 - fog;
+  for (const [which, color, wdt] of [[(s2) => s2 === 'F', pal('grassHi', 8, fog), 0.03], [(s2) => s2 !== 'F', pal('grass', -16, fog), 0.022]]) {
+    ctx.strokeStyle = color; ctx.lineWidth = Math.max(1, px * wdt);
+    ctx.beginPath();
+    for (let i = 0; i < pts.length; i++) {
+      if (side[pts[i].s] !== 'grass' || !which(pts[i].s)) continue;
+      const a = open[i], b = open[(i + 1) % open.length];
+      ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+    }
+    ctx.stroke();
+  }
+  ctx.strokeStyle = pal('grass', -4, fog); ctx.lineWidth = Math.max(1, px * 0.01);
+  ctx.beginPath();
+  open.forEach((a, i) => {
+    if (side[pts[i].s] !== 'grass' || hash(rz, l, 140 + i) < 0.4) return;
+    const dx = cx - a[0], dy = cy - a[1], d = Math.hypot(dx, dy) || 1, len = px * (0.04 + hash(rz, l, 150 + i) * 0.05);
+    ctx.moveTo(a[0], a[1]); ctx.lineTo(a[0] + dx / d * len, a[1] + dy / d * len * 0.6 + len * 0.3);
+  });
+  ctx.stroke();
+  ctx.globalAlpha = 1;
 }
 
 // grass tufts and small things on plain ground near the camera: flowers by day, fallen leaves and glowing
