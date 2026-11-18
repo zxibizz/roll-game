@@ -1,14 +1,15 @@
 // The page: draws the world from core.js in a hand-rolled perspective, reads the finger / mouse / keys,
 // shows the score and the play / game-over screen. The road is grass and earth; the sky goes from day to night
 // to space with the distance.
-import { World, LANES, HALF, SEC_ROWS, R, INSET, BOX_H, RAMP_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
+import { World, VERSION, LANES, HALF, SEC_ROWS, R, INSET, BOX_H, RAMP_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
 
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 const $score = document.getElementById('score'), $sec = document.getElementById('sec');
+document.getElementById('ver').textContent = 'v' + VERSION;   // small, on the start screen: which version runs
 const $over = document.getElementById('over'), $oscore = document.getElementById('oscore'), $obest = document.getElementById('obest');
 
 const BEST_KEY = 'roll.best';
-const SENS = 6;                     // world units per full screen-width drag
+const SENS = 3.2;                   // lanes per full screen-width drag: one lane takes about a third of the screen
 const SLAB = 0.35, VIEW = 46;       // track thickness, rows drawn ahead
 const PITCH = 0.5;
 const CAM_FOLLOW = 0.6;              // how much of the ball's sideways move the camera repeats
@@ -175,6 +176,7 @@ function play() {
 }
 
 function gameOver() {
+  if (reloadWanted) { location.reload(); return; }
   mode = 'over';
   const s = world.score;
   if (s > best) { best = s; localStorage.setItem(BEST_KEY, String(best)); }
@@ -778,7 +780,16 @@ camZ = world.ball.z - CAM_BACK;
 showOverlay(null);
 requestAnimationFrame(frame);
 
-if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+// A new version takes over as soon as it is downloaded: reload right away unless a run is going on, then after it.
+let reloadWanted = false;
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return;   // the very first install: nothing old is running
+    if (mode === 'play') reloadWanted = true; else location.reload();
+  });
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 
 // test hook for screenshots: jump the camera to row z of the given seed, driving the bot along the path
 window.__shot = (seed, z) => {

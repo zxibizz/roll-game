@@ -172,8 +172,32 @@ test('steering arrives on the target without overshooting, at any frame rate', (
         if (settled === null && Math.abs(w.ball.x - lanes) < 0.01) settled = t;
       }
       assert.ok(beyond <= 1e-9, `dt 1/${Math.round(1 / dt)}, ${lanes} lanes: went ${beyond.toFixed(3)} past the target`);
-      assert.ok(settled !== null && settled < 0.6, `dt 1/${Math.round(1 / dt)}, ${lanes} lanes: settled after ${settled}`);
+      assert.ok(settled !== null && settled < 0.45, `dt 1/${Math.round(1 / dt)}, ${lanes} lanes: settled after ${settled}`);
       assert.ok(Math.abs(w.ball.x - lanes) < 1e-6, 'it ends exactly on the target');
     }
   }
+});
+
+test('when the finger stops or turns back, the ball does at once', () => {
+  const w = new World(1);
+  w.ball.tx = 2;
+  for (let n = 0; n < 12; n++) w.step(1 / 60);   // on its way, at speed
+  const x = w.ball.x;
+  w.ball.tx = x;                                  // the finger stops right where the ball is
+  w.step(1 / 60);
+  assert.ok(Math.abs(w.ball.x - x) < 1e-9, `the ball slid on by ${(w.ball.x - x).toFixed(3)}`);
+  w.ball.tx = x - 1;                              // and turns back
+  w.step(1 / 60);
+  assert.ok(w.ball.x < x, 'the ball turned back on the next frame');
+});
+
+test('following a moving finger the ball stays close behind it, so little is left to roll once the finger stops', () => {
+  const w = new World(1);
+  let lag = 0;
+  for (let n = 0; n < 30; n++) {          // the finger sweeps 2 lanes in half a second
+    w.ball.tx = Math.min(2, n * (2 / 30));
+    w.step(1 / 60);
+    lag = Math.max(lag, w.ball.tx - w.ball.x);
+  }
+  assert.ok(lag < 0.25, `the ball fell ${lag.toFixed(2)} lanes behind the finger`);
 });

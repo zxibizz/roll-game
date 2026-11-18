@@ -27,6 +27,7 @@
   #over.hide { display: none; }
   #oscore { font-size: 64px; font-weight: 700; font-variant-numeric: tabular-nums; }
   #obest { opacity: .65; font-size: 20px; font-variant-numeric: tabular-nums; }
+  #over .ver { position: fixed; bottom: calc(10px + env(safe-area-inset-bottom, 0)); right: 12px; font-size: 12px; opacity: .45; }
   .play { margin-top: 20px; width: 84px; height: 84px; border-radius: 50%; background: #fff; }
   .play::after { content: ""; display: block; margin: 25px 0 0 33px; border-style: solid;
     border-width: 17px 0 17px 28px; border-color: transparent transparent transparent #05060d; }
@@ -35,7 +36,7 @@
 <body>
 <canvas id="c"></canvas>
 <div id="hud"><span id="score">0</span><span id="sec"></span></div>
-<div id="over" role="button" aria-label="Play"><div id="oscore"></div><div id="obest"></div><div class="play"></div></div>
+<div id="over" role="button" aria-label="Play"><div id="oscore"></div><div id="obest"></div><div class="play"></div><div class="ver" id="ver"></div></div>
 <script type="module" src="client.js"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.4.2';
+export const VERSION = '0.4.3';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -20,15 +20,30 @@ const DRIVE = 2;                 // how fast the speed returns to the section's 
 const GS = 16;                   // how much a slope speeds up / slows down the ball
 const SMAX = 0.32;               // steepest slope the terrain generator makes
 const JUMP_VY = 7;               // vertical speed a ramp gives
-// Steering: sideways the ball can't change speed faster than STEER_ACC (no jerks), and it is never faster than
-// it can still brake to a stop exactly on the finger's target (STEER_BRAKE, a little gentler than STEER_ACC),
-// so it gets there without overshooting and coming back. Close to the target it settles in at STEER_NEAR per second.
-const STEER_ACC = 80, STEER_BRAKE = 64, STEER_NEAR = 20;
-// how long moving over by one lane takes at forward speed v (the generator keeps both lanes open that long)
-const shiftTime = (v) => {
-  const L = latOf(v);
-  return (L * L / STEER_BRAKE >= 1 ? 2 / Math.sqrt(STEER_BRAKE) : 1 / L + L / STEER_BRAKE) + 0.06;
-};
+// Steering: the ball follows the finger's target closely. Speeding up is limited (STEER_ACC, no jerks), slowing
+// down is not: when the finger stops or turns back, the ball does too, with no momentum carrying it on. Close to the
+// target it settles in at STEER_K per second and never steps past it.
+const STEER_ACC = 150, STEER_K = 40;
+export function steer(b, L, dt) {
+  const d = b.tx - b.x, want = Math.sign(d) * Math.min(L, STEER_K * Math.abs(d));
+  if (Math.sign(want) !== Math.sign(b.vx) || Math.abs(want) < Math.abs(b.vx)) b.vx = want;   // slow down / turn at once
+  else b.vx += Math.min(Math.abs(want - b.vx), STEER_ACC * dt) * Math.sign(want);           // speed up gently
+  const move = b.vx * dt;
+  if (Math.abs(move) >= Math.abs(d)) { b.x = b.tx; b.vx = 0; } else b.x += move;
+}
+// how long moving over by one lane takes at forward speed v, until the ball is well inside the new lane
+// (the generator keeps both lanes open that long)
+const SHIFT_T = new Map();
+function shiftTime(v) {
+  const key = Math.round(v * 4);
+  if (!SHIFT_T.has(key)) {
+    const b = { x: 0, tx: 1, vx: 0 }, dt = 1 / 240;
+    let t = 0;
+    while (1 - b.x > 0.1 && t < 2) { steer(b, latOf(v), dt); t += dt; }
+    SHIFT_T.set(key, t + 0.05);
+  }
+  return SHIFT_T.get(key);
+}
 // The camera (client.js draws with these): it sits CAM_BACK rows behind the ball, CAM_H above the road.
 export const CAM_H = 1.4, CAM_BACK = 1.9;
 const SEE_AHEAD = 0.6;           // seconds of warning: an obstacle must be visible this long before the ball gets there
@@ -328,12 +343,7 @@ export class World {
         this.v = Math.max(2.5, this.v + (DRIVE * (target - this.v) - GS * s) * dt);
       }
       b.z += this.v * dt; b.roll += this.v * dt / R;
-      const L = latOf(this.v), d = b.tx - b.x;
-      const want = Math.sign(d) * Math.min(L, Math.sqrt(2 * STEER_BRAKE * Math.abs(d)), STEER_NEAR * Math.abs(d));
-      b.vx += clamp(want - b.vx, -STEER_ACC * dt, STEER_ACC * dt);
-      const move = b.vx * dt;
-      if (d !== 0 && Math.sign(move) === Math.sign(d) && Math.abs(move) >= Math.abs(d)) { b.x = b.tx; b.vx = 0; }   // never past the target
-      else b.x += move;
+      steer(b, latOf(this.v), dt);
       if (sec !== this.sec) { this.sec = sec; this.events.push('section'); }
       const lane = Math.floor(b.x + HALF), rz = Math.floor(b.z);
       const g = this.groundAt(b.x, b.z);
