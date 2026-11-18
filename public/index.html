@@ -11,6 +11,7 @@
 <meta name="apple-mobile-web-app-title" content="Roll">
 <title>Roll</title>
 <link rel="manifest" href="manifest.webmanifest">
+<script>if (navigator.standalone === true) document.documentElement.classList.add('pwa');   // see :root.pwa below</script>
 <link rel="icon" href="icons/favicon-64.png" sizes="64x64">
 <link rel="icon" href="icons/icon-192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -22,7 +23,15 @@
     overflow: hidden; touch-action: none;
     user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff; }
-  canvas { display: block; width: 100vw; height: 100dvh; }
+  canvas { display: block; width: 100vw; height: var(--app-h, 100dvh); }
+  /* installed on an iPhone (the script sets `tall` and --app-h, see fullHeight in client.js): the page is as tall as the
+     screen and everything lives inside it — iOS clips fixed elements at the edge of its shorter window */
+  :root.tall, :root.tall body { height: var(--app-h); }
+  :root.tall body { position: relative; }
+  :root.tall canvas { position: absolute; top: 0; left: 0; }
+  :root.tall #hud, :root.tall .screen, :root.tall #hint, :root.tall .ver { position: absolute; }
+  /* the status bar over the page frosts what is under it: the counters and the top buttons step down from it */
+  :root.pwa { --top: calc(env(safe-area-inset-top, 0px) + 16px); }
   button { font: inherit; color: inherit; border: 0; padding: 0; background: none; cursor: pointer; touch-action: manipulation; }
   svg { width: 1em; height: 1em; fill: currentColor; display: block; }
   [hidden] { display: none !important; }
@@ -85,7 +94,7 @@
   .tools { display: flex; gap: 10px; }
   /* the language sheet: native names in two columns, the device's language across the top */
   .langs { align-self: stretch; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
-    max-height: calc(100dvh - var(--top) - var(--bottom) - 140px); overflow-y: auto; }
+    max-height: calc(var(--app-h, 100dvh) - var(--top) - var(--bottom) - 140px); overflow-y: auto; }
   .langs button { min-height: 40px; padding: 6px 10px; border-radius: 14px; background: rgba(29, 36, 51, .08);
     font-size: 16px; font-weight: 600; color: var(--ink); }
   .langs button.on { background: #2b6fd6; color: #fff; }
@@ -155,7 +164,7 @@
     .card .cta { width: 76px; height: 76px; font-size: 44px; margin: 2px 0; }
     #newBest { position: absolute; top: 14px; left: 18px; font-size: 32px; }
     #langs .card { width: min(580px, 100%); }
-    .langs { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: calc(100dvh - var(--top) - var(--bottom) - 104px); }
+    .langs { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: calc(var(--app-h, 100dvh) - var(--top) - var(--bottom) - 104px); }
     .langs button { min-height: 34px; padding: 4px 8px; font-size: 15px; }
   }
   @media (prefers-reduced-motion: reduce) { #home h1 span, #home .cta { animation: none; } }

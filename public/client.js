@@ -626,13 +626,43 @@ function proj(x, y, z) {
 // the tallest card (about 330 px with a new record and a new ball) still fits under the top bar.
 const MAX_PX = 2.5e6, Q_MIN = 0.6;
 let quality = 1, ui = 1;
+// The game installed on an iPhone (as in the snake): iOS makes the window shorter than the screen by the status bar and
+// leaves an empty strip at the bottom; the page can't draw there unless it is itself as tall as the screen. So in that
+// case the page, the canvas and the screens take the screen's height (--app-h, the `tall` class; CSS puts them inside the
+// page, absolute: iOS clips fixed elements at the short window's edge). Only when the width matches the screen and the
+// difference is a strip, not a keyboard. The window height itself is not watched: iOS switches it back and forth.
+const IOS_PWA = navigator.standalone === true && /iPhone|iPod/.test(navigator.userAgent || '');
+// (the `pwa` class — the status bar lies over the page — is set by a line in index.html, before the first paint)
+let appW = 0, appH = 0, tall = false;
+// the screen's height in the current orientation (iOS reports the screen in portrait)
+const screenH = () => (innerHeight >= innerWidth ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height));
+function fullHeight() {
+  const iw = innerWidth, ih = innerHeight;
+  if (!IOS_PWA || !screen.width || !screen.height) return ih;
+  const portrait = ih >= iw, sh = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+  const sw = portrait ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
+  return Math.abs(sw - iw) < 2 && sh > ih && sh - ih < 120 ? sh : ih;
+}
+// iOS does not always say when the window changes: the loop looks itself twice a second, and the page's events only
+// ask for a look (a new layout rebuilds the whole canvas: only when the size really changed)
+let sizeAt = -Infinity;
+function checkSize(t, force = false) {
+  if (!force && t - sizeAt < 500) return;
+  sizeAt = t;
+  if (innerWidth !== appW || fullHeight() !== appH) relayout();
+}
+const sizeNow = () => checkSize(performance.now(), true);
 function resize() {
   fxAt = null;   // the pause button may have moved: find it again
-  dpr = Math.min(2, devicePixelRatio || 1, Math.sqrt(MAX_PX / (innerWidth * innerHeight))) * quality;
-  ui = clamp(Math.min(Math.min(innerWidth, innerHeight) / 480, (innerHeight - 40) / 420), 1, 1.5);
+  appW = innerWidth; appH = fullHeight(); tall = appH !== innerHeight || (IOS_PWA && appH === screenH());
+  document.documentElement.style.setProperty('--app-h', tall ? `${appH}px` : '');
+  document.documentElement.classList.toggle('tall', tall);
+  if (tall) scrollTo(0, 0);
+  dpr = Math.min(2, devicePixelRatio || 1, Math.sqrt(MAX_PX / (appW * appH))) * quality;
+  ui = clamp(Math.min(Math.min(appW, appH) / 480, (appH - 40) / 420), 1, 1.5);
   document.documentElement.style.setProperty('--ui', ui);
-  W = cv.width = Math.round(innerWidth * dpr);
-  H = cv.height = Math.round(innerHeight * dpr);
+  W = cv.width = Math.round(appW * dpr);
+  H = cv.height = Math.round(appH * dpr);
   f = Math.min(W * 1.2, H * 0.9);
   // the ball's contact point sits at 84 % of the height on flat ground
   const dz = CAM_BACK, dy = -CAM_H, zc = dz * CP - dy * SP, yc = dy * CP + dz * SP;
@@ -640,7 +670,7 @@ function resize() {
   horY = cy - f * SP / CP;
   // the home screen places its arrows and the price round the ball in the scene
   const br = R * f / BALL_ZC / dpr;
-  document.documentElement.style.setProperty('--ball-y', `${innerHeight * 0.84 - br}px`);
+  document.documentElement.style.setProperty('--ball-y', `${appH * 0.84 - br}px`);
   document.documentElement.style.setProperty('--ball-r', `${br}px`);
   stars = document.createElement('canvas'); stars.width = W; stars.height = H;
   const s = stars.getContext('2d'), rr = mulberry(7);
@@ -2970,7 +3000,7 @@ addEventListener('pointerdown', (e) => {
 addEventListener('pointermove', (e) => {
   if (e.pointerId !== dragId || dragDone) return;
   const dx = e.clientX - dragX, dy = e.clientY - dragY;
-  if (Math.max(Math.abs(dx), Math.abs(dy)) < clamp(Math.min(innerWidth, innerHeight) * SWIPE, SWIPE_MIN, SWIPE_MAX)) return;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < clamp(Math.min(appW, appH) * SWIPE, SWIPE_MIN, SWIPE_MAX)) return;
   dragDone = true;
   if (Math.abs(dx) >= Math.abs(dy)) act(Math.sign(dx), 0); else act(0, Math.sign(dy));
 });
@@ -3063,6 +3093,7 @@ function frame(t) {
   last = t;
   try {
     if (qWant) { qWant = false; relayout(); }   // a lower resolution starts with a fresh frame, never mid-frame
+    checkSize(t);
     const t0 = performance.now();
     update(dt);
     draw();
@@ -3093,9 +3124,9 @@ function watchFrames(gap, work) {
   qBefore = { quality, gap: avg };
   quality = Math.max(Q_MIN, quality * Q_STEP); qWant = true;
 }
-// On an iPhone the game kept on the home screen can get a strip at the bottom that no page can draw in (an iOS bug,
-// WebKit 301994): the system paints it in the page's background colour. So the background follows the grass of the
-// biome under the ball, and the strip reads as more of the road rather than a black cut-out.
+// The page's background follows the grass of the biome under the ball: wherever the canvas does not reach for a moment
+// (an iPhone window that has just changed its height, before the page is laid out to the screen again), the gap reads
+// as more of the road rather than a black cut-out.
 let edgeAt = 0, edgeColor = '';
 function matchEdge(t) {
   if (t - edgeAt < 500) return;
@@ -3150,6 +3181,10 @@ on('btnUpdate', () => {
 
 initAudio(save);
 addEventListener('resize', relayout);
+if (window.visualViewport) visualViewport.addEventListener('resize', sizeNow);
+addEventListener('pageshow', sizeNow);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(sizeNow, 300); });
+addEventListener('scroll', () => { if (tall && (scrollX || scrollY)) scrollTo(0, 0); });   // a page taller than its window must not move
 resize();
 if (!restoreRun()) goHome();
 requestAnimationFrame(frame);
