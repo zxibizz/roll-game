@@ -13,8 +13,12 @@ Site: `https://roll.games.bubas.cc`.
     a window of at least 0.15 s to start it in (a log: about 0.45 s). A ramp passed over in a jump still throws the
     ball on. Asked for up to 0.15 s before landing, it happens on landing;
   - down (↓ / S) — out of the air straight to the ground, also off a ramp.
-  A swipe counts as soon as the finger has gone 6 % of the screen width (18 px at least), without waiting for it
+  A swipe counts as soon as the finger has gone 6 % of the screen's shorter side (18 to 28 px: on a tablet 6 % was a finger's travel of about 9 mm), without waiting for it
   to lift.
+- Tablets: the canvas has at most 2.5 million pixels (a tablet at full density cost two to three times a phone's
+  frame); if frames still come slower than about 45 a second while the drawing itself is heavy, the resolution steps
+  down by 15 % (to 60 % at most) for the rest of the visit, and a step that did not help is taken back. The counters,
+  the top bar and the cards grow with the screen, up to 1.5 times, as long as the tallest card fits.
 - There is no swiping off the road: at its edge the ball leans out, thuds and stays in its lane. It still falls
   where the lane itself ends — into the gap when the road splits, or off the outer lane when the road narrows.
 - The track is usually 5 lanes wide and comes in sections of 5 seconds each (45 rows at the start, 120 at the top speed).
