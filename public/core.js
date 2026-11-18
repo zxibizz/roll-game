@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.7.0';
+export const VERSION = '0.7.1';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -26,9 +26,10 @@ const DRIVE = 2;                 // how fast the speed returns to the section's 
 const GS = 16;                   // how much a slope speeds up / slows down the ball
 const SMAX = 0.32;               // steepest slope the terrain generator makes
 const JUMP_VY = 7;               // vertical speed a ramp gives
-// The ball's own jump (swipe up): about 0.65 high, 0.43 s long, and it follows the ground, so it is the same on a slope.
-// It clears a low barrier and a short pit, not a block. A swipe down in the air throws the ball to the ground.
-export const HOP_VY = 6.5, DROP_VY = 16;
+// The ball's own jump (swipe up): about 0.65 high, 0.5 s long, and it follows the ground, so it is the same on a slope.
+// It is floatier than a fall (HOP_G instead of G): a log is cleared by a jump started anywhere from 0.37 to 0.1 s
+// before it. It clears a low barrier and a short pit, not a block. A swipe down in the air throws the ball to the ground.
+export const HOP_VY = 5.5, HOP_G = 22, DROP_VY = 16;
 const HOP_BUFFER = 0.15;         // a jump asked for this long before landing happens on landing
 const REACT = 0.6;               // seconds a player gets for one swipe, on top of the lane change itself
 const MAX_DT = 1 / 60;           // the world advances in steps no longer than this, however slow the frame
@@ -431,7 +432,7 @@ export class World {
     const b = this.ball, t = this.track, goal = t.get(Math.max(0, Math.floor(b.z - R - 0.05))).goal;
     if (goal !== this.lane) this.move(Math.sign(goal - this.lane));
     if (b.air) return;
-    const reach = this.v * HOP_VY / G, at = Math.floor(b.x + HALF);   // half a jump: the barrier goes under the top of it
+    const reach = this.v * HOP_VY / HOP_G, at = Math.floor(b.x + HALF);   // half a jump: the barrier goes under the top of it
     for (let r = Math.floor(b.z); r + 0.5 - b.z <= reach; r++) {
       const row = t.get(r);
       if (r + 0.5 > b.z && (row.low[at] || row.low[this.lane])) { this.jump(); break; }
@@ -565,7 +566,7 @@ export class World {
           }
         }
       } else {
-        b.vy -= G * dt; b.y += b.vy * dt; b.airT += dt;
+        b.vy -= (b.hop ? HOP_G : G) * dt; b.y += b.vy * dt; b.airT += dt;
         if (b.hop) b.y += this.hAt(b.z) - hPrev;   // its own jump is counted from the ground below
         if (g !== null && b.y <= g + R) {
           if (!b.fromRamp && b.airT > 0.15) this.stats.hops++;

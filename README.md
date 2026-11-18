@@ -9,8 +9,8 @@ Site: `https://roll.games.bubas.cc`.
   however long it is:
   - left / right (← → / A D) — the next lane, also in the air. A lane change takes about 0.15 s at the start and
     gets quicker with the speed;
-  - up (↑ / W / Space) — a jump: about 0.65 of a lane high, 0.43 s long, the same up and down a slope. It clears a
-    log and a short pit, not a rock or a bush. Asked for up to 0.15 s before landing, it happens on landing;
+  - up (↑ / W / Space) — a jump: about 0.65 of a lane high, 0.5 s long, the same up and down a slope. A log is
+    cleared by a jump started anywhere from 0.37 to 0.1 s before it. It clears a log and a short pit, not a rock or a bush. Asked for up to 0.15 s before landing, it happens on landing;
   - down (↓ / S) — out of the air straight to the ground, also off a ramp.
   A swipe counts as soon as the finger has gone 6 % of the screen width (18 px at least), without waiting for it
   to lift.

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { World, Track, SEC_ROWS, LANES, MID, VERSION, HOP_VY, BOX_H, G, R, laneX, speedOf, fastOf, mulberry } from '../public/core.js';
+import { World, Track, SEC_ROWS, LANES, MID, VERSION, HOP_VY, HOP_G, BOX_H, R, laneX, speedOf, fastOf, mulberry } from '../public/core.js';
 
 const DT = 1 / 60;
 
@@ -474,7 +474,7 @@ function lazy(w) {
       return;
     }
     if (row.low[lane]) {
-      if (!b.air && r + 0.5 > b.z && r + 0.5 - b.z <= w.v * HOP_VY / G) w.jump();
+      if (!b.air && r + 0.5 > b.z && r + 0.5 - b.z <= w.v * HOP_VY / HOP_G) w.jump();
       return;
     }
     if (!shut(row, lane)) continue;
@@ -503,22 +503,40 @@ const flatWorld = (rows = 120) => {
   return w;
 };
 
-test('a jump is about 0.65 high and lasts 0.43 s; it clears a low barrier and a pit, not a block', () => {
+test('a jump is about 0.65 high and lasts 0.5 s; it clears a low barrier and a pit, not a block', () => {
   const air = (w) => { let top = 0, t = 0; while (w.ball.air && w.state === 'run') { w.step(DT); t += DT; top = Math.max(top, w.ball.y - R); } return [top, t]; };
   let w = flatWorld();
   for (let n = 0; n < 30; n++) w.step(DT);
   assert.equal(w.jump(), true);
   const [top, t] = air(w);
-  assert.ok(top > 0.6 && top < BOX_H && Math.abs(t - 2 * HOP_VY / G) < 0.03, `${top.toFixed(2)} high, ${t.toFixed(2)} s`);
+  assert.ok(top > 0.6 && top < BOX_H && Math.abs(t - 2 * HOP_VY / HOP_G) < 0.03, `${top.toFixed(2)} high, ${t.toFixed(2)} s`);
   for (const [what, fate] of [['low', 'run'], ['pit', 'run'], ['block', 'crash'], ['none-low', 'crash'], ['none-pit', 'fall']]) {
     w = flatWorld();
     const row = w.track.get(20);
     if (what.endsWith('low')) row.low[MID] = true; else if (what.endsWith('pit')) row.floor[MID] = false; else row.block[MID] = true;
     while (w.state === 'run' && w.ball.z < 30) {
-      if (!what.startsWith('none') && !w.ball.air && w.ball.z < 20.5 && 20.5 - w.ball.z <= w.v * HOP_VY / G) w.jump();
+      if (!what.startsWith('none') && !w.ball.air && w.ball.z < 20.5 && 20.5 - w.ball.z <= w.v * HOP_VY / HOP_G) w.jump();
       w.step(DT);
     }
     assert.equal(w.state, fate, what);
+  }
+});
+
+test('a log is cleared by a jump started anywhere from 0.37 to 0.1 s before it, at any speed', () => {
+  for (const v of [5, 9, 16, 24, 27]) {
+    // crawling uphill the ball takes longer to cross the log itself, so the window is a little shorter
+    for (const [early, fate] of [[0.6, 'crash'], [v < 9 ? 0.33 : 0.37, 'run'], [0.3, 'run'], [0.2, 'run'], [v < 9 ? 0.15 : 0.1, 'run'], [0.01, 'crash']]) {
+      const w = flatWorld(200);
+      w.track.get(60).low[MID] = true;
+      w.ball.z = 60.5 - v * early - 3;
+      let done = false;
+      while (w.state === 'run' && w.ball.z < 75) {
+        w.v = v;
+        if (!done && w.ball.z >= 60.5 - v * early) { done = true; w.jump(); }
+        w.step(DT);
+      }
+      assert.equal(w.state, fate, `speed ${v}, a jump ${early} s before the log`);
+    }
   }
 });
 
@@ -530,7 +548,7 @@ test('a jump is the same up and down a slope', () => {
     w.jump();
     let top = 0, t = 0;
     while (w.ball.air) { w.step(DT); t += DT; top = Math.max(top, w.ball.y - R - w.hAt(w.ball.z)); }
-    assert.ok(top > 0.6 && top < BOX_H && Math.abs(t - 0.43) < 0.04, `slope ${slope}: ${top.toFixed(2)} high, ${t.toFixed(2)} s`);
+    assert.ok(top > 0.6 && top < BOX_H && Math.abs(t - 0.5) < 0.04, `slope ${slope}: ${top.toFixed(2)} high, ${t.toFixed(2)} s`);
   }
 });
 
@@ -555,7 +573,7 @@ test('a jump asked for just before landing happens on landing, an earlier one is
     w.jump();
     let t = 0, asked = false, jumps = 0;
     while (t < 0.6) {
-      if (!asked && t >= 2 * HOP_VY / G - early) { asked = true; assert.equal(w.jump(), false); }
+      if (!asked && t >= 2 * HOP_VY / HOP_G - early) { asked = true; assert.equal(w.jump(), false); }
       w.step(DT); t += DT;
     }
     jumps = w.events.filter((e) => e === 'jump').length;
