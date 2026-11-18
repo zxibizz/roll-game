@@ -617,6 +617,7 @@ function proj(x, y, z) {
 }
 
 function resize() {
+  fxAt = null;   // the pause button may have moved: find it again
   dpr = Math.min(2, devicePixelRatio || 1);
   W = cv.width = Math.round(innerWidth * dpr);
   H = cv.height = Math.round(innerHeight * dpr);
@@ -2772,14 +2773,21 @@ function drawBonus(bo, rz, fog) {
   for (let k = 0; k < 3; k++) { const an = t * 2.2 + k * 2.094; ctx.beginPath(); ctx.arc(x + Math.cos(an) * r * 1.3, y + Math.sin(an) * r * 1.3 * 0.8, Math.max(1, r * 0.07), 0, 7); ctx.fill(); }
   ctx.globalAlpha = 1;
 }
-// what is at work now, under the pause button: an icon in a ring that runs down
+// what is at work now, under the pause button: an icon in a ring that runs down. The spot is taken from the button
+// itself (CSS px, kept until the next resize): the HUD moves down by the notch's inset, sideways by a landscape one.
+let fxAt = null;
 function drawEffects() {
   const fx = world.fx, on = [];
+  if (!fxAt) {
+    const r = $('btnPause').getBoundingClientRect();
+    if (r.width) fxAt = { x: r.left + r.width / 2, y: r.bottom + 14 + 21 };
+  }
+  const ax = fxAt ? fxAt.x : 36, ay = fxAt ? fxAt.y : 112;
   if (world.ball.fly) on.push(['fly', fx.fly / FLY_T]);
   if (fx.magnet > 0) on.push(['magnet', fx.magnet / MAGNET_T]);
   if (fx.shield > 0) on.push(['shield', fx.shield / SHIELD_T]);
   on.forEach(([kind, left], i) => {
-    const r = 21 * dpr, x = 36 * dpr + i * 52 * dpr, y = 112 * dpr, c = BONUS_C[kind];
+    const r = 21 * dpr, x = (ax + i * 52) * dpr, y = ay * dpr, c = BONUS_C[kind];
     ctx.fillStyle = 'rgba(20,30,60,.35)'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
     ctx.strokeStyle = `rgb(${c})`; ctx.lineWidth = 3.5 * dpr; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * clamp(left, 0.001, 1)); ctx.stroke(); ctx.lineCap = 'butt';
