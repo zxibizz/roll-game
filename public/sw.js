@@ -1,8 +1,9 @@
 // Offline: every game file goes into the cache on install and is served from it from then on.
 // When any file in public/ changes, bump VERSION here and in core.js — otherwise devices stay on the old version.
-// A new version installs in the background and takes over at once; the page reloads itself when it is safe to.
+// A new version installs in the background and waits: the home screen shows an update button, and a tap on it
+// ('skip') lets it take over (the page then reloads). Untapped, it takes over once every window of the game is closed.
 // Music is not part of a version: tracks go into their own cache when first played and stay there across versions.
-const VERSION = '0.20.0';
+const VERSION = '0.21.0';
 const CACHE = `roll-v${VERSION}`;
 const MUSIC_CACHE = 'roll-music-1';   // bump only if a track file changes
 const ASSETS = [
@@ -45,8 +46,14 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(async () => {
+    // a page older than the update button (before 0.21.0) can't ask: take over at once, as those versions did
+    const old = (await caches.keys()).map((k) => /^roll-v(\d+)\.(\d+)\./.exec(k)).filter(Boolean);
+    if (old.some(([, a, b]) => +a === 0 && +b < 21)) await self.skipWaiting();
+  }));
 });
+
+self.addEventListener('message', (e) => { if (e.data === 'skip') self.skipWaiting(); });
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(

@@ -307,6 +307,7 @@ function resetView() {
 
 function goHome() {
   bankRun();
+  checkUpdate();   // (its answer comes later: the button shows up on the home screen when a new version is ready)
   if (reloadWanted) { location.reload(); return; }
   world = new World(1); skinView = skinAt;
   resetView(); setMode('home'); showHome();
@@ -322,6 +323,7 @@ function showHome() {
 }
 
 function startGame() {
+  if (swAsked) return;   // the update button was tapped: the page is about to reload
   bankRun();
   if (reloadWanted) { location.reload(); return; }
   world = new World(2 + ((Math.random() * 1e9) | 0));
@@ -3092,17 +3094,46 @@ function watchFrames(gap, work) {
 }
 function relayout() { resize(); follow(); hudStar = null; }
 
-// A new version takes over as soon as it is downloaded: reload right away on the home screen, otherwise when the
-// player gets there (a stored run belongs to the version that made it).
-let reloadWanted = false;
+// A new version downloads in the background and waits for the player: the home screen shows an update button, and
+// a tap lets it take over and reloads the page. The game also asks for a new version itself — on start, when it comes
+// back to the screen and on the way to the home screen, at most once a minute: an app kept open in the background
+// would otherwise only hear of one when it is started anew. Should a new version take over some other way (every
+// window closed but this one), the page reloads on the home screen or when the player gets there (a stored run
+// belongs to the version that made it).
+let reloadWanted = false, swReg = null, swChecked = -Infinity, swAsked = false;
+const $upd = $('btnUpdate');
+function checkUpdate() {
+  if (!swReg || performance.now() - swChecked < 60e3) return;
+  swChecked = performance.now();
+  swReg.update().catch(() => {});   // offline: next time
+}
+function watchUpdate(reg) {
+  const show = () => {
+    $upd.hidden = !(reg.waiting && navigator.serviceWorker.controller);
+    if (!swAsked) { $upd.disabled = false; $upd.classList.remove('busy'); }
+  };
+  const follow = (sw) => { if (sw) sw.addEventListener('statechange', show); };
+  reg.addEventListener('updatefound', () => follow(reg.installing));
+  follow(reg.installing);   // one may be on its way already (the browser checks on load by itself)
+  show();
+}
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!hadController) return;   // the very first install: nothing old is running
+    if (!hadController && !swAsked) return;   // the very first install: nothing old is running
     if (mode === 'home' && $set.hidden) location.reload(); else reloadWanted = true;
   });
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js').then((reg) => { swReg = reg; watchUpdate(reg); checkUpdate(); }).catch(() => {});
+  // back on the screen: only on the home screen, never in the middle of a run (an install downloads every file)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && mode === 'home') checkUpdate(); });
 }
+on('btnUpdate', () => {
+  const w = swReg && swReg.waiting;
+  if (!w || !navigator.serviceWorker.controller) { $upd.hidden = true; return; }
+  swAsked = true; $upd.disabled = true; $upd.classList.add('busy');
+  w.postMessage('skip');   // it takes over, controllerchange reloads the page
+  setTimeout(() => location.reload(), 3000);   // should that not come (the worker was replaced meanwhile): reload anyway
+});
 
 initAudio(save);
 addEventListener('resize', relayout);
@@ -3121,6 +3152,7 @@ window.__shot = (seed, z) => {
   $hud.hidden = false; $score.textContent = world.score; $starN.textContent = world.stars; draw();
 };
 window.__world = () => world;
+window.__update = () => { swChecked = -1e9; checkUpdate(); };
 window.__res = () => ({ dpr, quality, ui, W, H, qDone });
 window.__watch = (gap, work) => { watchFrames(gap, work); if (qWant) { qWant = false; relayout(); } };
 window.__lean = (v) => { lean = v; draw(); const b = world.ball; return proj(b.x, b.y, b.z).slice(0, 2); };

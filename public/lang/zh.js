@@ -18,4 +18,5 @@ export default {
   "a11y.music": "音乐",
   "a11y.vibration": "振动",
   "a11y.done": "完成",
+  "a11y.update": "更新",
 };

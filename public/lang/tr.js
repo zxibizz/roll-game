@@ -18,4 +18,5 @@ export default {
   "a11y.music": "Müzik",
   "a11y.vibration": "Titreşim",
   "a11y.done": "Tamam",
+  "a11y.update": "Güncelle",
 };

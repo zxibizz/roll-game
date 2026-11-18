@@ -18,4 +18,5 @@ export default {
   "a11y.music": "Muzyka",
   "a11y.vibration": "Wibracje",
   "a11y.done": "Gotowe",
+  "a11y.update": "Aktualizuj",
 };

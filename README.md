@@ -15,6 +15,11 @@ Site: `https://roll.games.bubas.cc`.
   - down (↓ / S) — out of the air straight to the ground, also off a ramp.
   A swipe counts as soon as the finger has gone 6 % of the screen's shorter side (18 to 28 px: on a tablet 6 % was a finger's travel of about 9 mm), without waiting for it
   to lift.
+- Updates: a new version downloads in the background and waits; the home screen then shows a yellow update button
+  next to the globe, and a tap on it reloads into the new version. The game asks for a new version itself on start,
+  when it comes back to the screen on the home screen, and on the way home — at most once a minute. Untapped, the new
+  version takes over once every window of the game is closed. Versions before 0.21.0 had no button and took over at
+  once; the first update from one of them still does.
 - Tablets: the canvas has at most 2.5 million pixels (a tablet at full density cost two to three times a phone's
   frame); if frames still come slower than about 45 a second while the drawing itself is heavy, the resolution steps
   down by 15 % (to 60 % at most) for the rest of the visit, and a step that did not help is taken back. The counters,

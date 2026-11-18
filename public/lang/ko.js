@@ -18,4 +18,5 @@ export default {
   "a11y.music": "음악",
   "a11y.vibration": "진동",
   "a11y.done": "완료",
+  "a11y.update": "업데이트",
 };

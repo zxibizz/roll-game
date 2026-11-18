@@ -18,4 +18,5 @@ export default {
   "a11y.music": "Muziek",
   "a11y.vibration": "Trillen",
   "a11y.done": "Klaar",
+  "a11y.update": "Bijwerken",
 };
