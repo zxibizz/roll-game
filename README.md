@@ -92,11 +92,15 @@ Site: `https://roll.games.bubas.cc`.
     speed lines.
   - Stars are not spent on bonuses. A run saved mid-flight goes on mid-flight.
 - Stars come in stretches of 1.2–2 s with breaks of 2.5–4.5 s and no stars between. In a stretch a line lies on the
-  safe path and lines in about half of the other lanes alongside: a ball takes one lane of them, a magnet all. An
-  arc hangs over most jumps, and one hangs over most logs on the path. They add up over all runs and open ball colours
-  and pets between them (`SKINS` in `client.js`: 50, a hamster at 100, 150, 300, a kitten at 400, 500, 800, a chick
-  at 1000, 1200, 1800). A pet runs inside a clear tinted ball: from behind in a run, its feet taking turns, its head
-  turning with a lane change (the hamster's cheeks puff up with a star); face on at home. The score stays the distance.
+  safe path and lines in about half of the other lanes alongside: a ball takes one lane of them, a magnet all. In a
+  line a star lies every few rows, 3 a second at any speed (`STAR_RATE`; about 4 a second along a flight, 8 along an arc), the lanes in step,
+  so a faster section pays no more than a slow one. An arc hangs over most jumps, and one hangs over most logs on the
+  path. A bot on the path takes about 75–80 stars a minute, early or late in a run. They add up over all
+  runs and open ball colours and pets between them (`SKINS` in `client.js`: 100, a hamster at 250, 450, 700, a kitten
+  at 1000, 1500, 2200, a chick at 3200, 4800, 7000) — a good run opens one or two, not all of them. An opened one
+  stays open (`open` in `roll.save`); a save from before 0.18 keeps what the old prices (50 … 1800) had opened.
+  A pet runs inside a clear tinted ball: from behind in a run, its feet taking turns, its head turning with a lane
+  change (the hamster's cheeks puff up with a star); face on at home. The score stays the distance.
 
 ## Screens
 

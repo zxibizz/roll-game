@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { World as GameWorld, Track, secStart, secOf, secPos, BIOME_SECS, SEC_T, LANES, MID, VERSION, HOP_VY, HOP_G, HOP_WIN, hopRows, slowOf, SPEED_TOL, BOX_H, R, CROSS_ROWS, FLY_T, FLY_H, MAGNET_T, SHIELD_T, laneX, speedOf, fastOf, mulberry } from '../public/core.js';
+import { World as GameWorld, Track, secStart, secOf, secPos, BIOME_SECS, SEC_T, LANES, MID, VERSION, HOP_VY, HOP_G, HOP_WIN, hopRows, slowOf, SPEED_TOL, BOX_H, R, CROSS_ROWS, FLY_T, FLY_H, MAGNET_T, SHIELD_T, laneX, speedOf, fastOf, mulberry, starStep, STAR_RATE } from '../public/core.js';
 
 // Most tests look at the road and the ball alone: their world has no bonuses lying on it (the road is the same).
 class World extends GameWorld {
@@ -838,8 +838,8 @@ test('stars come in stretches, lines on the path and in other lanes, with real b
       rows++;
       const flat = r.star.some((x) => x === 1);   // (arcs over jumps and stars over logs are not part of the stretches)
       if (flat) {
-        starRows++;
-        if (last >= 0 && i - last > 3) {
+        starRows += starStep(speedOf(r.sec));   // a star every few rows: the rows up to the next one are the line's too
+        if (last >= 0 && i - last > starStep(speedOf(r.sec)) + 3) {
           // a jump or someone walking across interrupts a stretch: that is not a break
           let within = false;
           for (let k = last + 1; k < i; k++) { const q = t.get(k); if (q.mover || q.ramp.some(Boolean) || q.star.some((x) => x > 1)) within = true; }
@@ -847,14 +847,37 @@ test('stars come in stretches, lines on the path and in other lanes, with real b
         }
         last = i;
       }
-      r.star.forEach((x, l) => { if (x) { all++; if (l === r.goal) path++; } });
+      r.star.forEach((x, l) => { if (x === 1) { all++; if (l === r.goal) path++; } });   // the lines only
     }
   }
   assert.ok(starRows / rows > 0.2 && starRows / rows < 0.45, `stars in ${(100 * starRows / rows).toFixed(0)} % of rows`);
   // (a stretch may still have a gap of a few rows: behind a crest, or while the path moves over)
   // (about a quarter to 0.3 of them; on ten tracks alone it swung from 0.2 to 0.38, hence forty)
-  assert.ok(breaks > 280 && shortBreaks < breaks * 0.33, `${breaks} breaks, ${shortBreaks} of them under 1.5 s`);
+  assert.ok(breaks > 240 && shortBreaks < breaks * 0.33, `${breaks} breaks, ${shortBreaks} of them under 1.5 s`);
   assert.ok(path / all > 0.25 && path / all < 0.5, `${path} on the path of ${all}`);
+});
+
+test('a line of stars has STAR_RATE a second at any speed, its lanes in step: a faster section pays no more', () => {
+  const perSec = [];
+  for (const sec of [0, 12, 30]) {
+    let stars = 0, rows = 0, off = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      const t = new Track(seed);
+      for (let i = secStart(sec); i < secStart(sec + 1); i++) {
+        const r = t.get(i);
+        rows++;
+        if (r.star[r.goal] === 1) stars++;
+        // the other lanes' stars stand in the same rows as the path's
+        if (r.star.some((x, l) => x === 1 && l !== r.goal) && r.star[r.goal] !== 1 && !t.get(i - 1).ramp.some(Boolean)) off++;
+      }
+    }
+    const v = speedOf(sec), s = stars / (rows / v);
+    perSec.push(s);
+    assert.ok(off < stars * 0.25, `section ${sec}: ${off} rows of stars off the path's beat, ${stars} on it`);
+  }
+  // (a little less later on: jumps and the walls before them take more of a faster section)
+  assert.ok(perSec.every((x) => x <= perSec[0] * 1.1 && x > perSec[0] * 0.6) && perSec[0] < STAR_RATE,
+    `path stars a second by section: ${perSec.map((x) => x.toFixed(2)).join(', ')}`);
 });
 
 test('a magnet brings in the stars of every lane for 8 s: a few times what a ball on the path gets', () => {

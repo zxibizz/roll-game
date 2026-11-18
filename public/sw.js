@@ -2,7 +2,7 @@
 // When any file in public/ changes, bump VERSION here and in core.js — otherwise devices stay on the old version.
 // A new version installs in the background and takes over at once; the page reloads itself when it is safe to.
 // Music is not part of a version: tracks go into their own cache when first played and stay there across versions.
-const VERSION = '0.17.1';
+const VERSION = '0.18.0';
 const CACHE = `roll-v${VERSION}`;
 const MUSIC_CACHE = 'roll-music-1';   // bump only if a track file changes
 const ASSETS = [

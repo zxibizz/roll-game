@@ -27,21 +27,32 @@ const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save
 
 // Balls: smooth and glossy, they differ in colour only; between them come pets that run inside a clear ball of the
 // given tint (`pet`, drawn by drawPet; `c` and `glow` are the glass, for the shards of a crash and the glow).
-// `need` — stars collected over all runs that open one.
+// `need` — stars collected over all runs that open one. Once open, a ball stays open (save.open), whatever the
+// prices become.
 const SKINS = [
   { id: 'coral', need: 0, c: ['#fff1e6', '#ff8a5c', '#cf4b25'], glow: [255, 140, 90] },
-  { id: 'sky', need: 50, c: ['#f0faff', '#4fb4ff', '#1867c9'], glow: [90, 170, 255] },
-  { id: 'hamster', need: 100, pet: 'hamster', c: ['#f2f9ff', '#9fd0ff', '#5d9bd9'], glow: [120, 190, 255] },
-  { id: 'rose', need: 150, c: ['#fff0f6', '#ff6fa5', '#c42b6b'], glow: [255, 120, 170] },
-  { id: 'sun', need: 300, c: ['#fffde6', '#ffd84a', '#e08e00'], glow: [255, 215, 90] },
-  { id: 'kitten', need: 400, pet: 'kitten', c: ['#fff4f8', '#ffb0d0', '#e0709f'], glow: [255, 150, 195] },
-  { id: 'violet', need: 500, c: ['#f8eaff', '#b56cff', '#6a2bc4'], glow: [190, 120, 255] },
-  { id: 'pearl', need: 800, c: ['#ffffff', '#ebe6f7', '#a79fc4'], glow: [230, 225, 255] },
-  { id: 'chick', need: 1000, pet: 'chick', c: ['#f0fff8', '#9be8c8', '#4fb88f'], glow: [110, 215, 170] },
-  { id: 'night', need: 1200, c: ['#c3cdf0', '#3b4466', '#10131f'], glow: [120, 140, 255] },
-  { id: 'ruby', need: 1800, c: ['#ffe3e3', '#e0193a', '#7a0018'], glow: [255, 70, 90], sparkle: true },
+  { id: 'sky', need: 100, c: ['#f0faff', '#4fb4ff', '#1867c9'], glow: [90, 170, 255] },
+  { id: 'hamster', need: 250, pet: 'hamster', c: ['#f2f9ff', '#9fd0ff', '#5d9bd9'], glow: [120, 190, 255] },
+  { id: 'rose', need: 450, c: ['#fff0f6', '#ff6fa5', '#c42b6b'], glow: [255, 120, 170] },
+  { id: 'sun', need: 700, c: ['#fffde6', '#ffd84a', '#e08e00'], glow: [255, 215, 90] },
+  { id: 'kitten', need: 1000, pet: 'kitten', c: ['#fff4f8', '#ffb0d0', '#e0709f'], glow: [255, 150, 195] },
+  { id: 'violet', need: 1500, c: ['#f8eaff', '#b56cff', '#6a2bc4'], glow: [190, 120, 255] },
+  { id: 'pearl', need: 2200, c: ['#ffffff', '#ebe6f7', '#a79fc4'], glow: [230, 225, 255] },
+  { id: 'chick', need: 3200, pet: 'chick', c: ['#f0fff8', '#9be8c8', '#4fb88f'], glow: [110, 215, 170] },
+  { id: 'night', need: 4800, c: ['#c3cdf0', '#3b4466', '#10131f'], glow: [120, 140, 255] },
+  { id: 'ruby', need: 7000, c: ['#ffe3e3', '#e0193a', '#7a0018'], glow: [255, 70, 90], sparkle: true },
 ];
-const skinOpen = (k) => save.stars >= k.need;
+// Before 0.18 a run paid about three times as many stars and every ball was cheaper: what those prices opened stays open.
+const OLD_NEED = { sky: 50, hamster: 100, rose: 150, sun: 300, kitten: 400, violet: 500, pearl: 800, chick: 1000, night: 1200, ruby: 1800 };
+if (Array.isArray(save.open)) save.open = save.open.filter((id) => typeof id === 'string');
+else { save.open = SKINS.filter((k) => save.stars >= (OLD_NEED[k.id] ?? k.need)).map((k) => k.id); persist(); }
+const skinOpen = (k) => k.need === 0 || save.open.includes(k.id);
+const openEarned = () => {   // the balls the bank has reached and that are not open yet: open them now
+  const fresh = SKINS.filter((k) => !skinOpen(k) && save.stars >= k.need);
+  for (const k of fresh) save.open.push(k.id);
+  return fresh;
+};
+openEarned();
 let skinAt = Math.max(0, SKINS.findIndex((k) => k.id === save.skin && skinOpen(k)));   // the ball that plays
 let skinView = skinAt;                                                               // the ball on show on the home screen
 
@@ -339,11 +350,12 @@ function resume() {
 let banked = null;
 function bankRun() {
   if (banked || world.seed === 1) return banked;   // seed 1 is the scene behind the home screen
-  const s = world.score, was = save.stars, isBest = s > save.best;
+  const s = world.score, isBest = s > save.best;
   save.stars += world.stars;
   if (isBest) save.best = s;
+  const fresh = openEarned();
   persist(); clearRun();
-  banked = { s, isBest, stars: world.stars, fresh: SKINS.filter((k) => k.need > was && k.need <= save.stars) };
+  banked = { s, isBest, stars: world.stars, fresh };
   return banked;
 }
 
@@ -377,7 +389,7 @@ function restoreRun() {
     if (o && o.ball) {
       save.stars += clamp(Math.floor(o.stars) || 0, 0, 1e5);
       save.best = Math.max(save.best, clamp(Math.floor(o.ball.z) || 0, 0, 1e6));
-      persist();
+      openEarned(); persist();
     }
     clearRun();
     return false;
