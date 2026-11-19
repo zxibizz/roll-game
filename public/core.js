@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.26.4';
+export const VERSION = '0.27.0';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -122,6 +122,14 @@ export function setFinalBiome(b) {
 export const endOf = (s) => (s >= FINAL_SEC ? Math.floor(s - FINAL_SEC) : -1);
 // how far the endless difficulty has gone, 0..1: the waves are as close as fair play allows after two minutes of it
 export const endHard = (s) => clamp((endOf(s) + 1) / 24, 0, 1);
+// And past that it keeps on: the time a player gets for a swipe (REACT) shrinks from 0.6 s to REACT_END by
+// REACT_SECS sections into the last biome (about row 10 000, three minutes of it) and stays there (at 0.1 even a
+// perfect player was caught past row 11 500). The path moves after more and more of the waves, in the end now and
+// then two lanes at once (two swipes, with time for both). Reaching 10 000 asks for quick hands all the way (owner's
+// wish: "very hard"); see the README for what a bot playing the path a fixed time late gets (~/scripts/roll-hard).
+const REACT_END = 0.15, REACT_SECS = 34;
+export const endGrind = (s) => { const e = endOf(s); return e < 0 ? 0 : (e + 1) / REACT_SECS; };   // 0, then 1 at about row 10 000, and on
+export const reactOf = (s) => REACT - (REACT - REACT_END) * Math.min(1, endGrind(s));
 export function speedOf(s) {
   const v = Math.min(VMAX, V0 * Math.pow(VMUL, Math.max(0, s))), e = endOf(s);
   return e < 0 ? v : Math.min(END_VMAX, v + END_DV * (e + 1));
@@ -306,9 +314,18 @@ export class Track {
   rest(K, mode, sec) {
     const r = this.r, h = endHard(sec);
     this.gap = K + Math.floor(r() * 5 * (1 - h)) + (r() < 0.1 * (1 - h) ? 8 + Math.floor(r() * 10) : 0);
-    if ((mode === 'normal' || mode === 'split') && r() < 0.55) {
+    const g = Math.min(1, endGrind(sec));
+    if ((mode === 'normal' || mode === 'split') && r() < 0.55 + 0.35 * g) {
       const ds = [-1, 1].filter((d) => this.pathLane(mode, this.path + d));
-      if (ds.length) this.shift(ds[Math.floor(r() * ds.length)]);
+      if (ds.length) {
+        const d = ds[Math.floor(r() * ds.length)];
+        this.shift(d);
+        // late in the last biome, now and then on by one more lane: a second swipe, and the time for it
+        if (mode === 'normal' && r() < 0.35 * g && this.pathLane(mode, this.path + d)) {
+          this.shift(d);
+          const vK = fastOf(sec + 1); this.gap += Math.ceil(vK * shiftTime(vK));
+        }
+      }
     }
     if (mode === 'normal' && r() < 0.3) this.wantJump = true;
     // a bonus is due: it goes some way after this piece, and the free stretch is longer by as much, so there is
@@ -483,7 +500,7 @@ export class Track {
   gen() {
     const i = this.rows.length, r = this.r, sec = secOf(i), k = i - secStart(sec);
     // free rows are counted for the next section's speed: the next wave may already lie there
-    const v = speedOf(sec), vhi = fastOf(sec), vK = fastOf(sec + 1), K = Math.ceil(vK * (REACT + shiftTime(vK)));
+    const v = speedOf(sec), vhi = fastOf(sec), vK = fastOf(sec + 1), K = Math.ceil(vK * (reactOf(sec + 1) + shiftTime(vK)));
     const block = Array(LANES).fill(false), ramp = Array(LANES).fill(false), low = Array(LANES).fill(false);
     const star = Array(LANES).fill(0);   // 0 — none, otherwise 1 + its height above the spot where a resting ball would be
     // the ground is flat at the start, under a jump and while one is waiting for flat ground

@@ -65,6 +65,14 @@ Site: `https://roll.games.bubas.cc`.
   in rows, and a biome is 6 sections (`BIOME_SECS`) — half a minute at any speed. A biome stays as it is for most of
   that and turns into the next one over the last three quarters of a section (`BIOME_BLEND`). Space is reached
   after 4 minutes (row 4276), the last biome half a minute later (row 4996), and that one never ends. The walker of a biome crosses the road at least twice in it.
+- The last biome gets harder for as long as the ball lasts. The speed goes on up, 0.3 rows a second every section, to 36;
+  the waves come as close as fair play allows after two minutes of it (`endHard`); and the time left for a swipe
+  (`reactOf`, 0.6 s everywhere before) shrinks to 0.15 s by about row 10 000, three minutes in (`endGrind`), while the
+  path moves after more and more of the waves, now and then two lanes at once (two swipes, with time for both).
+  Reaching 10 000 is meant to be very hard (owner's wish). Measured with a bot that plays the path a fixed time late
+  (`~/scripts/roll-hard/late.mjs`): late by 0.3 s it reaches 10 000 on 1 track in 20, by 0.15–0.25 s on about 3 in 4
+  (before, every one of them got to 14 000). The game's own bot, with bonuses, still gets through every track
+  (`auto.mjs`): 0.15 s is the floor, at 0.1 s even a perfect player was caught past row 11 500.
   To add a biome: a name in `THEMES`, a key frame in `PAL` at the same place (hues blend the short way, layers
   like snow or bubbles it leaves out are off), and an entry under that name in
   `MOVERS`, `SIDE`, `FLY` and `OBSTACLES` in `client.js` (checked when the page starts); the lengths and speeds need

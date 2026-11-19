@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { World as GameWorld, Track, secStart, secOf, secPos, BIOME_SECS, SEC_T, LANES, MID, VERSION, HOP_VY, HOP_G, HOP_WIN, hopRows, slowOf, SPEED_TOL, BOX_H, R, CROSS_ROWS, CROSS_FAR, CROSS_END, FLY_T, FLY_H, MAGNET_T, SHIELD_T, laneX, speedOf, fastOf, mulberry, starStep, STAR_RATE, BONUS_KINDS, setFinalBiome, endOf } from '../public/core.js';
+import { World as GameWorld, Track, secStart, secOf, secPos, BIOME_SECS, SEC_T, LANES, MID, VERSION, HOP_VY, HOP_G, HOP_WIN, hopRows, slowOf, SPEED_TOL, reactOf, BOX_H, R, CROSS_ROWS, CROSS_FAR, CROSS_END, FLY_T, FLY_H, MAGNET_T, SHIELD_T, laneX, speedOf, fastOf, mulberry, starStep, STAR_RATE, BONUS_KINDS, setFinalBiome, endOf } from '../public/core.js';
 
 // Most tests look at the road and the ball alone: their world has no bonuses lying on it (the road is the same).
 class World extends GameWorld {
@@ -1165,11 +1165,16 @@ test('in the last biome the road fills up: waves closer together, more walkers, 
 test('the last biome stays fair however far it goes: the bots get through to the top speed', () => {
   inEndgame((E) => {
     const end = secStart(E + 44);   // past END_VMAX
+    // The lazy bot (it dodges only within 0.75 s of a thing, once well inside its lane) and the jumper (it jumps
+    // whatever is in its lane and moves over only when its lane ends within 0.8 s) look ahead a fixed short time:
+    // they stand for players who do not look ahead, and are meant to fall behind once the time for a swipe has shrunk
+    // (reactOf). They are held to the stretch where that time is still 0.45 s or more; the path bot goes all the way.
+    let shortEnd = E; while (reactOf(shortEnd + 1) >= 0.45) shortEnd++;
     for (let seed = 1; seed <= 8; seed++) {
       for (const bot of ['path', 'lazy', 'jumper']) {
-        const w = new World(seed);
+        const w = new World(seed), to = bot === 'path' ? end : secStart(shortEnd);
         w.skipTo(6);
-        while (w.state === 'run' && w.ball.z < end) { if (bot === 'path') w.auto(); else if (bot === 'lazy') lazy(w); else jumper(w); w.step(DT); }
+        while (w.state === 'run' && w.ball.z < to) { if (bot === 'path') w.auto(); else if (bot === 'lazy') lazy(w); else jumper(w); w.step(DT); }
         assert.equal(w.state, 'run', `seed ${seed}, ${bot}: ${w.state} at row ${Math.floor(w.ball.z)}, section ${secOf(w.ball.z) - E} of the last biome, ${w.v.toFixed(1)} rows/s`);
       }
     }
