@@ -3,7 +3,7 @@
 // night to space with the distance. There are no words in the interface, only numbers and icons — the name on the
 // home screen aside, which with the labels for screen readers comes from i18n.js in the device's language.
 import { LANGS, LANG_ORDER, lang, pinned, deviceLang, setLang } from './i18n.js';   // first: it puts the words in
-import { World, VERSION, LANES, HALF, BIOME_SECS, secOf, secStart, secPos, R, INSET, BOX_H, RAMP_H, LOW_H, LOW_Z0, LOW_Z1, MAGNET_T, SHIELD_T, FLY_T, FLY_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
+import { World, setFinalBiome, VERSION, LANES, HALF, BIOME_SECS, secOf, secStart, secPos, R, INSET, BOX_H, RAMP_H, LOW_H, LOW_Z0, LOW_Z1, MAGNET_T, SHIELD_T, FLY_T, FLY_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
 import { initAudio, applyVolume, setHum, sfx, haptic, canHaptic, muffleMusic } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -236,6 +236,7 @@ const PAL = [
 const BIOME_BLEND = 0.75;
 const THEMES = ['farm', 'autumn', 'winter', 'spooky', 'magic', 'sea', 'dino', 'tech', 'alien', 'glitch'];
 const GLITCH = THEMES.length - 1, PLAIN = GLITCH;   // the index of the last biome; how many ordinary ones come before it
+setFinalBiome(GLITCH);   // the world makes it ever harder (before any run: the home screen's world is made anew in goHome)
 // how far the world has come apart at row z: 0 up to space, 1 in the last biome, in between while one turns into the other
 const glitchAt = (z) => clamp(phaseAt(z) - (GLITCH - 1), 0, 1);
 // The ground of the last biome is its own, and restless: the colour of the tiles wanders along the road and across
@@ -1239,9 +1240,11 @@ function drawRowIn(rz, part) {
     const kinds = OBSTACLES[theme];
     tilt(o.x, o.bottom, o.ang); kinds[Math.floor(pick * kinds.length)](o, seed, fog, rz, l); untilt(o.ang);
   }
-  if (row.mover && rz + 0.5 > camZ + 0.9) {   // someone walks across the road
-    const mx = world.moverX(rz), o = frameAt(mx, rz);
-    if (o.hw > 0 && o.bottom > o.top) { tilt(o.x, o.bottom, o.ang); MOVERS[theme](o, hash(rz, 3, 8), fog, rz, 0, Math.sign(row.mover.lane - row.mover.from), mx * 9); untilt(o.ang); }
+  if (row.movers && rz + 0.5 > camZ + 0.9) {   // someone walks across the road (two, towards each other)
+    for (let k = 0; k < row.movers.length; k++) {
+      const m = row.movers[k], mx = world.moverX(m, rz), o = frameAt(mx, rz);
+      if (o.hw > 0 && o.bottom > o.top) { tilt(o.x, o.bottom, o.ang); MOVERS[theme](o, hash(rz, 3 + k, 8), fog, rz, 0, Math.sign(m.lane - m.from), mx * 9); untilt(o.ang); }
+    }
   }
   if (rz + LOW_Z0 > camZ + 0.5) for (const l of order) if (row.low[l]) drawLog(l, rz, row, fog, px);
   if (rz + 0.5 > camZ + 0.9) {
@@ -3203,15 +3206,11 @@ function drawEffects() {
 }
 
 // ---- the show in the sky during a flight ----
-// behind the road: rings of light opening from the horizon like a tunnel, and shooting stars
-function drawFlightSky(hue) {
-  const k = flyShow, t = flyT, cx = W / 2, cy0 = horY - H * 0.06, R0 = Math.hypot(W, H) * 0.75;
+// behind the road: shooting stars. (Rings of light opening from the horizon like a tunnel were there too: right in
+// the way the ball flies, they got in the way and drew the eye.)
+function drawFlightSky() {
+  const k = flyShow, t = flyT;
   ctx.save(); ctx.lineCap = 'round';
-  for (let n = 0; n < 7; n++) {
-    const ph = (t * 0.45 + n / 7) % 1, r = R0 * ph * ph, a = k * 0.5 * Math.sin(ph * Math.PI);
-    ctx.strokeStyle = hsl((hue + n * 50 + t * 40) % 360, 90, 72); ctx.globalAlpha = a; ctx.lineWidth = (2 + 16 * ph) * dpr;
-    ctx.beginPath(); ctx.arc(cx, cy0, r, 0, 7); ctx.stroke();
-  }
   for (let n = 0; n < 5; n++) {   // shooting stars
     const ph = (t * 0.7 + hash(n, 3, 410)) % 1, sx = W * (0.1 + hash(n, 5, 411) * 0.9) - ph * W * 0.5, sy = horY * (0.05 + hash(n, 7, 412) * 0.6) + ph * H * 0.18, len = W * 0.16;
     const g = ctx.createLinearGradient(sx, sy, sx + len, sy - len * 0.36);
@@ -3279,7 +3278,7 @@ function draw() {
   buildWarp();
   const turned = skyBegin();
   theme.sky(hue, horY);
-  if (flyShow > 0.01) drawFlightSky(hue);
+  if (flyShow > 0.01) drawFlightSky();
   if (turned) skyEnd();
   ctx.save();
   // shake follows smooth waves rather than a new random spot every frame (that reads as a glitch, not a blow)
