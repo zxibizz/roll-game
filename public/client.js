@@ -8,6 +8,12 @@ import { initAudio, applyVolume, setHum, sfx, haptic, canHaptic, muffleMusic } f
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
+// Every alpha set on the canvas is multiplied by rowAlpha (1 but while a far row of a bent road fades in, see drawRow),
+// so the drawing code that sets its own alpha fades along without knowing.
+const ALPHA = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, 'globalAlpha');
+let rowAlpha = 1;
+Object.defineProperty(ctx, 'globalAlpha', { get() { return ALPHA.get.call(this) / rowAlpha; }, set(v) { ALPHA.set.call(this, v * rowAlpha); } });
+function setRowAlpha(a) { const v = ctx.globalAlpha; rowAlpha = a; ctx.globalAlpha = v; }
 const $hud = $('hud'), $score = $('score'), $starN = $('starN'), $hudStars = $('hudStars'), $hint = $('hint');
 const $home = $('home'), $pause = $('pause'), $over = $('over'), $set = $('set');
 
@@ -856,9 +862,9 @@ function skyBegin() {
   skyBox[0] = x0 - 2; skyBox[1] = y0 - 2; skyBox[2] = x1 + 2; skyBox[3] = y1 + 2;
   skyPad = Math.max(-skyBox[0], -skyBox[1], skyBox[2] - W, skyBox[3] - H, 0);
   // things that stand along the horizon end where the screen-wide sky ends: on a tilted horizon they fade out
-  // (and no northern lights in a turned sky: a frame of them turned costs a phone too much)
-  const k = clamp(1 - Math.abs(Math.sin(a)) * 10, 0, 1);
-  skyP = P; P = { ...P, city: P.city * k, volcano: P.volcano * k, rainbow: P.rainbow * k, clouds: P.clouds * k, aurora: 0, sunA: P.sunA * k, moon: P.moon * k };
+  // (and so do the northern lights, sooner: a frame of them turned costs a phone too much)
+  const k = clamp(1 - Math.abs(Math.sin(a)) * 10, 0, 1), ka = clamp(1 - Math.abs(Math.sin(a)) * 30, 0, 1);
+  skyP = P; P = { ...P, city: P.city * k, volcano: P.volcano * k, rainbow: P.rainbow * k, clouds: P.clouds * k, aurora: P.aurora * ka, sunA: P.sunA * k, moon: P.moon * k };
   const [bx0, by0, bx1, by1] = skyBox;
   if (by0 < horY) { ctx.fillStyle = grad(0, horY, P.sky.map((q) => css(q))); ctx.fillRect(bx0, by0, bx1 - bx0, Math.min(horY, by1) - by0); }
   if (by1 > horY) { ctx.fillStyle = css(P.fog); ctx.fillRect(bx0, Math.max(horY, by0), bx1 - bx0, by1 - Math.max(horY, by0)); }
@@ -1104,12 +1110,25 @@ function blob(pts) {
 
 // part: 'ground' (grass, pits, little things), 'objects' (ramps, obstacles) or both
 let rowTheme = 'farm';   // the biome of the row being drawn, for sprites that differ a little from biome to biome
+// In the last biome the far rows can stand anywhere against the sky (the road loops and rolls), and the colour of the
+// fog is not the sky's behind them: a row coming into view popped up as a dark shape. There the last FADE_ROWS rows
+// drawn fade in by their transparency instead, and the fog is lighter. The same for every row of the biome, bent or
+// not (a row going from flat to bent must not change its look), coming in with the biome. (All the drawing of a row
+// goes through rowAlpha, see ctx above.)
+const FADE_ROWS = 14;
 function drawRow(rz, part = 'all') {
+  const g = glitchAt(rz), e = clamp((view - (rz + 0.5 - camZ)) / FADE_ROWS, 0, 1), fade = 1 - g * (1 - e * e * (3 - 2 * e));
+  if (fade <= 0.01) return;
+  if (fade < 1) { setRowAlpha(fade); drawRowIn(rz, part); setRowAlpha(1); }
+  else drawRowIn(rz, part);
+}
+function drawRowIn(rz, part) {
   const track = world.track, row = track.get(rz), zA = Math.max(rz, camZ + 0.4), zB = rz + 1;
   if (zB <= zA) return;
   const next = track.get(rz + 1), prev = rz > 0 ? track.get(rz - 1) : null;
   const hA = world.hAt(zA), hB = next.h, slope = hB - row.h, dz = (zA + zB) / 2 - camZ;
-  const fog = clamp((dz - 12) / (view - 12), 0, 1);   // (all the way into the fog by the last row drawn: the road never just stops)
+  // all the way into the fog by the last row drawn: the road never just stops (in the last biome half way: it fades out)
+  const fog = clamp((dz - 12) / (view - 12), 0, 1) * (1 - 0.5 * glitchAt(rz));
   const lit = slope * 20 * P.litK;   // uphill faces the camera and looks brighter
   const px = proj(0, hA, (zA + zB) / 2)[2];   // pixels per world unit at this row
   const zM = (zA + zB) / 2, hM = world.hAt(zM), zE = zB + 0.02, hE = world.hAt(zE);

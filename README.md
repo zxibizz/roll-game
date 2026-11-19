@@ -86,6 +86,8 @@ Site: `https://roll.games.bubas.cc`.
   frames every few rows: `scan.py <url> <out.png> from to step`, a flight and a crash in a loop and a roll: `states.py`,
   a reload mid-run: `restore.py`, the bot playing it live: `live.py <url> <out.png> [seconds]`, the cost of a frame: `perf.py`.
   The bends are laid round the point the camera follows (not the ball: after a crash or in a fall the camera stops).
+  Its far rows fade in by their transparency (`FADE_ROWS`, `rowAlpha`), the same bent or not: the fog's colour is not
+  the sky's behind them, so fogged rows popped up as dark shapes. Frame-to-frame jumps: `jumps.py <url> from to step`.
   Each of the nine has its own colours and sky, things on
   the road, someone who walks across it, islands beside the road and things in the air:
 
