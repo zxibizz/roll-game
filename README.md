@@ -77,13 +77,15 @@ Site: `https://roll.games.bubas.cc`.
   between straight stretches it rises into a loop, rolls over in a slow barrel roll or swings into a banked turn
   (`nextFig`, `growCurve`: one fixed shape for the whole road, built once). The camera keeps to the ball's own up and
   forward, so the road under the ball looks level, the shape ahead comes closer as it is, and the world turns round
-  it: the horizon tilts and rolls over (`skyBegin`). A stretch seen from below shows bare earth. That is for the eye
+  it: the horizon tilts and rolls over (`skyBegin`). A stretch seen from below shows its underside: the same tiles, darker. That is for the eye
   only (`buildWarp`, `proj`): the world in `core.js` knows nothing of it. Nothing ahead is hidden: a loop is seen from
   inside, the road never bends down over a crest, a roll turns slowly. Every figure closes exactly, so the road is
   level again after it. 20 more rows are drawn there. Shots of it:
   `~/scripts/roll-endgame/shots.py <url> <outdir> [z,...] [WxH]`, where the figures are: `figs.py <url> [from] [to]`,
   that the curve has no crest, is level before every figure and does not drift: `curve.py <url> [from] [to]`,
-  the cost of a frame: `perf.py`.
+  frames every few rows: `scan.py <url> <out.png> from to step`, a flight and a crash in a loop and a roll: `states.py`,
+  a reload mid-run: `restore.py`, the bot playing it live: `live.py <url> <out.png> [seconds]`, the cost of a frame: `perf.py`.
+  The bends are laid round the point the camera follows (not the ball: after a crash or in a fall the camera stops).
   Each of the nine has its own colours and sky, things on
   the road, someone who walks across it, islands beside the road and things in the air:
 

@@ -796,12 +796,14 @@ function righting() {
 }
 const BF = new Float64Array(12);   // the frame at the ball
 function buildWarp() {
-  const b = world.ball;
-  view = VIEW + Math.round(VIEW_FAR * glitchAt(b.z + VIEW));
+  // Everything is laid out round the point the camera follows, not round the ball itself: after a crash or in a fall
+  // the camera stops while the ball goes on, and a road turned to a ball far ahead left the screen.
+  const zb = camZ + CAM_BACK;
+  view = VIEW + Math.round(VIEW_FAR * glitchAt(zb + VIEW));
   warpOn = false; warpFrom = Infinity; SKYU[0] = 0; SKYU[1] = 1; SKYU[2] = 0;
-  if (glitchAt(b.z + view) <= 0 || !(b.z >= 0)) return;
+  if (glitchAt(zb + view) <= 0 || !(zb >= 0)) return;
   warpBase = Math.max(0, Math.floor(camZ));
-  const i = Math.floor(b.z), t = b.z - i;
+  const i = Math.floor(zb), t = zb - i;
   curveRows(Math.min(warpBase, i), warpBase + WARP_N + 1);
   // the frame at the ball: between the two row boundaries round it, squared up again
   const bi = (i - curBase) * 12;
@@ -813,7 +815,7 @@ function buildWarp() {
   BF[6] = BF[10] * BF[5] - BF[11] * BF[4]; BF[7] = BF[11] * BF[3] - BF[9] * BF[5]; BF[8] = BF[9] * BF[4] - BF[10] * BF[3];
   SKYU[0] = BF[4]; SKYU[1] = BF[7]; SKYU[2] = BF[10];
   // every row round the eye in the ball's own axes; the eye sits where it would on a flat road
-  const cx = -camX, cyy = -CAM_H, cz = b.z - camZ, dot = (o, x, y, z) => BF[o] * x + BF[o + 1] * y + BF[o + 2] * z;
+  const cx = -camX, cyy = -CAM_H, cz = zb - camZ, dot = (o, x, y, z) => BF[o] * x + BF[o + 1] * y + BF[o + 2] * z;
   warpFrom = Infinity;
   for (let j = 0; j < WARP_N; j++) {
     const o = j * 9, c = (warpBase + j - curBase) * 12, px = CUR[c] - BF[0], py = CUR[c + 1] - BF[1], pz = CUR[c + 2] - BF[2];
@@ -1107,21 +1109,19 @@ function drawRow(rz, part = 'all') {
   if (zB <= zA) return;
   const next = track.get(rz + 1), prev = rz > 0 ? track.get(rz - 1) : null;
   const hA = world.hAt(zA), hB = next.h, slope = hB - row.h, dz = (zA + zB) / 2 - camZ;
-  const fog = clamp((dz - 12) / (view - 12), 0, 1) * (1 - 0.35 * P.glitch);   // the far rings stay in sight
+  const fog = clamp((dz - 12) / (view - 12), 0, 1);   // (all the way into the fog by the last row drawn: the road never just stops)
   const lit = slope * 20 * P.litK;   // uphill faces the camera and looks brighter
   const px = proj(0, hA, (zA + zB) / 2)[2];   // pixels per world unit at this row
   const zM = (zA + zB) / 2, hM = world.hAt(zM), zE = zB + 0.02, hE = world.hAt(zE);
   // what stands, walks and flies at a row: the biome that is closest there
   const theme = THEMES[Math.round(phaseAt(rz))], glitch = glitchAt(rz);
   rowTheme = theme;
-  if (warpOn && rz >= warpFrom && UNDER[rz - warpBase]) {   // turned over: bare earth, and nothing on it can be seen
-    for (let l = 0, from = -1; l <= LANES; l++) {
-      const on = l < LANES && row.road[l];
-      if (on && from < 0) from = l;
-      if (!on && from >= 0) {
-        quad(proj(from - HALF, hA, zA), proj(l - HALF, hA, zA), proj(l - HALF, hE, zE), proj(from - HALF, hE, zE), pal('soil', -3 + (rz % 2) * 2, fog));
-        from = -1;
-      }
+  if (warpOn && rz >= warpFrom && UNDER[rz - warpBase]) {
+    // turned over, its underside to the eye: the same tiles, darker, and nothing on them can be seen
+    for (let l = 0; l < LANES; l++) {
+      if (!row.road[l]) continue;
+      ctx.fillStyle = hsl(P.grass[0] + glitchHue(rz, l, glitch), P.grass[1] * 0.8, P.grass[2] * 0.55, fog);
+      quad(proj(l - HALF - 0.01, hA, zA), proj(l - HALF + 1.01, hA, zA), proj(l - HALF + 1.01, hE, zE), proj(l - HALF - 0.01, hE, zE), ctx.fillStyle);
     }
     return;
   }
