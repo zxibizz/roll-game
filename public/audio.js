@@ -7,7 +7,7 @@
 // Web Audio obeys the silent switch on the side. Chrome and other WKWebView browsers on iPhone stay silent until
 // the page has played a regular <audio>, so a silent clip is looped there (and sound then ignores the silent switch).
 let cfg = { vol: 0.5, music: 0.4, haptic: true };
-let actx = null, bus = null, master = null, stale = false, stuckAt = 0, resumeBusy = false, resumeTry = 0;
+let actx = null, bus = null, master = null, busComp = null, fxOut = null, stale = false, stuckAt = 0, resumeBusy = false, resumeTry = 0;
 const UA = navigator.userAgent || '';
 const IOS = /iPhone|iPad|iPod/.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const IOS_WEBVIEW = /iPhone|iPad|iPod/.test(UA) && (/CriOS|FxiOS|EdgiOS|OPiOS|YaBrowser|GSA\//.test(UA) || !/Safari\//.test(UA));
@@ -15,6 +15,7 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const soundOn = () => cfg.vol > 0;
 const canSound = () => soundOn() && actx && (actx.state === 'running' || resumeBusy);
 const gainOf = () => cfg.vol * cfg.vol;   // squared: the slider feels more even
+const FX_TRIM = 0.7;   // the effects' level after their compressor (see newAudio)
 
 function newAudio() {
   try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch { actx = null; return; }
@@ -31,7 +32,10 @@ function newAudio() {
   try {   // a compressor: louder on a quiet phone speaker, and overlapping sounds don't distort
     const comp = actx.createDynamicsCompressor();
     comp.threshold.value = -18; comp.knee.value = 12; comp.ratio.value = 6; comp.attack.value = 0.003; comp.release.value = 0.15;
-    bus = actx.createGain(); bus.connect(comp); comp.connect(master || actx.destination);
+    // and after it a step down: the effects alone stay clear of the last guard; when it had to work (a landing on a
+    // lane change on a jump, at full volume), its hard 1 ms grip was heard as a crackle now and then
+    const trim = actx.createGain(); trim.gain.value = FX_TRIM;
+    bus = actx.createGain(); bus.connect(comp); comp.connect(trim); trim.connect(master || actx.destination); busComp = comp; fxOut = trim;
   } catch { bus = null; }
   try {   // an empty clip inside the gesture, or old iOS doesn't open the output
     const src = actx.createBufferSource();
@@ -83,6 +87,9 @@ function ensure() {   // only from gestures
   else if (!resumeBusy && now - stuckAt > 1500) replaceAudio();   // resume() answered, yet gestures don't wake it
   wake();
 }
+
+// for the test scripts: the nodes the sound goes through, and the parts a script can play by hand
+export const audioTap = () => ({ actx, master, busComp, fxOut, setHum, sfx, music });
 
 export function initAudio(settings) {
   cfg = settings;
@@ -171,9 +178,12 @@ function knock(k, { f = 260, pan = 0, delay = 0 } = {}) {
 }
 
 // ---- the hum of the rolling ball: noise through a low-pass filter, louder and brighter with the speed ----
-// In the air the hum stops and the wind takes over: noise through a band-pass at 600–1800 Hz (what a phone speaker
-// plays), louder with the speed and with `air` (1 for a jump, less in a flight), rising and fading smoothly.
+// In the air the hum fades out (over a fifth of a second: cut at once, it left a hole of silence) and a soft wind
+// takes over: noise through a band-pass at 400–900 Hz, louder with the speed and with `air` (1 for a jump, less in a
+// flight), rising and fading smoothly. It stays a little quieter than the hum on a phone speaker (measured in the
+// 300–4000 Hz band, ~/scripts/roll-sound/wind.py): at 0.55 it was over 4 dB louder and drowned the rolling.
 let hum = null;
+const WIND = 0.13;
 export function setHum(speed, onGround, air = 0) {   // speed 0..1 of the top speed
   if (!canSound() || document.hidden) { if (hum) { try { hum.g.gain.value = 0; hum.wg.gain.value = 0; } catch { /* */ } hum.k = -1; hum.w = -1; } return; }
   if (!hum || hum.ctx !== actx) {
@@ -194,7 +204,7 @@ export function setHum(speed, onGround, air = 0) {   // speed 0..1 of the top sp
   const vol = gainOf();
   if (Math.abs(k - hum.k) < 0.02 && (k > 0) === (hum.k > 0) && vol === hum.vol) return;
   hum.k = k; hum.vol = vol;
-  hum.g.gain.setTargetAtTime(k > 0 ? (0.05 + 0.13 * k) * vol : 0, t, k > 0 ? 0.08 : 0.03);
+  hum.g.gain.setTargetAtTime(k > 0 ? (0.05 + 0.13 * k) * vol : 0, t, k > 0 ? 0.08 : 0.07);
   hum.fl.frequency.setTargetAtTime(160 + 520 * k, t, 0.1);
 }
 function wind(speed, air) {
@@ -202,8 +212,8 @@ function wind(speed, air) {
   if (Math.abs(w - hum.w) < 0.02 && (w > 0) === (hum.w > 0) && vol === hum.wvol) return;
   const up = w > hum.w;
   hum.w = w; hum.wvol = vol;
-  hum.wg.gain.setTargetAtTime(w > 0 ? 0.55 * w * vol : 0, t, up ? 0.06 : 0.12);
-  hum.wf.frequency.setTargetAtTime(600 + 1200 * Math.min(1, w), t, 0.15);
+  hum.wg.gain.setTargetAtTime(w > 0 ? WIND * w * vol : 0, t, up ? 0.1 : 0.15);
+  hum.wf.frequency.setTargetAtTime(400 + 500 * Math.min(1, w), t, 0.15);
 }
 
 // ---- effects ----

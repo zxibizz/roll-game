@@ -4,7 +4,7 @@
 // home screen aside, which with the labels for screen readers comes from i18n.js in the device's language.
 import { LANGS, LANG_ORDER, lang, pinned, deviceLang, setLang } from './i18n.js';   // first: it puts the words in
 import { World, setFinalBiome, VERSION, LANES, HALF, BIOME_SECS, secOf, secStart, secPos, R, INSET, BOX_H, RAMP_H, LOW_H, LOW_Z0, LOW_Z1, MAGNET_T, SHIELD_T, FLY_T, FLY_H, CAM_H, CAM_BACK, laneX, clamp, mulberry } from './core.js';
-import { initAudio, applyVolume, setHum, sfx, haptic, canHaptic, muffleMusic } from './audio.js';
+import { initAudio, applyVolume, setHum, sfx, haptic, canHaptic, muffleMusic, audioTap } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -3694,6 +3694,7 @@ window.__shot = (seed, z) => {
   $hud.hidden = false; $score.textContent = shownScore = world.score; $starN.textContent = world.stars; draw();
 };
 window.__world = () => world;
+window.__audio = audioTap;
 // after a frame: the canvas back as it was, the bends all numbers (a test hook)
 window.__frameOk = () => { const m = ctx.getTransform(); let bad = -1; for (let k = 0; k < WF.length; k++) if (!Number.isFinite(WF[k])) { bad = k; break; } return { ident: m.a === 1 && m.b === 0 && m.c === 0 && m.d === 1 && m.e === 0 && m.f === 0, alpha: ctx.globalAlpha, rowAlpha, bad, warpOn, sky: [...SKYU] }; };
 // the last biome's road curve from row a to row b: 12 numbers a row (centre, across, up, forward)
