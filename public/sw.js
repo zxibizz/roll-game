@@ -3,7 +3,7 @@
 // A new version installs in the background and waits: the home screen shows an update button, and a tap on it
 // ('skip') lets it take over (the page then reloads). Untapped, it takes over once every window of the game is closed.
 // Music is not part of a version: tracks go into their own cache when first played and stay there across versions.
-const VERSION = '0.25.2';
+const VERSION = '0.25.3';
 const CACHE = `roll-v${VERSION}`;
 const MUSIC_CACHE = 'roll-music-1';   // bump only if a track file changes
 const ASSETS = [

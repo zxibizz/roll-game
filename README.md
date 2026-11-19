@@ -88,6 +88,9 @@ Site: `https://roll.games.bubas.cc`.
   The bends are laid round the point the camera follows (not the ball: after a crash or in a fall the camera stops).
   Its far rows fade in by their transparency (`FADE_ROWS`, `rowAlpha`), the same bent or not: the fog's colour is not
   the sky's behind them, so fogged rows popped up as dark shapes. Frame-to-frame jumps: `jumps.py <url> from to step`.
+  On a bent road a sprite can come out mirrored with negative sizes: negative radii are drawn as zero (they made the
+  canvas throw half-way through a frame, and the turned, faded canvas stayed so), and every frame starts from a clean
+  canvas (`cleanCanvas`, saves counted). The bot through the biome, checking every frame: `hunt.py <url> [from] [to] [step] [seeds]`.
   Each of the nine has its own colours and sky, things on
   the road, someone who walks across it, islands beside the road and things in the air:
 

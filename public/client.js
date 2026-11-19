@@ -14,6 +14,25 @@ const ALPHA = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype
 let rowAlpha = 1;
 Object.defineProperty(ctx, 'globalAlpha', { get() { return ALPHA.get.call(this) / rowAlpha; }, set(v) { ALPHA.set.call(this, v * rowAlpha); } });
 function setRowAlpha(a) { const v = ctx.globalAlpha; rowAlpha = a; ctx.globalAlpha = v; }
+// On a bent road a sprite can come out mirrored, and its sizes negative: a negative radius makes the canvas throw,
+// which cut a frame off half-way. Radii below zero are drawn as zero.
+const ELLIPSE = ctx.ellipse, ARC = ctx.arc, RADIAL = ctx.createRadialGradient, pos = (r) => (r > 0 ? r : 0);
+ctx.ellipse = function (x, y, rx, ry, ...rest) { return ELLIPSE.call(this, x, y, pos(rx), pos(ry), ...rest); };
+ctx.arc = function (x, y, r, ...rest) { return ARC.call(this, x, y, pos(r), ...rest); };
+ctx.createRadialGradient = function (x0, y0, r0, x1, y1, r1) { return RADIAL.call(this, x0, y0, pos(r0), x1, y1, pos(r1)); };
+// And should anything still stop a frame half-way, the next one starts clean: every save is counted, and draw undoes
+// what was left (a turned or faded canvas stayed so, and the road and the ball were gone for good).
+const SAVE = ctx.save, RESTORE = ctx.restore;
+let saves = 0;
+ctx.save = function () { saves++; return SAVE.call(this); };
+ctx.restore = function () { if (saves > 0) saves--; return RESTORE.call(this); };
+function cleanCanvas() {
+  while (saves > 0) ctx.restore();
+  if (rowAlpha !== 1) setRowAlpha(1);
+  if (skyP) { P = skyP; skyP = null; }
+  skyPad = 0;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+}
 const $hud = $('hud'), $score = $('score'), $starN = $('starN'), $hudStars = $('hudStars'), $hint = $('hint');
 const $home = $('home'), $pause = $('pause'), $over = $('over'), $set = $('set');
 
@@ -3254,6 +3273,7 @@ function drawFar(lo, far) {
 }
 
 function draw() {
+  cleanCanvas();
   const hue = secHue(secOf(camZ + CAM_BACK));
   setPhase(camZ + CAM_BACK);
   buildWarp();
@@ -3661,6 +3681,8 @@ window.__shot = (seed, z) => {
   $hud.hidden = false; $score.textContent = shownScore = world.score; $starN.textContent = world.stars; draw();
 };
 window.__world = () => world;
+// after a frame: the canvas back as it was, the bends all numbers (a test hook)
+window.__frameOk = () => { const m = ctx.getTransform(); let bad = -1; for (let k = 0; k < WF.length; k++) if (!Number.isFinite(WF[k])) { bad = k; break; } return { ident: m.a === 1 && m.b === 0 && m.c === 0 && m.d === 1 && m.e === 0 && m.f === 0, alpha: ctx.globalAlpha, rowAlpha, bad, warpOn, sky: [...SKYU] }; };
 // the last biome's road curve from row a to row b: 12 numbers a row (centre, across, up, forward)
 window.__curve = (a, b) => { resetCurve(); curveRows(a, b); return CUR.slice((a - curBase) * 12, (b - curBase + 1) * 12); };
 // the figures of the last biome's road from row a to row b
