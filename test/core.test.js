@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { World as GameWorld, Track, secStart, secOf, secPos, BIOME_SECS, SEC_T, LANES, MID, VERSION, HOP_VY, HOP_G, HOP_WIN, hopRows, slowOf, SPEED_TOL, BOX_H, R, CROSS_ROWS, CROSS_END, FLY_T, FLY_H, MAGNET_T, SHIELD_T, laneX, speedOf, fastOf, mulberry, starStep, STAR_RATE, BONUS_KINDS, setFinalBiome, endOf } from '../public/core.js';
+import { World as GameWorld, Track, secStart, secOf, secPos, BIOME_SECS, SEC_T, LANES, MID, VERSION, HOP_VY, HOP_G, HOP_WIN, hopRows, slowOf, SPEED_TOL, BOX_H, R, CROSS_ROWS, CROSS_FAR, CROSS_END, FLY_T, FLY_H, MAGNET_T, SHIELD_T, laneX, speedOf, fastOf, mulberry, starStep, STAR_RATE, BONUS_KINDS, setFinalBiome, endOf } from '../public/core.js';
 
 // Most tests look at the road and the ball alone: their world has no bonuses lying on it (the road is the same).
 class World extends GameWorld {
@@ -1180,5 +1180,20 @@ test('the last biome stays fair however far it goes: the bots get through to the
       while (w.state === 'run' && w.ball.z < end) { w.auto(); w.step(DT); }
       assert.equal(w.state, 'run', `seed ${seed} with bonuses: ${w.state} at row ${Math.floor(w.ball.z)}`);
     }
+  });
+});
+
+test('a walker is already on its way when it comes into sight: it sets off beyond the farthest row the page draws', () => {
+  const src = fs.readFileSync(new URL('../public/client.js', import.meta.url), 'utf8');
+  const view = +(src.match(/\bVIEW = (\d+)/) || [])[1], far = +(src.match(/\bVIEW_FAR = (\d+)/) || [])[1];
+  assert.ok(view > 0 && far > 0, 'VIEW and VIEW_FAR not found in client.js');
+  assert.ok(CROSS_ROWS > view && CROSS_ROWS <= view + 4 && CROSS_FAR > view + far, `${CROSS_ROWS}, ${CROSS_FAR} rows against ${view} + ${far} drawn`);
+  const m = { lane: 1, from: 3 };
+  const at = (w, i, d) => { w.ball.z = i + 0.5 - d; return w.moverX(m, i); };
+  const w = new World(1);
+  assert.ok(at(w, 400, view) !== at(w, 400, view - 3), 'it stands still where it can be seen');
+  inEndgame((E) => {
+    const v = new World(1);
+    for (const i of [secStart(E - 1) + 5, secStart(E + 3)]) assert.ok(at(v, i, view + far) !== at(v, i, view + far - 3), `row ${i}: it stands still where it can be seen`);
   });
 });

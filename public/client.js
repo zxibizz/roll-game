@@ -221,7 +221,7 @@ const PAL = [
     // violet tiles whose colour wanders (glitchHue), with bright cracks
     sky: [[16, 8, 40], [34, 14, 66], [70, 26, 96]], fog: [30, 14, 58],
     grass: [265, 52, 33], grassHi: [262, 60, 46], tuft: [285, 60, 62], soil: [-70, 28, 16], pit: [-70, 30, 4], pitWall: [-70, 25, 10],
-    rock: [-80, 14, 36], bush: [285, 40, 18], bushHi: [280, 50, 30], wood: [-60, 25, 34], woodDark: [-60, 25, 22],
+    rock: [-80, 14, 36], bush: [285, 40, 18], bushHi: [280, 50, 30], wood: [195, 30, 84], woodDark: [215, 30, 48],   // (wood: logs as light as birch, the tiles are every colour)
     flowerL: 72, glowF: 1, litK: 1,
     shadow: [0, 0, 0], hud: 1, stars: 0.8, space: 0, moon: 1,
     sunA: 0.9, sunH: 0.2, sunC: [255, 235, 200], sunR: 0.06, clouds: 0.3, cloudC: [150, 130, 200], glow: 0.6, rainbow: 0.8, city: 0.7,
@@ -657,7 +657,11 @@ function update(dt) {
       break;
     }
   }
-  setHum(world.v / 24, world.state === 'run' && !b.air);
+  // in the air the wind: with the speed, and more the higher the ball is above the road. A jump or a ramp has it from
+  // the start, a hop off a crest only as far as it goes up; a flight is a calm one, down to the landing.
+  const above = b.air ? clamp((b.y - world.hAt(b.z) - R) / 0.8, 0, 1) : 0;
+  const air = b.fly || (b.air && flyLift > 0.3) ? 0.35 : b.air && b.fromRamp ? Math.max(0.4, above) : above;
+  setHum(world.v / 24, world.state === 'run' && !b.air, world.state === 'run' ? air : 0);
 }
 
 // Something rushed past close by: a thing in the next lane level with the ball, or a log under it in a jump.
@@ -1086,10 +1090,10 @@ function nebula(x, y, r, color, a) {
   ctx.globalAlpha = a; ctx.fillStyle = g; ctx.fillRect(x - r, y - r, 2 * r, 2 * r); ctx.globalAlpha = 1;
 }
 
-function path(pts) {
+function path(pts, closed = true) {
   ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-  ctx.closePath();
+  if (closed) ctx.closePath();
 }
 function quad(a, b, c, d, color) { ctx.fillStyle = color; path([a, b, c, d]); ctx.fill(); }
 function line(a, b, color, w, alpha = 1) {
@@ -1541,6 +1545,16 @@ function drawLog(l, rz, row, fog, px) {
   const c0 = proj(x0, hf + top, (zf + zb) / 2), c1 = proj(x1, hf + top, (zf + zb) / 2), d0 = proj(x0, hb + top * 0.8, zb), d1 = proj(x1, hb + top * 0.8, zb);
   quad(at, bt, c1, c0, pal('wood', 6, fog)); quad(c0, c1, d1, d0, pal('wood', 14, fog));
   const w = Math.max(1, px * 0.018);
+  const gl = glitchAt(rz);
+  if (gl > 0.01) {   // in the last biome the tiles are of every colour: a light log needs a dark outline to stand out
+    ctx.strokeStyle = `rgba(20,8,40,${0.85 * gl * (1 - fog)})`; ctx.lineWidth = Math.max(1.5, px * 0.03); ctx.lineJoin = 'round';
+    // only the outer edge: logs in neighbouring lanes are one trunk, no seam between them
+    const edge = (pts) => { path(pts, false); ctx.stroke(); };
+    edge([a, b]); edge([d0, d1]);
+    if (endL) edge([a, at, c0, d0]);
+    if (endR) edge([b, bt, c1, d1]);
+    ctx.lineJoin = 'miter';
+  }
   for (let k = 0; k < 3; k++) {   // cracks in the bark
     const t = 0.15 + hash(rz, l, 70 + k) * 0.7, len = 0.12 + hash(rz, l, 75 + k) * 0.2, y = hf + top * (0.25 + 0.2 * k);
     line(proj(x0 + (x1 - x0) * t, y, zf), proj(x0 + (x1 - x0) * Math.min(1, t + len), y, zf), pal('woodDark', -14, fog), w, 0.7 * (1 - fog));

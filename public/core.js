@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.26.0';
+export const VERSION = '0.26.1';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -196,9 +196,12 @@ function stretches(road) {
   return out;
 }
 // the walker sets off two lanes away when the ball is CROSS_ROWS from it and stands in its lane from CROSS_END on:
-// by the time the ball is close, nothing moves any more. Above the top speed of the ordinary biomes both grow with
+// by the time the ball is close, nothing moves any more. CROSS_ROWS is just past the farthest row the page draws (VIEW
+// in client.js), CROSS_FAR past that of the last biome (VIEW + VIEW_FAR), from the section before it on: a walker is
+// already on its way when it comes into sight (one standing still far ahead and setting off only as the ball came near
+// looked wrong), and no slower than it has to be. Above the top speed of the ordinary biomes both grow with
 // the speed (crossAt): the same time to see where it stops.
-export const CROSS_ROWS = 30, CROSS_END = 6;
+export const CROSS_ROWS = 48, CROSS_FAR = 70, CROSS_END = 6;
 export const crossAt = (sec) => Math.max(1, speedOf(sec) / VMAX);
 
 export class Track {
@@ -681,7 +684,8 @@ export class World {
   // Where walker m of row rz is across the road. It moves with the ball's approach, not with the clock, so it is
   // in its lane in time at any speed.
   moverX(m, rz) {
-    const k = crossAt(this.track.get(rz).sec), t = clamp((CROSS_ROWS * k - (rz + 0.5 - this.ball.z)) / ((CROSS_ROWS - CROSS_END) * k), 0, 1);
+    const sec = this.track.get(rz).sec, k = crossAt(sec), from = (endOf(sec + 1) >= 0 ? CROSS_FAR : CROSS_ROWS) * k;
+    const t = clamp((from - (rz + 0.5 - this.ball.z)) / (from - CROSS_END * k), 0, 1);
     return laneX(m.from) + (laneX(m.lane) - laneX(m.from)) * t;
   }
 
