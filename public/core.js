@@ -1,7 +1,7 @@
 // Game world: the track generator and the ball physics. No DOM here: the page draws the world (client.js),
 // the tests run it in Node (test/core.test.js).
 // When any file in public/ changes, bump VERSION here and in sw.js (a test checks they match).
-export const VERSION = '0.26.3';
+export const VERSION = '0.26.4';
 
 // ---- Tuning ----
 // The track has 7 lane slots. Usually the road takes the middle 5 (lanes 1..5); now and then it widens to all 7
@@ -105,7 +105,8 @@ function shiftTime(v) {
   return SHIFT_T.get(key);
 }
 // The camera (client.js draws with these): it sits CAM_BACK rows behind the ball, CAM_H above the road.
-export const CAM_H = 1.4, CAM_BACK = 1.9;
+// (1.75 and 2.35 since 0.26.4: at 1.4 and 1.9 a jump at speed hid the road ahead behind the ball)
+export const CAM_H = 1.75, CAM_BACK = 2.35;
 const SEE_AHEAD = 0.6;           // seconds of warning: an obstacle must be visible this long before the ball gets there
 const LEAD = 6;                  // flat rows needed before a jump, so the speed is predictable
 export const SPEED_TOL = 0.25;          // speed spread the jump planner allows for

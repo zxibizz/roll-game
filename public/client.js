@@ -691,8 +691,10 @@ function follow() {
     // never below the road under the ball (the generator counts on that to know what can be seen);
     // a little higher when the road ahead climbs, to look over the crest
     camY = world.hAt(b.z) + Math.max(0, world.hAt(b.z + 6) - world.hAt(b.z)) * 0.3 + flyLift;   // up with a flight
-    // and part of the way up with a high throw off a ramp, or the ball would leave the top of the screen
-    if (b.air && !b.fly) camY += Math.max(0, b.y - world.hAt(b.z) - 1.1) * 0.75;
+    // In a jump it goes up with the ball, half its height (it follows the jump's own smooth curve, nothing jolts): the
+    // ball rises on the screen half as far and the road ahead stays in sight behind it. With a high throw off a ramp
+    // more, or the ball would leave the top of the screen.
+    if (b.air && !b.fly) { const up = Math.max(0, b.y - R - world.hAt(b.z)); camY += up * 0.5 + Math.max(0, up - 1.1) * 0.4; }
   }
   // Sideways the camera moves rigidly with the ball, part of the way: a lagging camera made the ball run past the
   // finger on screen and drift back once the camera caught up. On a narrow screen it repeats more of the move, so
