@@ -16,6 +16,12 @@ const soundOn = () => cfg.vol > 0;
 const canSound = () => soundOn() && actx && (actx.state === 'running' || resumeBusy);
 const gainOf = () => cfg.vol * cfg.vol;   // squared: the slider feels more even
 const FX_TRIM = 0.7;   // the effects' level after their compressor (see newAudio)
+// Every effect starts this far ahead of now. Asked for "now" with a 1–4 ms attack, a sound that reached the audio
+// thread late (the phone busy with a heavy frame) had its attack in the past and started at full level: a click.
+const LEAD = 0.02;
+// The effects lose what is below this (a high-pass in front of their compressor): a phone speaker does not play it,
+// it only rattles, more so on top of the rolling hum (a landing went down to 55 Hz)
+const FX_LOWCUT = 130;
 
 function newAudio() {
   try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch { actx = null; return; }
@@ -35,7 +41,8 @@ function newAudio() {
     // and after it a step down: the effects alone stay clear of the last guard; when it had to work (a landing on a
     // lane change on a jump, at full volume), its hard 1 ms grip was heard as a crackle now and then
     const trim = actx.createGain(); trim.gain.value = FX_TRIM;
-    bus = actx.createGain(); bus.connect(comp); comp.connect(trim); trim.connect(master || actx.destination); busComp = comp; fxOut = trim;
+    const low = actx.createBiquadFilter(); low.type = 'highpass'; low.frequency.value = FX_LOWCUT; low.Q.value = 0.6;
+    bus = actx.createGain(); bus.connect(low); low.connect(comp); comp.connect(trim); trim.connect(master || actx.destination); busComp = comp; fxOut = trim;
   } catch { bus = null; }
   try {   // an empty clip inside the gesture, or old iOS doesn't open the output
     const src = actx.createBufferSource();
@@ -129,8 +136,9 @@ function unplug(src, ...nodes) {
 }
 function note(f, { type = 'sine', vol = 0.2, a = 0.004, dur = 0.2, delay = 0, to = 0, lp = 0, detune = 0, pan = 0 } = {}) {
   if (!canSound()) return;
-  const t = actx.currentTime + delay, o = actx.createOscillator(), g = actx.createGain();
+  const t = actx.currentTime + LEAD + delay, o = actx.createOscillator(), g = actx.createGain();
   o.type = type; o.detune.value = detune; o.frequency.setValueAtTime(f, t);
+  g.gain.value = 0;   // silent until its envelope starts (a new gain is at 1: its first sample slipped through at full level)
   if (to) o.frequency.exponentialRampToValueAtTime(to, t + dur);
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(vol * gainOf(), t + Math.min(a, dur * 0.9));
@@ -155,8 +163,8 @@ function noise() {   // two seconds of brownish noise, shared by every burst and
 // a burst of filtered noise: f0 → f1 is the filter sweep
 function burst({ type = 'lowpass', f0 = 800, f1 = 0, q = 0.7, vol = 0.3, a = 0.005, dur = 0.2, delay = 0, pan = 0 } = {}) {
   if (!canSound()) return;
-  const t = actx.currentTime + delay, s = actx.createBufferSource(), fl = actx.createBiquadFilter(), g = actx.createGain();
-  s.buffer = noise(); s.loop = true;
+  const t = actx.currentTime + LEAD + delay, s = actx.createBufferSource(), fl = actx.createBiquadFilter(), g = actx.createGain();
+  s.buffer = noise(); s.loop = true; g.gain.value = 0;   // (silent until the envelope starts, as in note)
   fl.type = type; fl.Q.value = q; fl.frequency.setValueAtTime(f0, t);
   if (f1) fl.frequency.exponentialRampToValueAtTime(f1, t + dur);
   g.gain.setValueAtTime(0.0001, t);
@@ -173,7 +181,7 @@ const vary = (k = 0.05) => 1 + (Math.random() * 2 - 1) * k;
 // and a body of 180–400 Hz falling in pitch.
 function knock(k, { f = 260, pan = 0, delay = 0 } = {}) {
   const m = vary(0.06);
-  burst({ type: 'highpass', f0: 2500, q: 0.5, vol: 0.35 * k, a: 0.001, dur: 0.025, delay, pan });
+  burst({ type: 'highpass', f0: 2500, q: 0.5, vol: 0.3 * k, a: 0.003, dur: 0.03, delay, pan });   // (a 1 ms attack crackled)
   note(f * m, { type: 'triangle', vol: 0.3 * k, a: 0.002, dur: 0.09, to: f * 0.45 * m, lp: 1400, delay, pan });
 }
 
